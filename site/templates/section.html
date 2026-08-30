@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block vars %}
+  {%- set_global page_title = section.title -%}
+  {%- set_global page_desc = section.description -%}
+  {%- set_global page_url = section.permalink -%}
+  {%- set_global current_path = section.path -%}
+{% endblock %}
+
+{% block content %}
+<div class="wrap docs">
+  {% include "partials/sidebar.html" %}
+
+  <article class="doc">
+    <h1>{{ section.title }}</h1>
+    {%- if section.description %}
+    <p class="lead">{{ section.description }}</p>
+    {%- endif %}
+
+    {{ section.content | safe }}
+
+    {% include "partials/pager.html" %}
+  </article>
+</div>
+{% endblock %}

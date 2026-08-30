@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block vars %}
+  {%- set_global page_title = page.title -%}
+  {%- set_global page_desc = page.description -%}
+  {%- set_global page_url = page.permalink -%}
+  {%- set_global page_kind = "article" -%}
+  {%- set_global current_path = page.path -%}
+{% endblock %}
+
+{% block schema %}{% include "partials/schema-doc.html" %}{% endblock %}
+
+{% block content %}
+<div class="wrap docs">
+  {% include "partials/sidebar.html" %}
+
+  <article class="doc">
+    <h1>{{ page.title }}</h1>
+    {%- if page.description %}
+    <p class="lead">{{ page.description }}</p>
+    {%- endif %}
+
+    {{ page.content | safe }}
+
+    {%- if page.extra.faq %}
+    {%- for item in page.extra.faq %}
+    <h2 id="{{ item.q | slugify }}">{{ item.q }}</h2>
+    {{ item.a | markdown | safe }}
+    {%- endfor %}
+    {%- endif %}
+
+    {% include "partials/pager.html" %}
+  </article>
+
+  {%- if page.extra.faq %}
+  <nav class="toc" aria-label="On this page">
+    <div class="toc-inner">
+      <p class="toc-title">On this page</p>
+      <ul>
+        {%- for item in page.extra.faq %}
+        <li><a href="#{{ item.q | slugify }}">{{ item.q }}</a></li>
+        {%- endfor %}
+      </ul>
+    </div>
+  </nav>
+  {%- elif page.toc | length > 1 %}
+  <nav class="toc" aria-label="On this page">
+    <div class="toc-inner">
+      <p class="toc-title">On this page</p>
+      <ul>
+        {%- for h in page.toc %}
+        <li>
+          <a href="#{{ h.id }}">{{ h.title }}</a>
+          {%- if h.children | length > 0 %}
+          <ul>
+            {%- for c in h.children %}
+            <li><a href="#{{ c.id }}">{{ c.title }}</a></li>
+            {%- endfor %}
+          </ul>
+          {%- endif %}
+        </li>
+        {%- endfor %}
+      </ul>
+    </div>
+  </nav>
+  {%- endif %}
+</div>
+{% endblock %}

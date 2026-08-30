@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="{{ lang | default(value=config.default_language) }}">
+<head>
+  {%- block vars %}{% endblock -%}
+  {% include "partials/head.html" %}
+  {% block schema %}{% include "partials/schema-site.html" %}{% endblock %}
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  {% include "partials/header.html" %}
+  <main id="main">
+    {% block content %}{% endblock %}
+  </main>
+  {% include "partials/footer.html" %}
+  <script src="{{ get_url(path='site.js', cachebust=true) | safe }}" defer></script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+{#- The layering, as the thing itself rather than a picture of it: every row is
+    a module you can use on its own. -#}
+<div class="stack" role="img"
+     aria-label="Layers: role drivers over the session layer, over message dispatch, over the generated message sets, over the EXI codec, over V2GTP framing and SDP discovery, with SLAC below and Plug and Charge cutting across.">
+  <div class="stack-row">
+    <div class="stack-cell"><b>evcc</b><span>vehicle driver</span></div>
+    <div class="stack-cell"><b>secc</b><span>charger driver</span></div>
+  </div>
+  <div class="stack-row">
+    <div class="stack-cell"><b>session</b><span>clock, spec timers, message-ordering graphs</span></div>
+  </div>
+  <div class="stack-row">
+    <div class="stack-cell"><b>message</b><span>payload type + negotiated protocol → typed message</span></div>
+  </div>
+  <div class="stack-row">
+    <div class="stack-cell"><b>iso2</b><span>34 messages</span></div>
+    <div class="stack-cell"><b>iso20</b><span>CommonMessages, AC, DC, WPT, ACDP</span></div>
+  </div>
+  <div class="stack-row">
+    <div class="stack-cell"><b>exi</b><span>schema-informed EXI — documents and fragments</span></div>
+  </div>
+  <div class="stack-row">
+    <div class="stack-cell"><b>v2gtp</b><span>framing</span></div>
+    <div class="stack-cell"><b>sdp</b><span>discovery</span></div>
+  </div>
+  <div class="stack-row">
+    <div class="stack-cell"><b>slac</b><span>HomePlug link setup + matching, both roles</span></div>
+  </div>
+  <div class="stack-row">
+    <div class="stack-cell muted"><b>pnc</b><span>Plug &amp; Charge signatures — cross-cutting</span></div>
+  </div>
+</div>

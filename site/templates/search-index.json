@@ -1,0 +1,25 @@
+{#- A search index small enough to be a static asset: title, description and a
+    stripped, truncated body per page. Zola's built-in index would pull in
+    elasticlunr, which is more machinery than a dozen pages need.
+
+    Rendered through the feed hook, because that is Zola's only way to emit a
+    generated file that is not an HTML page — but the pages are taken from the
+    docs section rather than from the feed's own collection, which only carries
+    dated pages. -#}
+{%- set docs = get_section(path="docs/_index.md") -%}
+[
+{
+  "t": {{ docs.title | json_encode | safe }},
+  "d": {{ docs.description | default(value="") | json_encode | safe }},
+  "u": {{ docs.permalink | json_encode | safe }},
+  "b": {{ docs.content | striptags | replace(from="\n", to=" ") | truncate(length=1200, end="") | json_encode | safe }}
+}
+{%- for p in docs.pages %},
+{
+  "t": {{ p.title | json_encode | safe }},
+  "d": {{ p.description | default(value="") | json_encode | safe }},
+  "u": {{ p.permalink | json_encode | safe }},
+  "b": {{ p.content | striptags | replace(from="\n", to=" ") | truncate(length=1200, end="") | json_encode | safe }}
+}
+{%- endfor %}
+]

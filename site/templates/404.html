@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block vars %}
+  {%- set_global page_title = "Page not found" -%}
+  {%- set_global page_desc = "That page does not exist. The documentation index lists everything that does." -%}
+{% endblock %}
+{% block content %}
+<div class="wrap band">
+  <h1>404</h1>
+  <p class="lead">That page does not exist.</p>
+  <p><a class="btn btn-primary" href="{{ get_url(path='@/docs/_index.md') | safe }}">Browse the documentation</a></p>
+</div>
+{% endblock %}

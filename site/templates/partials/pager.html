@@ -1,0 +1,37 @@
+{#- Previous and next follow the sidebar order in config.extra.nav, walked in
+    one pass: remember the item before the current page, and take the first item
+    after it. -#}
+{%- set_global prev_item = "" -%}
+{%- set_global next_item = "" -%}
+{%- set_global found = false -%}
+{%- set_global last_item = "" -%}
+{%- for group in config.extra.nav -%}
+  {%- for item in group.items -%}
+    {%- if found and next_item == "" -%}
+      {%- set_global next_item = item -%}
+    {%- endif -%}
+    {%- set cur = get_page(path=item) -%}
+    {%- if cur.path == current_path -%}
+      {%- set_global found = true -%}
+      {%- set_global prev_item = last_item -%}
+    {%- endif -%}
+    {%- set_global last_item = item -%}
+  {%- endfor -%}
+{%- endfor -%}
+
+{%- if found and (prev_item != "" or next_item != "") %}
+<nav class="pager" aria-label="Documentation pages">
+  {%- if prev_item != "" %}
+  {%- set prev = get_page(path=prev_item) %}
+  <a class="prev" href="{{ prev.permalink | safe }}" rel="prev">
+    <small>← Previous</small>{{ prev.extra.nav_title | default(value=prev.title) }}
+  </a>
+  {%- endif %}
+  {%- if next_item != "" %}
+  {%- set next = get_page(path=next_item) %}
+  <a class="next" href="{{ next.permalink | safe }}" rel="next">
+    <small>Next →</small>{{ next.extra.nav_title | default(value=next.title) }}
+  </a>
+  {%- endif %}
+</nav>
+{%- endif %}

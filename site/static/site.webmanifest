@@ -1,0 +1,13 @@
+{
+  "name": "iso15118",
+  "short_name": "iso15118",
+  "description": "ISO 15118 vehicle-to-grid communication in pure Rust.",
+  "start_url": "../",
+  "display": "browser",
+  "background_color": "#0b0f13",
+  "theme_color": "#0b0f13",
+  "icons": [
+    { "src": "../favicon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "../apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

@@ -1,0 +1,39 @@
+{#- One nav for both breakpoints: a <details> that is forced open by CSS from
+    60rem up, so a phone gets a disclosure and a desktop gets a sidebar without
+    the markup being duplicated or a script deciding. -#}
+<aside class="sidebar">
+  <details class="sidebar-nav" {% if current_path == "/docs/" %}open{% endif %}>
+    <summary class="sidebar-toggle">Documentation</summary>
+    <div class="sidebar-body">
+      <div class="search">
+        <label class="visually-hidden" for="search-input">Search the documentation</label>
+        <input type="search" id="search-input" placeholder="Search…" autocomplete="off"
+               spellcheck="false" data-search
+               data-index="{{ get_url(path='search-index.json') | safe }}">
+        <ul class="search-results" id="search-results" data-search-results></ul>
+      </div>
+
+      <nav aria-label="Documentation">
+        {%- set overview = get_section(path="docs/_index.md") %}
+        <ul>
+          <li>
+            <a href="{{ overview.permalink | safe }}"
+               {% if current_path == overview.path %}aria-current="page"{% endif %}>Overview</a>
+          </li>
+        </ul>
+        {%- for group in config.extra.nav %}
+        <p class="nav-group" id="nav-group-{{ loop.index }}">{{ group.title }}</p>
+        <ul aria-labelledby="nav-group-{{ loop.index }}">
+          {%- for item in group.items %}
+          {%- set p = get_page(path=item) %}
+          <li>
+            <a href="{{ p.permalink | safe }}"
+               {% if current_path == p.path %}aria-current="page"{% endif %}>{{ p.extra.nav_title | default(value=p.title) }}</a>
+          </li>
+          {%- endfor %}
+        </ul>
+        {%- endfor %}
+      </nav>
+    </div>
+  </details>
+</aside>

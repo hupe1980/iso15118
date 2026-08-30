@@ -1,0 +1,70 @@
+{#- Everything a crawler, a social card and a browser tab need, in one place.
+
+    `page_title`, `page_desc` and `page_kind` are set by whichever template
+    extends base.html; the defaults below keep a page that forgets from
+    shipping an empty <title>. -#}
+{%- set site_name = config.title -%}
+{%- set title = page_title | default(value=site_name) -%}
+{%- set desc = page_desc | default(value=config.description) | striptags | trim -%}
+{%- set canonical = page_url | default(value=config.base_url) -%}
+{%- set og_image = get_url(path="og.png", cachebust=true) -%}
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+{%- set full_title -%}
+{%- if title == site_name %}{{ site_name }} — {{ config.extra.tagline }}{% else %}{{ title }} · {{ site_name }}{% endif -%}
+{%- endset %}
+<title>{{ full_title }}</title>
+<meta name="description" content="{{ desc }}">
+<link rel="canonical" href="{{ canonical | safe }}">
+
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0f13" media="(prefers-color-scheme: dark)">
+
+{#- Open Graph / Twitter. `article` for docs pages, `website` for the rest. -#}
+<meta property="og:type" content="{{ page_kind | default(value='website') }}">
+<meta property="og:site_name" content="{{ site_name }}">
+<meta property="og:title" content="{{ full_title }}">
+<meta property="og:description" content="{{ desc }}">
+<meta property="og:url" content="{{ canonical | safe }}">
+<meta property="og:image" content="{{ og_image | safe }}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="iso15118 — ISO 15118 vehicle-to-grid communication in pure Rust">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ full_title }}">
+<meta name="twitter:description" content="{{ desc }}">
+<meta name="twitter:image" content="{{ og_image | safe }}">
+
+<link rel="icon" href="{{ get_url(path='favicon.svg') | safe }}" type="image/svg+xml">
+<link rel="alternate icon" href="{{ get_url(path='favicon-32.png') | safe }}" sizes="32x32">
+<link rel="apple-touch-icon" href="{{ get_url(path='apple-touch-icon.png') | safe }}">
+<link rel="manifest" href="{{ get_url(path='site.webmanifest') | safe }}">
+
+<link rel="stylesheet" href="{{ get_url(path='main.css', cachebust=true) | safe }}">
+{#- Syntax colours ship as two sheets. The media attributes pick one by system
+    preference with no script at all; the theme toggle flips them when a reader
+    overrides that. -#}
+<link rel="stylesheet" href="{{ get_url(path='giallo-light.css') | safe }}"
+      media="(prefers-color-scheme: light)" data-syntax="light">
+<link rel="stylesheet" href="{{ get_url(path='giallo-dark.css') | safe }}"
+      media="(prefers-color-scheme: dark)" data-syntax="dark">
+
+{#- Applied before first paint so a reader who chose a theme never sees the
+    other one flash past. -#}
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem("theme");
+      if (t === "dark" || t === "light") {
+        document.documentElement.dataset.theme = t;
+        document.querySelectorAll("link[data-syntax]").forEach(function (l) {
+          l.media = l.dataset.syntax === t ? "all" : "not all";
+        });
+      }
+    } catch (e) {}
+  })();
+</script>

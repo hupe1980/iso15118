@@ -1,0 +1,4 @@
+# Stable-only options, so `cargo fmt --check` is quiet on the CI toolchain.
+edition = "2024"
+max_width = 100
+use_small_heuristics = "Max"

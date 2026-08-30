@@ -1,0 +1,28 @@
+# cargo-deny configuration.
+#
+# The dependency list is deliberately tiny — a charging-station stack should not
+# pull in a tree it cannot audit — so these rules are strict on purpose.
+
+[graph]
+all-features = true
+
+[licenses]
+version = 2
+# Everything in the tree must be usable under our own MIT OR Apache-2.0.
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-3-Clause", "Unicode-3.0"]
+confidence-threshold = 0.93
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# No C or C++ in the build: the memory-safety argument for this crate only
+# holds if the whole tree is Rust.
+deny = [{ name = "openssl-sys" }, { name = "cc", wrappers = ["libfuzzer-sys"] }]
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

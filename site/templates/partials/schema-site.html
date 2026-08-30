@@ -1,0 +1,32 @@
+{#- JSON-LD. Two objects: the software itself, and the site, so a search engine
+    can tell "a Rust crate" from "a page about a Rust crate". -#}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareSourceCode",
+      "@id": "{{ config.base_url | safe }}/#software",
+      "name": "iso15118",
+      "description": {{ config.description | json_encode | safe }},
+      "url": "{{ config.base_url | safe }}/",
+      "codeRepository": "{{ config.extra.repo }}",
+      "programmingLanguage": { "@type": "ComputerLanguage", "name": "Rust" },
+      "runtimePlatform": "Rust",
+      "license": "https://spdx.org/licenses/MIT.html",
+      "applicationCategory": "DeveloperApplication",
+      "keywords": "ISO 15118, V2G, vehicle-to-grid, EXI, EVCC, SECC, Plug and Charge, SLAC, CCS, EV charging, Rust, no_std, sans-IO",
+      "author": { "@type": "Person", "name": "{{ config.author }}", "url": "https://github.com/hupe1980" }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "{{ config.base_url | safe }}/#website",
+      "url": "{{ config.base_url | safe }}/",
+      "name": "{{ config.title }}",
+      "description": {{ config.description | json_encode | safe }},
+      "inLanguage": "en",
+      "about": { "@id": "{{ config.base_url | safe }}/#software" }
+    }
+  ]
+}
+</script>

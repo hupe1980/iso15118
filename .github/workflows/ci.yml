@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # A weekly long fuzz run; the per-PR run is only a smoke test.
+    - cron: "17 4 * * 1"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --all-features
+      - run: cargo test --no-default-features
+      - name: Doc tests
+        run: cargo test --doc --all-features
+      # The examples are the integration story; a broken one is a broken
+      # README. They are built, not run, because two of them want a socket.
+      - run: cargo build --examples --all-features
+
+  lint:
+    name: fmt + clippy + docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --all-features
+      - run: cargo clippy --all-targets --no-default-features
+      - name: rustdoc (no broken intra-doc links)
+        run: cargo doc --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  features:
+    name: feature powerset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-hack
+      - uses: Swatinem/rust-cache@v2
+      # Every combination must compile — the flags are additive by contract.
+      - run: cargo hack check -p iso15118 --feature-powerset --depth 2 --no-dev-deps
+
+  no-std:
+    name: no_std (thumbv7em-none-eabihf)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+      - uses: Swatinem/rust-cache@v2
+      # The protocol core must build for a microcontroller with no OS. `std`
+      # off, everything else on.
+      - run: >
+          cargo build --target thumbv7em-none-eabihf --no-default-features
+          --features iso2,iso20,sdp,slac,evcc,secc,pnc
+
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Must match `rust-version` in Cargo.toml. 1.88 is where `let` chains
+      # stabilised, and the protocol code is full of the nested-option matching
+      # they exist for.
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      # The declared MSRV has to hold for the tests and examples too, not just
+      # for the library: a doctest or an example that needs a newer compiler is
+      # a broken MSRV claim for anyone following the README.
+      - run: cargo check --workspace --all-targets --all-features
+
+  semver:
+    name: semver-checks
+    runs-on: ubuntu-latest
+    # Nothing is published yet, so there is no baseline to compare against.
+    if: github.event_name == 'pull_request' && false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
+
+  # Note: scripts/verify-grammars.sh and scripts/verify-messages.sh diff every
+  # derived grammar and every message against the EXI reference implementation,
+  # and `scripts/generate.sh && git diff --exit-code src/generated` proves the
+  # committed codec still matches its generator. None of the three is a CI job,
+  # because all need a JDK and the ISO schemas — licensed, and therefore not in
+  # the repository.
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo llvm-cov --all-features --lcov --output-path lcov.info
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: lcov.info
+
+  fuzz:
+    name: fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - messages
+          - fragments
+          - exi_app_protocol
+          - exi_primitives
+          - v2gtp
+          - sdp
+          - slac
+          - slac_matching
+          - session
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@cargo-fuzz
+      - uses: Swatinem/rust-cache@v2
+      # Seeds get the fuzzer past the format gates it would otherwise almost
+      # never guess — the SLAC target reaches 20x the coverage with them.
+      - name: Fuzz
+        run: |
+          mkdir -p fuzz/corpus/${{ matrix.target }}
+          cargo fuzz run ${{ matrix.target }} \
+            fuzz/corpus/${{ matrix.target }} fuzz/seeds/${{ matrix.target }} -- \
+            -max_total_time=${{ github.event_name == 'schedule' && 3600 || 60 }}
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts

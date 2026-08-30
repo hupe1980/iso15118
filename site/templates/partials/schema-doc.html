@@ -1,0 +1,47 @@
+{#- A documentation page: the article itself plus the breadcrumb trail that
+    puts it under /docs/ in a result listing. -#}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "TechArticle",
+      "headline": {{ page.title | json_encode | safe }},
+      "description": {{ page.description | default(value=config.description) | json_encode | safe }},
+      "url": "{{ page.permalink | safe }}",
+      "inLanguage": "en",
+      "isPartOf": { "@id": "{{ config.base_url | safe }}/#website" },
+      "about": { "@id": "{{ config.base_url | safe }}/#software" },
+      "author": { "@type": "Person", "name": "{{ config.author }}" },
+      "publisher": { "@type": "Person", "name": "{{ config.author }}" }
+    },
+    {%- if page.extra.faq %}
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {%- for item in page.extra.faq %}
+        {
+          "@type": "Question",
+          "name": {{ item.q | json_encode | safe }},
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": {{ item.a | markdown | striptags | trim | json_encode | safe }}
+          }
+        }{% if not loop.last %},{% endif %}
+        {%- endfor %}
+      ]
+    },
+    {%- endif %}
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Home",
+          "item": "{{ config.base_url | safe }}/" },
+        { "@type": "ListItem", "position": 2, "name": "Documentation",
+          "item": "{{ get_url(path='@/docs/_index.md') | safe }}" },
+        { "@type": "ListItem", "position": 3, "name": {{ page.title | json_encode | safe }} }
+      ]
+    }
+  ]
+}
+</script>

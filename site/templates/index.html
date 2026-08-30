@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block vars %}
+  {%- set_global page_url = config.base_url ~ "/" -%}
+  {%- set_global page_desc = section.description -%}
+{% endblock %}
+
+{% block content %}
+
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <p class="eyebrow">ISO 15118-2 · ISO 15118-20 · ISO 15118-3</p>
+        <h1>Vehicle-to-grid, from the ECU to the back end.</h1>
+        <p class="lead">
+          <strong>iso15118</strong> is the ISO 15118 protocol suite in pure Rust:
+          a schema-informed EXI codec generated from the official schemas, both
+          message sets, the SLAC link-setup and SECC discovery state machines, and
+          sans-I/O session engines for the vehicle and the charging station alike.
+          No sockets, no clock, no async runtime — those are yours.
+        </p>
+
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="{{ get_url(path='@/docs/getting-started.md') | safe }}">Get started</a>
+          <a class="btn btn-ghost" href="{{ config.extra.repo }}">View on GitHub</a>
+        </div>
+
+        <div class="install">
+          <span aria-hidden="true">$</span>
+          <code>cargo add iso15118</code>
+        </div>
+      </div>
+
+      <div>
+        {% include "partials/stack.html" %}
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="stats" aria-label="Project facts">
+  <dl class="wrap">
+    <div class="stat">
+      <dd>{{ config.extra.numbers.messages }}&nbsp;×&nbsp;2</dd>
+      <dt>messages verified</dt>
+    </div>
+    <div class="stat">
+      <dd>{{ config.extra.numbers.grammars }}</dd>
+      <dt>EXI grammars checked</dt>
+    </div>
+    <div class="stat">
+      <dd>{{ config.extra.numbers.fuzz_targets }}</dd>
+      <dt>fuzz targets</dt>
+    </div>
+    <div class="stat">
+      <dd>0</dd>
+      <dt>lines of unsafe</dt>
+    </div>
+    <div class="stat">
+      <dd>{{ config.extra.numbers.features }}</dd>
+      <dt>feature combinations</dt>
+    </div>
+  </dl>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <div class="band-head">
+      <h2>Why another implementation</h2>
+      <p>
+        ISO 15118 is what your car and a DC fast charger speak while deciding
+        whether to move 350&nbsp;kW between them. The implementations that exist are
+        C, C++ or Python, and none of them runs unchanged on both a charge-point
+        back end and a bare-metal microcontroller. This one is built on four
+        decisions that make that possible.
+      </p>
+    </div>
+
+    <div class="cards">
+      <article class="card">
+        <span class="num">01</span>
+        <h3>Sans-I/O</h3>
+        <p>
+          Nothing opens a socket or reads a clock. Bytes and a timestamp in;
+          bytes, events and deadlines out. The pattern behind <code>quinn-proto</code>
+          and <code>rustls</code> — and the reason a whole DC charging session runs
+          as a unit test in microseconds, with time as a variable.
+        </p>
+      </article>
+
+      <article class="card">
+        <span class="num">02</span>
+        <h3><code>no_std</code> + <code>alloc</code></h3>
+        <p>
+          The protocol core builds for <code>thumbv7em-none-eabihf</code>. Feature
+          flags are additive and every one gates real code, so a DC-only embedded
+          vehicle controller compiles the DC message set and nothing else —
+          grammar tables included.
+        </p>
+      </article>
+
+      <article class="card">
+        <span class="num">03</span>
+        <h3>A wire format someone else agrees with</h3>
+        <p>
+          Round-tripping your own encoder through your own decoder proves they
+          agree with each other and nothing more. Every grammar and every message
+          here is diffed against the EXI reference implementation, as documents
+          <em>and</em> as signature fragments.
+        </p>
+      </article>
+
+      <article class="card">
+        <span class="num">04</span>
+        <h3>A decoder you can point at the internet</h3>
+        <p>
+          The EXI parser is the first thing to touch unauthenticated bytes from a
+          cable a stranger plugged in. Every length is bounded by its schema facet
+          before anything is allocated, nesting is capped, and the layers above
+          hold the same line.
+        </p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="band band-elev">
+  <div class="wrap">
+    <div class="band-head">
+      <h2>Protocol, not policy</h2>
+      <p>
+        The engines own framing, decoding, the handshake, session-id checking,
+        message ordering and the spec timers. They own nothing about charging:
+        whether to authorize a vehicle, which schedule to offer, how much current
+        to deliver. Those arrive as events and are answered with a message you build.
+      </p>
+    </div>
+
+    <div class="split">
+      <div>
+        <ul class="tick">
+          <li><strong>One engine shape everywhere.</strong> <code>handle_input</code>,
+              <code>poll_event</code>, <code>respond</code>, <code>take_transmit</code>,
+              <code>poll_timeout</code> — the same five calls for the charger, the
+              vehicle, discovery and SLAC.</li>
+          <li><strong>The ordering rules are data.</strong> One graph per protocol
+              generation, shared by both roles, so the two sides cannot disagree
+              about what is legal next.</li>
+          <li><strong>Including the rules about failing.</strong> A
+              <code>FAILED_*</code> response ends the session and leaves only
+              <code>SessionStopReq</code>; the drivers enter that state on their own.</li>
+          <li><strong>And about stopping.</strong> Pause is not terminate, and
+              renegotiating a schedule is neither.</li>
+        </ul>
+        <p class="mt0">
+          <a href="{{ get_url(path='@/docs/sessions.md') | safe }}">How sessions and ordering work →</a>
+        </p>
+      </div>
+
+      <div>
+{{ section.content | safe }}
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <div class="band-head">
+      <h2>What is implemented</h2>
+      <p>Everything from the powerline link coming up to the charge loop turning.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th scope="col">Layer</th><th scope="col">State</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>EXI</strong> — schema-informed, bit-packed</td>
+              <td>Primitives, value string table, grammars, header, documents <em>and</em> fragments</td></tr>
+          <tr><td><strong>V2GTP</strong> framing</td>
+              <td>All payload types, hostile-length handling, bounded stream reassembly</td></tr>
+          <tr><td><strong>SDP</strong> discovery</td>
+              <td>Codec, the vehicle-side retry engine, TLS-downgrade rejection</td></tr>
+          <tr><td><strong>SLAC</strong> — ISO 15118-3</td>
+              <td>Frame codec, timers, and the matching state machine for both roles</td></tr>
+          <tr><td><strong>ISO 15118-2</strong> message set</td>
+              <td>All 34 body messages, <code>ds:Signature</code> included</td></tr>
+          <tr><td><strong>ISO 15118-20</strong> message sets</td>
+              <td><code>CommonMessages</code>, AC, DC, WPT, ACDP</td></tr>
+          <tr><td><strong>Session layer</strong></td>
+              <td>Clock, spec timers and loop budgets, ordering graphs for both generations</td></tr>
+          <tr><td><strong>EVCC / SECC drivers</strong></td>
+              <td>Handshake, sequencing, session-id checks, half-duplex enforcement, pause and resume</td></tr>
+          <tr><td><strong>Plug &amp; Charge signatures</strong></td>
+              <td>XMLDSig over EXI fragments, build and verify, algorithm restrictions enforced</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p><a href="{{ get_url(path='@/docs/_index.md') | safe }}">Read the documentation →</a></p>
+  </div>
+</section>
+
+<section class="band band-elev">
+  <div class="wrap">
+    <div class="band-head">
+      <h2>And what is not</h2>
+      <p>
+        Named rather than implied. A library that is vague about its edges is one
+        you find the edges of in the field.
+      </p>
+    </div>
+
+    <div class="cards">
+      <article class="card">
+        <h3>V2G PKI</h3>
+        <p>
+          X.509 chain validation and the certificate-installation flows are not
+          written. The message types are generated and signatures work; path
+          validation and the key-agreement envelopes are the gap, and it is the
+          one worth naming loudest.
+        </p>
+      </article>
+      <article class="card">
+        <h3>Transport bindings</h3>
+        <p>
+          No TCP, no TLS, no raw sockets, by design. The examples show the twenty
+          lines of glue for each, so you bring <code>rustls</code> on a server and
+          <code>embedded-tls</code> on an ECU without this crate choosing.
+        </p>
+      </article>
+      <article class="card">
+        <h3>DIN SPEC 70121</h3>
+        <p>
+          Its schemas are behind a paywall. Hand-transcribing them would produce a
+          codec with no reference to check against — precisely the failure mode
+          this project exists to avoid.
+        </p>
+      </article>
+    </div>
+
+    <p style="margin-top:1.5rem">
+      <a href="{{ get_url(path='@/docs/roadmap.md') | safe }}">The full list of what is not here →</a>
+    </p>
+  </div>
+</section>
+
+{% endblock %}

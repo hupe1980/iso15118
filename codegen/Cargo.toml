@@ -1,0 +1,14 @@
+[package]
+name = "iso15118-codegen"
+description = "Derives EXI grammars and message types for the iso15118 crate from the V2G XSD schemas"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+roxmltree = "0.20"
+
+[lints]
+workspace = true

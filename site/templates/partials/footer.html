@@ -1,0 +1,52 @@
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <p class="footer-group" id="footer-documentation">Documentation</p>
+        <ul aria-labelledby="footer-documentation">
+          <li><a href="{{ get_url(path='@/docs/getting-started.md') | safe }}">Getting started</a></li>
+          <li><a href="{{ get_url(path='@/docs/architecture.md') | safe }}">Architecture</a></li>
+          <li><a href="{{ get_url(path='@/docs/exi.md') | safe }}">The EXI profile</a></li>
+          <li><a href="{{ get_url(path='@/docs/verification.md') | safe }}">Verification</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="footer-group" id="footer-protocol">Protocol</p>
+        <ul aria-labelledby="footer-protocol">
+          <li><a href="{{ get_url(path='@/docs/sessions.md') | safe }}">Sessions &amp; ordering</a></li>
+          <li><a href="{{ get_url(path='@/docs/plug-and-charge.md') | safe }}">Plug &amp; Charge</a></li>
+          <li><a href="{{ get_url(path='@/docs/slac.md') | safe }}">SLAC</a></li>
+          <li><a href="{{ get_url(path='@/docs/discovery.md') | safe }}">Discovery &amp; framing</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="footer-group" id="footer-project">Project</p>
+        <ul aria-labelledby="footer-project">
+          <li><a href="{{ config.extra.repo }}">Source on GitHub</a></li>
+          <li><a href="{{ config.extra.docsrs }}">API reference</a></li>
+          <li><a href="{{ config.extra.crate }}">crates.io</a></li>
+          <li><a href="{{ get_url(path='@/docs/roadmap.md') | safe }}">What is not here</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="footer-group" id="footer-reference">Reference</p>
+        <ul aria-labelledby="footer-reference">
+          <li><a href="{{ get_url(path='@/docs/faq.md') | safe }}">FAQ</a></li>
+          <li><a href="{{ get_url(path='@/docs/features.md') | safe }}">Feature flags</a></li>
+          <li><a href="{{ get_url(path='@/docs/codegen.md') | safe }}">Code generation</a></li>
+          <li><a href="{{ config.extra.repo }}/blob/main/CONTRIBUTING.md">Contributing</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-note">
+      <p>Dual-licensed under
+        <a href="{{ config.extra.repo }}/blob/main/LICENSE-MIT">MIT</a> or
+        <a href="{{ config.extra.repo }}/blob/main/LICENSE-APACHE">Apache-2.0</a>.</p>
+      <p>“ISO” and “ISO 15118” refer to standards published by the International
+         Organization for Standardization. This is an independent implementation
+         and is not affiliated with, endorsed by, or certified by ISO. No part of
+         the standard is redistributed here.</p>
+    </div>
+  </div>
+</footer>

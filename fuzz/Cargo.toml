@@ -1,0 +1,82 @@
+# Its own workspace: the fuzz targets build on nightly with a sanitiser, and
+# should not drag that into the crate's own lockfile.
+[workspace]
+
+[package]
+name = "iso15118-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.iso15118]
+path = ".."
+features = ["std", "sdp", "slac", "iso2", "iso20", "evcc", "secc", "pnc"]
+
+[[bin]]
+name = "messages"
+path = "fuzz_targets/messages.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "exi_app_protocol"
+path = "fuzz_targets/exi_app_protocol.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "exi_primitives"
+path = "fuzz_targets/exi_primitives.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "v2gtp"
+path = "fuzz_targets/v2gtp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sdp"
+path = "fuzz_targets/sdp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "slac"
+path = "fuzz_targets/slac.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "session"
+path = "fuzz_targets/session.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fragments"
+path = "fuzz_targets/fragments.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "slac_matching"
+path = "fuzz_targets/slac_matching.rs"
+test = false
+doc = false
+bench = false

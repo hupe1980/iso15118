@@ -1,0 +1,104 @@
+# Zola configuration for the iso15118 documentation site.
+#
+# The site is deployed to GitHub Pages under a repository sub-path, so every
+# internal link goes through `get_url()` rather than being written literally —
+# a hard-coded "/docs/" would 404 in production and work in `zola serve`, which
+# is the worst way round for a mistake to be.
+base_url = "https://hupe1980.github.io/iso15118"
+
+title = "iso15118"
+description = "ISO 15118 vehicle-to-grid communication in pure Rust. Sans-I/O, no_std-capable, EXI codec verified against the reference implementation, both sides of the plug."
+default_language = "en"
+author = "hupe1980"
+
+compile_sass = true
+minify_html = true
+
+# Not a feed: Zola renders `feed_filenames` through a template of the same name,
+# which is the one hook it offers for emitting a generated file that is not a
+# page. Ours emits the search index — see templates/search-index.json.
+generate_feeds = true
+feed_filenames = ["search-index.json"]
+
+# Our own search index is built by templates/search_index.json — a few kilobytes
+# of title, description and stripped body per page, filtered client-side. Zola's
+# built-in index would pull in elasticlunr for a site of a dozen pages.
+build_search_index = false
+
+[markdown]
+smart_punctuation = false
+render_emoji = false
+external_links_target_blank = false
+bottom_footnotes = true
+
+# Code samples are the point of a protocol library's documentation, so they get
+# real highlighting — emitted as CSS classes rather than inline styles, which is
+# what lets one page carry a light and a dark theme at once.
+[markdown.highlighting]
+style = "class"
+light_theme = "github-light"
+dark_theme = "github-dark"
+add_color_scheme = true
+error_on_missing_language = true
+
+[link_checker]
+# ISO's own site rate-limits crawlers. docs.rs and crates.io are the permanent
+# homes of a crate that has not been published yet, so they 404 today and will
+# not once it is — checking them would fail the build for the wrong reason.
+skip_prefixes = [
+  "https://www.iso.org/",
+  "https://standards.iso.org/",
+  "https://docs.rs/",
+  "https://crates.io/",
+]
+
+[extra]
+repo = "https://github.com/hupe1980/iso15118"
+crate = "https://crates.io/crates/iso15118"
+docsrs = "https://docs.rs/iso15118"
+tagline = "Vehicle-to-grid, from the ECU to the back end."
+
+# The claims on the front page are numbers, and numbers go stale. They live here
+# so there is one place to update them when the verification scripts report a
+# different figure.
+[extra.numbers]
+messages = "121"
+grammars = "298"
+features = "129"
+fuzz_targets = "9"
+
+# The documentation sidebar, in reading order. Keeping it here rather than
+# deriving it from front-matter weights means the order is one list a human can
+# read, and the same list drives the previous/next links at the foot of a page.
+[[extra.nav]]
+title = "Start here"
+items = [
+  "docs/getting-started.md",
+  "docs/architecture.md",
+]
+
+[[extra.nav]]
+title = "The protocol"
+items = [
+  "docs/sessions.md",
+  "docs/exi.md",
+  "docs/discovery.md",
+  "docs/slac.md",
+  "docs/plug-and-charge.md",
+]
+
+[[extra.nav]]
+title = "Building on it"
+items = [
+  "docs/features.md",
+  "docs/embedded.md",
+  "docs/verification.md",
+  "docs/codegen.md",
+]
+
+[[extra.nav]]
+title = "Reference"
+items = [
+  "docs/roadmap.md",
+  "docs/faq.md",
+]

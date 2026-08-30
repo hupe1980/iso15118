@@ -1,0 +1,148 @@
+[workspace]
+members = ["codegen"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hupe1980/iso15118"
+homepage = "https://hupe1980.github.io/iso15118/"
+authors = ["hupe1980"]
+
+[package]
+name = "iso15118"
+description = "ISO 15118 vehicle-to-grid (V2G) communication — EXI codec, message sets, session engines and Plug & Charge signatures; sans-I/O and no_std-capable, for both EVCC and SECC"
+categories = ["embedded", "encoding", "network-programming", "no-std"]
+keywords = ["iso15118", "v2g", "ev", "charging", "exi"]
+readme = "README.md"
+
+# What a consumer gets is the crate, not the project around it. Without this the
+# tarball carries the Zola documentation site, the Java tools the differential
+# scripts drive, and the scripts themselves — none of which builds anything and
+# all of which a `cargo vendor` would copy into every downstream tree.
+#
+# `specs/` is here for a different reason: the ISO schemas are licensed and are
+# gitignored, so the directory holds nothing but a README explaining their
+# absence. `codegen/` and `fuzz/` need no entry — Cargo already skips a
+# subdirectory that has its own manifest.
+exclude = [
+  "/.github",
+  "/deny.toml",
+  "/scripts",
+  "/site",
+  "/specs",
+  "/tools",
+]
+
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[features]
+default = ["std", "iso2", "iso20", "sdp", "slac", "evcc", "secc", "pnc"]
+
+# --- environment -------------------------------------------------------------
+# The protocol core is `no_std` but always needs `alloc`: in bit-packed EXI a
+# decoded string is a run of bit-shifted code points, so it can never borrow
+# from the input and has to be owned. `alloc` is therefore not a feature — it is
+# a requirement. `std` only adds OS-facing conveniences (std::error::Error,
+# Ipv6Addr helpers).
+std = []
+
+# --- roles -------------------------------------------------------------------
+evcc = []
+secc = []
+
+# --- protocols ---------------------------------------------------------------
+# One flag per generated schema set. `iso20-bpt` does not appear because
+# bidirectional power transfer is not a schema set: the `BPT_*` types live
+# inside AC and DC and are generated with them.
+iso2 = []
+iso20 = ["iso20-ac", "iso20-dc", "iso20-wpt", "iso20-acdp"]
+iso20-common = []
+iso20-ac = ["iso20-common"]
+iso20-dc = ["iso20-common"]
+iso20-wpt = ["iso20-common"]
+iso20-acdp = ["iso20-common"]
+
+# --- link & discovery --------------------------------------------------------
+sdp = []
+slac = []
+
+# --- security ----------------------------------------------------------------
+# Plug & Charge: the XML-signature profile over EXI fragments. The hash and the
+# curve are traits the caller implements, so this pulls in no crypto.
+pnc = ["iso20-common"]
+
+# A concrete backend for those traits: `sha2` for the digests, `p256` and
+# `p521` for the curves. Off by default — an ECU with a secure element wants
+# the traits and not this — but it is what a charging station on a
+# general-purpose CPU, and every test, would otherwise have to write itself.
+pnc-rustcrypto = ["pnc", "dep:p256", "dep:p521", "dep:sha2"]
+
+# --- integration -------------------------------------------------------------
+serde = ["dep:serde"]
+tracing = ["dep:tracing"]
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { version = "1", default-features = false, features = [
+  "derive",
+  "alloc",
+], optional = true }
+tracing = { version = "0.1", default-features = false, optional = true }
+
+# `pnc-rustcrypto` only. All three are `no_std`, and ECDSA signing here is
+# RFC 6979 deterministic, so the backend needs no RNG either.
+p256 = { version = "0.14", default-features = false, features = [
+  "ecdsa",
+], optional = true }
+p521 = { version = "0.14", default-features = false, features = [
+  "ecdsa",
+], optional = true }
+sha2 = { version = "0.11", default-features = false, optional = true }
+
+[dev-dependencies]
+proptest = "1"
+
+# Every example needs sockets, so every example needs `std`.
+[[example]]
+name = "sdp_discovery"
+required-features = ["std", "sdp"]
+
+[[example]]
+name = "secc_tcp"
+required-features = ["std", "iso2", "secc"]
+
+[[example]]
+name = "evcc_tcp"
+required-features = ["std", "iso2", "evcc"]
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Protocol code is full of small numeric conversions that are provably in range;
+# we use explicit `try_from` where it can actually fail.
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[profile.release]
+lto = "thin"
