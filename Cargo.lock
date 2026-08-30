@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "iso15118"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "p256",
  "p521",
@@ -267,7 +267,7 @@ dependencies = [
 
 [[package]]
 name = "iso15118-codegen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "roxmltree",
 ]
