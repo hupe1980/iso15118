@@ -136,6 +136,14 @@ jobs:
   fuzz:
     name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
+    # `-D warnings` is deliberately dropped for this job. It is set workflow-wide
+    # and applies to dependencies as well as to us, so with it in place building
+    # cargo-fuzz from source fails on a warning in any one of its hundred-odd
+    # crates, and the fuzz build fails on one in `libfuzzer-sys`. Neither is a
+    # defect in this repository. What this job is for is crashes; the lint job is
+    # for lints.
+    env:
+      RUSTFLAGS: ""
     strategy:
       fail-fast: false
       matrix:
@@ -152,14 +160,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
-      - uses: taiki-e/install-action@cargo-fuzz
+
+      # The cache comes *before* the tool install, which is the opposite of the
+      # other jobs here and is deliberate. `rust-cache` drops anything that was
+      # already in `~/.cargo/bin` when it started, so a tool installed ahead of
+      # it is rebuilt on every run; installed after, it is cached. The toolchain
+      # still has to be selected first, because the cache key is the rustc
+      # version.
+      #
+      # `shared-key` puts all nine matrix legs on one cache instead of nine:
+      # they install the same binary and build the same dependencies.
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: fuzz
+
+      # Built from source rather than fetched by `taiki-e/install-action`, which
+      # has no manifest for cargo-fuzz and quietly falls back to cargo-binstall
+      # — a fallback that left `cargo fuzz` missing and the job failing on the
+      # command rather than on the install. `cargo install` is a no-op once the
+      # cache above has the binary.
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      # `+nightly` explicitly, rather than relying on the toolchain action
+      # having made it the default: cargo-fuzz needs `-Z sanitizer=address`, and
+      # on any toolchain but nightly the job fails with "1 nightly option were
+      # parsed" — a message that says nothing about the toolchain being wrong.
+      # `+nightly` also reaches the `cargo build` cargo-fuzz spawns, which the
+      # default would not if it ever changed.
+      #
       # Seeds get the fuzzer past the format gates it would otherwise almost
       # never guess — the SLAC target reaches 20x the coverage with them.
       - name: Fuzz
         run: |
           mkdir -p fuzz/corpus/${{ matrix.target }}
-          cargo fuzz run ${{ matrix.target }} \
+          cargo +nightly fuzz run ${{ matrix.target }} \
             fuzz/corpus/${{ matrix.target }} fuzz/seeds/${{ matrix.target }} -- \
             -max_total_time=${{ github.event_name == 'schedule' && 3600 || 60 }}
       - name: Upload crash artifacts
