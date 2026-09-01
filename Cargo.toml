@@ -3,7 +3,7 @@ members = ["codegen"]
 resolver = "3"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -112,6 +112,10 @@ sha2 = { version = "0.11", default-features = false, optional = true }
 
 [dev-dependencies]
 proptest = "1"
+# The `serde` feature's own tests. A protocol name that serialises one way and
+# deserialises another is exactly the drift the stable names exist to prevent,
+# so the round trip is checked through a real format rather than asserted.
+serde_json = "1"
 
 # Every example needs sockets, so every example needs `std`.
 [[example]]

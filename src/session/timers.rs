@@ -31,7 +31,11 @@ pub mod iso2 {
     pub const EVCC_SEQUENCE_PERFORMANCE_TIME: Millis = Millis::from_secs(40);
 
     /// `V2G_EVCC_CommunicationSetup_Timeout` — from the plug being detected to
-    /// a `SessionSetupRes` in hand, SDP and TLS included. \[V2G2-716\]
+    /// a `SessionSetupRes` in hand, SDP and TLS included. \[V2G2-446\],
+    /// \[V2G2-448\]; value from Table 111 \[V2G2-605\].
+    ///
+    /// The *station's* budget is a different parameter and a different number:
+    /// `V2G_SECC_CommunicationSetup_Performance_Time` is 18 s \[V2G2-716\].
     pub const EVCC_COMMUNICATION_SETUP_TIMEOUT: Millis = Millis::from_secs(20);
 
     /// `V2G_EVCC_Ongoing_Timeout` — how long the EVCC keeps re-sending a

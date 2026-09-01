@@ -101,6 +101,29 @@ verbatim, pinning field order, offsets, widths, the reserved gaps and both
 None of this makes an unauthenticated protocol authenticated. It makes the engine
 enforce the one assumption the design does rest on, instead of assuming it.
 
+### Nothing a bystander sends decides how long, or how much
+
+Dropping a bad frame is only half of not being steered by one. The other half is
+that a frame nobody can authenticate must not set a deadline or a queue length.
+
+**The measurement window closes when it opened.** After sounding, the vehicle
+waits `TT_EV_atten_results` for attenuation reports and shortens that wait once
+one arrives. Shortening is right; *lengthening* would be a denial of service
+anyone in earshot could mount with one frame every `TT_match_response`, because
+everything a forged `CM_ATTEN_CHAR.IND` needs — the run id, the vehicle's MAC,
+its `source_id` — is broadcast in the clear during sounding. So a report moves
+the choice earlier and never later.
+
+**The list of stations that answered is bounded** (`MAX_STATIONS`). Its source
+MAC is an unauthenticated Ethernet header field, so without a ceiling every
+distinct forged value costs an entry for the life of the run. Bounding it is safe
+because that list does not choose the winner — the measurement does.
+
+**Both queues are bounded** (`MAX_PENDING_EVENTS`, `MAX_PENDING_FRAMES`): a
+station queues a confirmation for every `CM_SLAC_PARM.REQ` it accepts, and that
+request is a broadcast anything can repeat. Terminal events are never dropped — a
+run has one outcome, and losing it would be worse than any flood.
+
 ## Choosing a station
 
 Both sides can set an attenuation limit, and they mean different things:

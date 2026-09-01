@@ -1,14 +1,14 @@
 +++
 title = "Verification"
-description = "How the iso15118 wire format is checked against the EXI reference implementation: 298 grammars, 121 messages as documents and fragments, nine fuzz targets, and what each layer found."
+description = "How iso15118 is verified: 298 grammars and 121 messages differed against the EXI reference implementation, layouts pinned byte for byte, nine fuzz targets, and every spec citation checked against the text."
 weight = 100
 +++
 
 Round-tripping your own encoder through your own decoder proves that they agree
 with each other. It proves nothing about whether a charger will understand you.
 
-This crate is checked in four layers, in increasing strength. Only the last two
-say anything about other implementations.
+This crate is checked in layers, in increasing strength. Only the differential
+ones say anything about other implementations.
 
 | Layer | What it proves |
 |---|---|
@@ -35,9 +35,10 @@ jobs — the schemas are licensed and are not redistributed. `scripts/generate.s
 followed by `git diff` is the third check: that the committed codec still matches
 its generator.
 
-## What the differential layers found
+## What the grammar layers catch
 
-Nine defects that no round-trip test could:
+Six things a round trip cannot see, because encoder and decoder agree on all of
+them and the reference implementation does not:
 
 - **substitution groups** — ISO 15118-2 routes all 34 body messages through one
   choice, and the *abstract* head occupies an event code of its own. Dropping it
@@ -52,166 +53,96 @@ Nine defects that no round-trip test could:
   not one event code;
 - **string-table partitions** — a value found in the *global* partition must not be
   added to the local one. Getting this wrong desynchronises the moment one string
-  appears under two element names, which is most real messages;
-- an **out-of-range restricted integer** that decoded but could not re-encode;
-- an **integer overflow** adding the epoch back to a date-time year;
-- a **SLAC frame buffer one byte too small**, silently swallowed by a send path
-  that dropped errors.
+  appears under two element names, which is most real messages.
+
+Facets are the other half, and they are enforced in both directions: `xs:length`
+is not `xs:maxLength`, and six V2G types have an exact length that is precisely
+the security-relevant one — both `GenChallenge`s, ISO 15118-20's `SessionID`, the
+ECDH public key, the three encrypted-contract-key envelopes. A truncated one must
+not decode. See [Bounded everything](@/docs/exi.md#bounded-everything-in-both-directions).
 
 ## What the scripts cannot check
 
 They prove the encoding. They say nothing about whether the flow above it is the
-one ISO wrote, or about what an unauthenticated peer can make the engines do.
-Reading the layers against the standards and against both live open-source
-implementations found five more, each now a test:
+one ISO wrote. That is checked by reading the layers against the standards and
+against both live open-source implementations, and every rule is a test:
 
-- **DC renegotiation deadlocked** — the graph demanded the isolation test before
-  every `PowerDeliveryReq(Start)`, including the one after a renegotiation, which
-  arrives with the contactors closed and no cable check coming. Both generations
-  had it;
-- **ISO 15118-20 conflated schedule renegotiation with service renegotiation**,
-  sending `PowerDeliveryReq(ScheduleRenegotiation)` back to service selection;
-- **the engines read ahead of the protocol** — V2G is half-duplex, and several
-  requests are legal repeatedly, so a peer could queue events without bound. The
-  vehicle side was worse: it took *any* response to any request, because the
-  ordering graph constrains requests only;
-- **SLAC took the network key from whoever answered first** — the run id is
-  broadcast in the clear, so a forged handover won the race;
-- **the loop timers were constants and nothing else** — declared, cited, and never
-  armed, so a cable-check loop had no bound at all.
+- **the ordering graph, including its exits.** A DC renegotiation arrives with the
+  contactors closed and no cable check coming, so demanding the isolation test
+  before every `PowerDeliveryReq(Start)` deadlocks it — and a *service*
+  renegotiation is the opposite case, which must not inherit that exemption;
+- **half-duplex, in both directions.** Several requests are legal repeatedly, so
+  the ordering graph cannot catch a peer that pipelines — it constrains *which*
+  request, not *when*. The vehicle enforces it on what it sends and the station on
+  what it reads;
+- **identity, not just presence.** A session id is checked against the one that
+  was assigned, not against zero; ISO 15118-20 service ids map to the flows the
+  standard assigns them, which is where EVerest's `ServiceCategory` and Josev's
+  `ServiceV20` agree;
+- **the loop budgets are armed**, not merely declared. A cable-check loop that
+  repeats promptly for ever is never late by a per-message timeout.
 
-And two in the EXI layer that fuzzing could not reach: a fractional value whose
-reversed digit string came off the wire and overflowed when un-reversed, and the
-non-strict second-level escape code being accepted below a particle's `minOccurs`.
+Two checks are about binding rather than validity, and are the ones most often
+left out: a Plug & Charge signature must name the session it arrived in, and a
+metering receipt must be checked against the reading the station actually metered.
+See [Plug & Charge](@/docs/plug-and-charge.md).
 
-## What a second reading found
+## What an unauthenticated peer can make an engine do
 
-A later pass over the same code, against the standards and against what EVerest
-and Josev do, found eight more. None of them is a wire-format defect — the
-differential scripts had already settled that — and none of them would fail a
-happy-path session, which is exactly why they were still there.
+SDP and SLAC run on a shared powerline segment where anything can transmit and
+nothing is authenticated. So the question is not "is this frame well-formed" but
+"what can a frame nobody can authenticate make this engine *do*" — and dropping a
+bad frame is only half of not being steered by one. The other half is that such a
+frame must set neither a deadline nor a queue length:
 
-- **ISO 15118-20 service ids were mapped to the wrong flows.** The standard
-  assigns 1 `AC`, 2 `DC`, 3 `WPT`, 4 `DC_ACDP`, and 5–7 to their bidirectional
-  twins — the numbers EVerest's `ServiceCategory` and Josev's `ServiceV20` both
-  use; the mapping here paired them off differently. A wireless session would have been
-  routed down the pantograph flow — asked to check a pantograph in that it does
-  not have — and a pantograph session down the wireless one. Only plain `DC`
-  happened to land on the right answer, which is why an ordinary DC test suite
-  would never have noticed;
-- **a service renegotiation inherited a schedule renegotiation's exemption from
-  the DC isolation test.** The two are opposite cases: one keeps the contactors
-  closed, the other opens them. A session that renegotiated its schedule and then
-  its service could close a DC contactor on a cable nobody had re-checked;
-- **the vehicle could pipeline.** Half-duplex was enforced on the side that
-  *reads* and not on the side that *sends*, so an application driving a charge
-  loop off a tick rather than off a response would have queued requests the
-  ordering graph is unable to object to — it constrains which request, not when;
-- **the vehicle adopted a session id from any response while its own was zero.**
-  "Has one been assigned" was inferred from "is the id non-zero", so a station
-  that answered `SessionSetupRes` with the all-zero id switched the check off for
-  the rest of the session instead of failing;
-- **the station could answer the wrong question**, or answer when none had been
-  asked. The vehicle would have caught it; catching it locally costs one string
-  comparison and turns a field report into a failed unit test;
-- **a SLAC run in progress could be restarted by anything on the segment.**
-  `CM_SLAC_PARM.REQ` is broadcast and unauthenticated, and only a *matched*
-  station refused one. A bystander could abort every matching run within earshot,
-  one frame at a time, and the vehicle would see nothing but a station that never
-  finishes;
-- **two ISO 15118-20 loop budgets cited a spec section nobody had read.** The
-  values are reasonable and are still the defaults; what changed is that they now
-  say they are this crate's judgement. A constant that cites a requirement it does
-  not come from cannot be questioned, which is worse than one that admits it is a
-  guess;
-- **the grammar runtime assumed a repeated particle is never a choice.** True of
-  every V2G schema, and the arithmetic silently depended on it. The generator now
-  refuses to emit a shape that would break it, rather than emitting one that
-  encodes at the wrong width.
+- **a well-formed answer the vehicle must not act on does not end discovery.** If
+  any answer were terminal, one spoofed datagram would stop a vehicle ever hearing
+  the station it is plugged into;
+- **an SDP answer cannot redirect the vehicle off the link.** The address it names
+  is where the vehicle opens its connection, and the V2G link is link-local with no
+  router on it;
+- **a forged attenuation report cannot postpone a SLAC choice.** Everything a
+  forgery needs is broadcast in the clear during sounding, so a report may move the
+  choice earlier and never later;
+- **every collection an unauthenticated peer can reach is bounded** — the station
+  list keyed by an Ethernet source MAC, both event queues, the outgoing frame
+  queue. Terminal events are never dropped;
+- **a malformed frame is weather, not an exception.** `handle_frame` returns no
+  `Result` at all: a caller that acted on one would let anything within earshot end
+  somebody else's matching run with a single packet. See [SLAC](@/docs/slac.md).
 
-The same pass added the check that was missing rather than wrong: a Plug & Charge
-signature was verified but never tied to the session it arrived in. See
-[the `GenChallenge` binding](@/docs/plug-and-charge.md).
+## SLAC has no reference implementation
 
-## What a third reading found
+Its thirteen message layouts are hand-transcribed from ISO 15118-3 and HomePlug
+GreenPHY, and there is nothing to differ them against. A round trip is not
+evidence here for the reason this page opens with: swap two fields of the same
+width in both the encoder and the decoder and every test still passes, while the
+frame is wrong on the wire and fails against every real modem.
 
-Reading again, in the places the first two passes had not gone — the SLAC codec,
-the generator's facet handling, and the API shapes themselves:
+So `tests/slac_layout.rs` is the next strongest thing — every message encoded with
+a distinct byte per field and asserted verbatim, pinning field order, offsets,
+widths, the reserved gaps and both `MVFLength` constants, checked field for field
+against [EVerest's `libslac`](https://github.com/EVerest/libslac). A mutation test
+records the gap it closes: a same-width field swap applied to encoder *and*
+decoder passes a round trip and fails this.
 
-- **`xs:length` was being lowered to `xs:maxLength`, and `xs:minLength` was
-  dropped.** Six V2G types have an exact length and they are precisely the
-  security-relevant ones — both `GenChallenge`s, ISO 15118-20's `SessionID`, the
-  ECDH public key, the three encrypted-contract-key envelopes — so a truncated
-  one decoded, and would have been re-encoded into a message no conforming peer
-  accepts. See [Bounded everything](@/docs/exi.md#bounded-everything-in-both-directions).
-  Enforcing it immediately found **two more defects of its own**: the sample
-  generator had been emitting three-byte stand-ins for every `base64Binary`, so
-  the differential run had never once exercised a real 133-byte key; and this
-  crate's own README had been showing a four-byte ISO 15118-20 `SessionID` since
-  it was written — legal in ISO 15118-2, not in -20, and a compiled doctest, so
-  it stopped building the moment the facet was enforced;
-- **a SLAC engine reported malformed frames as errors.** It listens promiscuously
-  on a shared, unauthenticated segment, so a bad frame is weather, not an
-  exception — and a caller that acted on the error would let anything within
-  earshot end somebody else's matching run with one packet. `handle_frame` no
-  longer returns a `Result` at all. See [SLAC](@/docs/slac.md);
-- **the SLAC message writer was bounded by the caller's buffer rather than by the
-  message.** A field list that did not add up to the declared length would spill
-  into whatever followed instead of failing — the exact shape of a defect this
-  project has already had once, a `CM_ATTEN_CHAR.IND` one byte short. Each
-  encoder now derives its length from what it wrote, and the two cannot disagree;
-- **the design notes claimed all four engines share one five-method shape**, when
-  two of them do not — `sdp::Discovery` and the SLAC engines have no `respond`,
-  and their input method does not return a `Result`. Documentation, but a reader
-  meets it before any code, and this page is where that counts as a defect.
+Message writers derive their length from what they wrote rather than from the
+caller's buffer, so a field list that does not add up fails instead of spilling
+into whatever follows.
 
-And one check that was missing rather than wrong, the sibling of the last pass's:
-a metering receipt was verified as a signature and never against the reading the
-station actually metered. See
-[the money](@/docs/plug-and-charge.md#and-the-same-again-for-the-money).
+## Citations, checked against the text
 
-## What a fourth reading found
+Every `[V2G2-nnn]` in the source names the requirement that states the rule it is
+attached to, and every timing constant matches Table 109 and Table 111 of
+ISO 15118-2. Where a value is *not* quoted — the two ISO 15118-20 loop budgets —
+the constant says it is this crate's judgement and why. A constant that cites a
+requirement it does not come from cannot be questioned, which is worse than one
+that admits it is a guess.
 
-This pass went looking for the layers with the *weakest evidence* rather than the
-most suspicious code — and found that the argument at the top of this page had a
-hole in it.
-
-- **SLAC had no external check at all.** Its thirteen message layouts are
-  hand-transcribed from ISO 15118-3 and HomePlug GreenPHY, and what tested them
-  was a round trip plus one four-byte endianness assertion. That is precisely the
-  evidence this page opens by saying is not evidence: swap two fields of the same
-  width in both the encoder and the decoder and every test still passes, while
-  the frame is wrong on the wire and fails against every real modem.
-
-  There is no reference implementation to run for SLAC, so `tests/slac_layout.rs`
-  is the next strongest thing: every message encoded with a distinct byte per
-  field and asserted verbatim — pinning field order, offsets, widths, the
-  reserved gaps and both `MVFLength` constants. The layouts turned out to be
-  **correct**, checked field for field against
-  [EVerest's `libslac`](https://github.com/EVerest/libslac); what was missing was
-  anything recording that. A mutation test demonstrates the gap it closes: a
-  same-width field swap applied to encoder *and* decoder passes every
-  pre-existing SLAC test and fails the new one.
-- **ISO 15118-20 had no end-to-end test.** Half the crate, every layer tested
-  alone — the sequencer had unit tests, the messages round-tripped, the drivers
-  were exercised against ISO 15118-2. Nothing put the three together across the
-  seam that is -20's alone: one session interleaving two V2GTP payload types and
-  two schema sets. `tests/session_iso20.rs` is that session, and writing it
-  failed on the first run.
-- **A vehicle could not encode its own `SessionSetupReq` in ISO 15118-20.** The
-  driver stamped the session id only *after* the station had assigned one, which
-  left the first message of the session for the application to fill in — and
-  -20's `SessionID` is exactly eight bytes, so an application that left it empty
-  produced a message that would not encode at all. The fix is the better design
-  regardless: every request is stamped, and rejoining a paused session moved to
-  `EvccConfig::rejoin`, said once in configuration instead of hand-placed in the
-  one message out of thirty where it belongs.
-
-The generator's `--why` report came out clean on the same pass: the only types it
+The generator's `--why` report is part of the same claim: the only types it
 declines to express are the seven xmldsig ones ISO 15118 never uses, and every
 field it declines is refused at decode rather than skipped — including the
-`KeyInfo` a `ds:Signature` must never be allowed to smuggle in. See
-[Plug & Charge](@/docs/plug-and-charge.md).
+`KeyInfo` a `ds:Signature` must never be allowed to smuggle in.
 
 ## Beyond the wire format
 

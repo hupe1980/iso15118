@@ -78,6 +78,30 @@ fn decoded<T>(result: Result<T, SlacError>, mmtype: Mmtype) -> Option<T> {
 /// `resp_type` — "other GP station", the only value ISO 15118-3 uses.
 const RESP_TYPE: u8 = 0x01;
 
+/// How many distinct stations one matching run will remember answering.
+///
+/// The source MAC of a `CM_SLAC_PARM.CNF` is an unauthenticated Ethernet header
+/// field, so without a ceiling every distinct forged value costs another entry
+/// for the life of the run. Bounding it is safe because the list is
+/// informational and an emptiness test — the attenuation measurement decides
+/// the winner — so filling it cannot keep the real station from being chosen.
+pub const MAX_STATIONS: usize = 32;
+
+/// How many unsent frames either engine will hold.
+///
+/// A station queues a `CM_SLAC_PARM.CNF` for every `CM_SLAC_PARM.REQ`, and that
+/// request is a broadcast anything can repeat. A run never has more than a
+/// handful of frames genuinely outstanding — the sounding burst is paced one
+/// frame at a time — so a queue this deep is already slack.
+pub const MAX_PENDING_FRAMES: usize = 16;
+
+/// How many undrained events either engine will hold.
+///
+/// The caller is expected to drain these each time round its loop; the bound is
+/// what happens when it does not. Terminal events — a match, a failure — are
+/// never dropped, because those are the ones a caller cannot do without.
+pub const MAX_PENDING_EVENTS: usize = 64;
+
 /// Largest SLAC frame, so a caller can size one buffer and stop thinking about
 /// it.
 ///
@@ -308,7 +332,11 @@ impl Evse {
             expected_sounds: timers::C_EV_MATCH_MNBC,
         });
         self.state = EvseState::Sounding;
-        self.events.push(EvseEvent::RunStarted(req.run_id));
+        // A retry re-opens the same run — the sounding count goes back to zero,
+        // so the application is told, every time. `note` is what keeps that
+        // honest reporting from being an unbounded queue: `CM_SLAC_PARM.REQ` is
+        // a broadcast anything on the segment can repeat.
+        self.note(EvseEvent::RunStarted(req.run_id));
         let cnf = SlacParmCnf {
             // Sounding is broadcast so every station in earshot can measure it.
             m_sound_target: BROADCAST,
@@ -382,7 +410,7 @@ impl Evse {
         }
         self.state = EvseState::Measured;
         trace_event!(attenuation_db = mean, sounds = run.sounds, "sounding measured");
-        self.events.push(EvseEvent::Measured { mean_attenuation: mean, sounds: run.sounds });
+        self.note(EvseEvent::Measured { mean_attenuation: mean, sounds: run.sounds });
         let ind = AttenCharInd {
             source_address: run.pev_mac,
             run_id: run.id,
@@ -501,7 +529,11 @@ impl Evse {
         encode: impl Fn(&mut [u8]) -> Result<usize, SlacError>,
     ) {
         match frame(to, self.config.mac, mmtype, encode) {
-            Ok(out) => self.out.push(out),
+            Ok(out) => {
+                if self.out.len() < MAX_PENDING_FRAMES {
+                    self.out.push(out);
+                }
+            }
             // A message that cannot be built is a run that will stall; saying
             // so beats going quiet and letting the peer time out.
             Err(_) => self.fail(Reason::EncodingFailed),
@@ -510,6 +542,16 @@ impl Evse {
 
     fn arm(&mut self, now: Instant, after: Millis) {
         self.deadline = Some(now + after);
+    }
+
+    /// Queues an informational event, unless the caller has stopped draining.
+    ///
+    /// Terminal events do not go through here: a run has exactly one outcome,
+    /// and losing it would be worse than any flood.
+    fn note(&mut self, event: EvseEvent) {
+        if self.events.len() < MAX_PENDING_EVENTS {
+            self.events.push(event);
+        }
     }
 
     fn fail(&mut self, reason: Reason) {
@@ -593,6 +635,14 @@ pub struct Ev {
     /// `CM_START_ATTEN_CHAR.IND` repeats still to send.
     remaining_starts: u8,
     deadline: Option<Instant>,
+    /// When the window for collecting attenuation reports must close, however
+    /// many reports arrive inside it.
+    ///
+    /// A report shortens the wait — once one station has answered there is
+    /// little point waiting the full `TT_EV_atten_results` for others — but it
+    /// must never lengthen it. This is the ceiling that makes "shortens" true
+    /// in one direction only; see [`Ev::on_measurement`].
+    results_deadline: Option<Instant>,
     out: Vec<Outgoing>,
     events: Vec<EvEvent>,
 }
@@ -620,6 +670,7 @@ impl Ev {
             remaining_sounds: 0,
             remaining_starts: 0,
             deadline: None,
+            results_deadline: None,
             out: Vec::new(),
             events: Vec::new(),
         }
@@ -630,6 +681,7 @@ impl Ev {
         let req = SlacParmReq { run_id: self.config.run_id };
         self.queue(BROADCAST, Mmtype::SlacParmReq, |b| req.encode(b));
         self.state = EvState::Probing;
+        self.results_deadline = None;
         self.arm(now, Millis::from_millis(u64::from(timers::TT_MATCH_RESPONSE_MS)));
     }
 
@@ -650,9 +702,10 @@ impl Ev {
                 if cnf.run_id == self.config.run_id
                     && cnf.forwarding_sta == self.config.mac
                     && !self.answered.contains(&f.source)
+                    && self.answered.len() < MAX_STATIONS
                 {
                     self.answered.push(f.source);
-                    self.events.push(EvEvent::StationFound(f.source));
+                    self.note(EvEvent::StationFound(f.source));
                 }
             }
             Mmtype::AttenCharInd => {
@@ -712,7 +765,7 @@ impl Ev {
 
     fn on_measurement(&mut self, now: Instant, source: MacAddr, ind: &AttenCharInd) {
         let Some(mean) = ind.profile.mean_attenuation() else { return };
-        self.events.push(EvEvent::Measurement { evse_mac: source, mean_attenuation: mean });
+        self.note(EvEvent::Measurement { evse_mac: source, mean_attenuation: mean });
         if self.config.attenuation_limit.is_some_and(|limit| mean > limit) {
             // Audible, but not plausibly at the other end of this cable.
             return;
@@ -722,8 +775,23 @@ impl Ev {
             self.best = Some((source, ind.resp_id, mean));
         }
         if self.state == EvState::AwaitingMeasurements {
-            // Give any other station its chance to report before choosing.
-            self.arm(now, Millis::from_millis(u64::from(timers::TT_MATCH_RESPONSE_MS)));
+            // Give any other station its chance to report before choosing —
+            // but never past the end of the window opened when the sounding
+            // burst finished.
+            //
+            // Unclamped, this is a denial of service anyone on the segment can
+            // mount with one frame every `TT_match_response`: the run id, this
+            // vehicle's MAC and its `source_id` are all broadcast in the clear
+            // during sounding, so a forged `CM_ATTEN_CHAR.IND` costs nothing to
+            // make, and each one would push the choice further away. The
+            // vehicle would sit in `AwaitingMeasurements` for ever and never
+            // charge.
+            let next =
+                now.saturating_add(Millis::from_millis(u64::from(timers::TT_MATCH_RESPONSE_MS)));
+            self.deadline = Some(match self.results_deadline {
+                Some(end) if end < next => end,
+                _ => next,
+            });
         }
     }
 
@@ -795,8 +863,10 @@ impl Ev {
             return;
         }
         // The burst is over; the stations now have their measurements to send.
+        // `TT_EV_atten_results` is the whole of that window, fixed from here.
         self.state = EvState::AwaitingMeasurements;
         self.arm(now, Millis::from_millis(u64::from(timers::TT_EV_ATTEN_RESULTS_MS)));
+        self.results_deadline = self.deadline;
     }
 
     fn choose(&mut self, now: Instant) {
@@ -855,13 +925,27 @@ impl Ev {
         encode: impl Fn(&mut [u8]) -> Result<usize, SlacError>,
     ) {
         match frame(to, self.config.mac, mmtype, encode) {
-            Ok(out) => self.out.push(out),
+            Ok(out) => {
+                if self.out.len() < MAX_PENDING_FRAMES {
+                    self.out.push(out);
+                }
+            }
             Err(_) => self.fail(Reason::EncodingFailed),
         }
     }
 
     fn arm(&mut self, now: Instant, after: Millis) {
         self.deadline = Some(now + after);
+    }
+
+    /// Queues an informational event, unless the caller has stopped draining.
+    ///
+    /// Terminal events do not go through here: a run has exactly one outcome,
+    /// and losing it would be worse than any flood.
+    fn note(&mut self, event: EvEvent) {
+        if self.events.len() < MAX_PENDING_EVENTS {
+            self.events.push(event);
+        }
     }
 
     fn fail(&mut self, reason: Reason) {

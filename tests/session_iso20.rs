@@ -18,13 +18,13 @@
 
 #![cfg(all(feature = "iso20-dc", feature = "evcc", feature = "secc"))]
 
-use iso15118::Protocol;
 use iso15118::evcc::{self, Evcc, EvccConfig};
 use iso15118::iso20::common::{MessageHeader, Processing, RationalNumber, ResponseCode};
 use iso15118::iso20::{dc, messages as cm};
 use iso15118::message::Message;
 use iso15118::secc::{self, Secc, SeccConfig};
 use iso15118::session::{Instant, Millis, SessionId};
+use iso15118::{Protocol, Protocols};
 
 const SESSION_ID: SessionId = SessionId::new([0x3D, 0x4C, 0xBF, 0x93, 0x37, 0x4E, 0xD8, 0x9B]);
 const TIMESTAMP: u64 = 1_725_456_343;
@@ -51,9 +51,12 @@ struct Link {
 
 impl Link {
     fn new() -> Self {
-        let evcc = Evcc::new(EvccConfig { protocols: &[Protocol::Iso20], ..Default::default() });
+        let evcc = Evcc::new(EvccConfig {
+            protocols: Protocols::only(Protocol::Iso20),
+            ..Default::default()
+        });
         let mut secc = Secc::new(SeccConfig {
-            protocols: &[Protocol::Iso20],
+            protocols: Protocols::only(Protocol::Iso20),
             session_id: SESSION_ID,
             ..Default::default()
         });

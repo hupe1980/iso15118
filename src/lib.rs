@@ -104,6 +104,7 @@
 //! exi              schema-informed EXI: documents and fragments
 //! v2gtp  framing   sdp  discovery
 //! slac             HomePlug link setup + matching state machines
+//!                  protocol — which generation, cross-cutting
 //!                  pnc — Plug & Charge signatures, cross-cutting
 //! ```
 //!
@@ -126,6 +127,33 @@
 //! the input. A role driver needs a protocol to drive, so `secc` or `evcc` on
 //! their own compile and gate nothing.
 //!
+//! # Which generation, and how to say so
+//!
+//! "ISO 15118" names two incompatible protocols. [`Protocol`] is the one a
+//! session settled on; [`Protocols`] is the set a piece of equipment
+//! implements, which is a different question and the one a datasheet or a
+//! regulatory feed asks.
+//!
+//! [`Protocol::as_str`] gives a short stable name — `"din70121"`,
+//! `"iso15118-2"`, `"iso15118-20"` — and `FromStr` reads it back, so a
+//! charge-detail record, a metric label or a database column can hold the
+//! answer without every consumer inventing its own spelling. The generation is
+//! in the name on purpose: the vocabularies around this protocol are not so
+//! careful, and one of them carries legal weight. See [`protocol`].
+//!
+//! ```
+//! use iso15118::{Protocol, Protocols};
+//!
+//! assert_eq!(Protocol::Iso20.as_str(), "iso15118-20");
+//! assert_eq!("iso15118-2".parse(), Ok(Protocol::Iso2));
+//!
+//! // A whole set round-trips too — a configuration file's worth.
+//! let station: Protocols = "iso15118-20,iso15118-2".parse()?;
+//! assert_eq!(station, Protocols::ISO);
+//! assert_eq!(station.best(), Some(Protocol::Iso20));
+//! # Ok::<_, iso15118::ParseProtocolError>(())
+//! ```
+//!
 //! # Example: the protocol handshake
 //!
 //! The vehicle offers the protocols it speaks; the charger picks one. This is
@@ -138,12 +166,12 @@
 //! use iso15118::exi::ExiDocument;
 //!
 //! // EVCC: advertise -20 first, then -2 as a fallback.
-//! let req = SupportedAppProtocolReq::advertising(&[Protocol::Iso20, Protocol::Iso2]);
+//! let req = SupportedAppProtocolReq::advertising([Protocol::Iso20, Protocol::Iso2]);
 //! let on_the_wire = req.to_vec()?;
 //!
 //! // SECC: this charger only does ISO 15118-2.
 //! let req = SupportedAppProtocolReq::from_bytes(&on_the_wire)?;
-//! let agreed = req.negotiate(&[Protocol::Iso2]).expect("a protocol in common");
+//! let agreed = req.negotiate(Protocol::Iso2).expect("a protocol in common");
 //! assert_eq!(agreed.protocol, Protocol::Iso2);
 //!
 //! let res = SupportedAppProtocolRes::accept(agreed);
@@ -203,6 +231,9 @@ pub use generated::iso20;
 mod error;
 pub use error::{Error, Result};
 
+pub mod protocol;
+pub use protocol::{ParseProtocolError, Protocol, Protocols};
+
 #[macro_use]
 mod trace;
 
@@ -239,88 +270,3 @@ mod readme {}
 ///
 /// Session cores accept an override; this is only the default policy.
 pub const MAX_EXI_PAYLOAD_LEN: usize = 1024 * 1024;
-
-/// Which generation of the protocol a session is speaking.
-///
-/// The `supportedAppProtocol` handshake picks one of these, and it determines
-/// every grammar, payload type and state machine used afterwards.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[non_exhaustive]
-pub enum Protocol {
-    /// DIN SPEC 70121 — legacy DC charging, EIM only, no TLS.
-    ///
-    /// Recognised in the handshake so a charger can decline it explicitly
-    /// rather than by silence, but its message set is **not implemented**: the
-    /// DIN schemas are not freely available, and hand-transcribing them would
-    /// produce a codec with no reference to check against.
-    Din70121,
-    /// ISO 15118-2:2014.
-    Iso2,
-    /// ISO 15118-20:2022.
-    Iso20,
-}
-
-impl Protocol {
-    /// The XML namespace that identifies this protocol in the
-    /// `supportedAppProtocol` handshake.
-    #[must_use]
-    pub const fn namespace(self) -> &'static str {
-        match self {
-            Self::Din70121 => "urn:din:70121:2012:MsgDef",
-            Self::Iso2 => "urn:iso:15118:2:2013:MsgDef",
-            Self::Iso20 => "urn:iso:std:iso:15118:-20:CommonMessages",
-        }
-    }
-
-    /// Major/minor version numbers advertised alongside the namespace.
-    #[must_use]
-    #[allow(clippy::match_same_arms, reason = "one arm per protocol reads as a table")]
-    pub const fn version(self) -> (u32, u32) {
-        match self {
-            Self::Din70121 => (2, 0),
-            Self::Iso2 => (2, 0),
-            Self::Iso20 => (1, 0),
-        }
-    }
-
-    /// Recognises a protocol from its handshake namespace.
-    #[must_use]
-    pub fn from_namespace(ns: &str) -> Option<Self> {
-        [Self::Din70121, Self::Iso2, Self::Iso20].into_iter().find(|p| p.namespace() == ns)
-    }
-
-    /// Whether this protocol requires TLS unconditionally.
-    #[must_use]
-    pub const fn requires_tls(self) -> bool {
-        matches!(self, Self::Iso20)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn namespaces_round_trip() {
-        for p in [Protocol::Din70121, Protocol::Iso2, Protocol::Iso20] {
-            assert_eq!(Protocol::from_namespace(p.namespace()), Some(p));
-        }
-        assert_eq!(Protocol::from_namespace("urn:nope"), None);
-    }
-
-    #[test]
-    fn only_dash_20_mandates_tls() {
-        assert!(Protocol::Iso20.requires_tls());
-        assert!(!Protocol::Iso2.requires_tls());
-        assert!(!Protocol::Din70121.requires_tls());
-    }
-
-    #[test]
-    fn newer_protocols_sort_higher() {
-        // The SECC picks the most capable protocol both sides support, so the
-        // ordering here is load-bearing.
-        assert!(Protocol::Iso20 > Protocol::Iso2);
-        assert!(Protocol::Iso2 > Protocol::Din70121);
-    }
-}

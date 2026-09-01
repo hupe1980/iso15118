@@ -309,7 +309,8 @@ impl Message {
     ///
     /// Which session a message belongs to is not a per-message choice: the SECC
     /// assigns one id in `SessionSetupRes` and both sides repeat it until the
-    /// session ends \[V2G2-390\]. The session drivers stamp it through here so
+    /// session ends \[V2G2-747\], \[V2G2-752\]. The session drivers stamp it
+    /// through here so
     /// that an application building a response cannot get it wrong, and so that
     /// the id lives in exactly one place — see
     /// [`Secc::respond`](crate::secc::Secc::respond).
@@ -421,7 +422,7 @@ impl fmt::Display for MessageError {
                 "no decoder for V2GTP payload type {:#06x} under {}",
                 payload_type.as_u16(),
                 match protocol {
-                    Some(p) => p.namespace(),
+                    Some(p) => p.as_str(),
                     None => "an unnegotiated session",
                 }
             ),

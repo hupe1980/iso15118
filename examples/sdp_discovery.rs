@@ -35,7 +35,9 @@ fn main() -> io::Result<()> {
 
     // ISO 15118-20 mandates TLS; under -2 a vehicle doing Plug & Charge must
     // ask for it too. Asking for less and accepting less is the downgrade the
-    // engine reports as `Refused`.
+    // engine reports as `Refused` — along with an answer pointing off the
+    // link-local segment, which is the other way a passer-by on the powerline
+    // can send a vehicle somewhere it should not go.
     let mut discovery = Discovery::new(Request::TLS);
     let started = StdInstant::now();
     let now = |started: &StdInstant| {
@@ -46,7 +48,7 @@ fn main() -> io::Result<()> {
 
     discovery.start(now(&started));
 
-    while !discovery.is_finished() {
+    let outcome = 'discovery: loop {
         // 1. Whatever the engine wants on the wire, goes on the wire.
         if let Some(datagram) = discovery.poll_transmit() {
             socket.send_to(&datagram, group)?;
@@ -67,27 +69,37 @@ fn main() -> io::Result<()> {
             Err(e) => return Err(e),
         }
 
-        // 3. The engine says when it next needs the clock; nothing polls.
+        // 3. Events are polled *here*, not after the loop. A well-formed answer
+        //    the vehicle must not act on is reported and the run carries on —
+        //    otherwise one spoofed datagram from anything else on the segment
+        //    would end discovery before the real charger ever answered.
+        while let Some(event) = discovery.poll_event() {
+            match event {
+                Event::Refused { response, reason } => {
+                    eprintln!("ignoring [{}]:{} — {reason}", response.ipv6(), response.port);
+                }
+                terminal => break 'discovery terminal,
+            }
+        }
+
+        // 4. The engine says when it next needs the clock; nothing polls.
         if let Some(deadline) = discovery.poll_timeout() {
             let elapsed = now(&started);
             if deadline <= elapsed {
                 discovery.handle_timeout(elapsed);
             }
         }
-    }
+    };
 
-    match discovery.poll_event() {
-        Some(Event::Found(res)) => {
+    match outcome {
+        Event::Found(res) => {
             println!("charger at [{}]:{} ({:?})", res.ipv6(), res.port, res.security);
             println!("connect a TCP (or TLS) stream there and hand it to `Evcc`.");
         }
-        Some(Event::Refused(res)) => {
-            println!("[{}]:{} answered without TLS — refusing to charge", res.ipv6(), res.port);
+        Event::GaveUp { attempts } => {
+            println!("no usable answer to {attempts} requests on scope {scope_id}");
         }
-        Some(Event::GaveUp { attempts }) => {
-            println!("no charger answered {attempts} requests on scope {scope_id}");
-        }
-        None | Some(_) => unreachable!("a finished discovery has exactly one outcome"),
+        other => unreachable!("not a terminal outcome: {other:?}"),
     }
     Ok(())
 }

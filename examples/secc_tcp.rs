@@ -37,7 +37,7 @@ use iso15118::iso2::{
 use iso15118::message::Message;
 use iso15118::secc::{Close, Event, Secc, SeccConfig};
 use iso15118::session::{Instant, SessionId};
-use iso15118::{Protocol, iso2};
+use iso15118::{Protocol, Protocols, iso2};
 
 const LISTEN: &str = "127.0.0.1:15119";
 
@@ -60,7 +60,7 @@ fn serve(mut stream: TcpStream) -> std::io::Result<()> {
     let session_id = SessionId::new([0x3D, 0x4C, 0xBF, 0x93, 0x37, 0x4E, 0xD8, 0x9B]);
     let mut secc = Secc::new(SeccConfig {
         // -20 requires TLS, and this example has none, so it offers -2 only.
-        protocols: &[Protocol::Iso2],
+        protocols: Protocols::only(Protocol::Iso2),
         session_id,
         ..SeccConfig::default()
     });
@@ -100,7 +100,7 @@ fn serve(mut stream: TcpStream) -> std::io::Result<()> {
 
         while let Some(event) = secc.poll_event() {
             match event {
-                Event::ProtocolAgreed(p) => println!("speaking {p:?}"),
+                Event::ProtocolAgreed(p) => println!("speaking {p}"),
                 Event::Request(req) => {
                     println!("  <- {}", req.name());
                     let response = answer(&req);

@@ -52,7 +52,7 @@ use crate::session::{
     Timers,
 };
 use crate::trace::{trace_close, trace_event};
-use crate::{MAX_EXI_PAYLOAD_LEN, Protocol};
+use crate::{MAX_EXI_PAYLOAD_LEN, Protocol, Protocols};
 
 /// What a vehicle needs to know before it opens a session.
 #[derive(Debug, Clone)]
@@ -60,10 +60,15 @@ pub struct EvccConfig {
     /// Protocol generations this vehicle speaks, **most preferred first**.
     ///
     /// The order is the vehicle's priority, and the charger is required to
-    /// honour it, so it is a real choice and not a formality. Offering a
-    /// generation this build has no message set for — `Din70121`, or `Iso20`
-    /// without the `iso20` feature — ends the session if the charger picks it.
-    pub protocols: &'static [Protocol],
+    /// honour it, so it is a real choice and not a formality — which is why
+    /// this is an ordered set and the station's is not.
+    ///
+    /// A generation this build has no message set for — `Din70121`, or `Iso20`
+    /// without the `iso20` feature — is not advertised at all, rather than
+    /// advertised and then failed on. If that leaves nothing,
+    /// [`Evcc::start`] refuses to open the session; see
+    /// [`Flow::supports`](crate::session::Flow::supports).
+    pub protocols: Protocols,
     /// Ceiling on one V2GTP payload.
     pub max_payload_len: usize,
     /// From the connection opening to `SessionSetupRes`.
@@ -95,7 +100,7 @@ pub struct EvccConfig {
 impl Default for EvccConfig {
     fn default() -> Self {
         Self {
-            protocols: &[Protocol::Iso20, Protocol::Iso2],
+            protocols: Protocols::ISO,
             max_payload_len: MAX_EXI_PAYLOAD_LEN,
             setup_timeout: crate::session::timers::iso2::EVCC_COMMUNICATION_SETUP_TIMEOUT,
             message_timeout: None,
@@ -157,6 +162,12 @@ pub struct Evcc {
     flow: Option<Flow>,
     events: VecDeque<Event>,
     session_id: SessionId,
+    /// What `start` actually put in `supportedAppProtocolReq`.
+    ///
+    /// Not `config.protocols`: a configured generation with no message set in
+    /// this build is never advertised, and the charger's answer is a schema id
+    /// indexing into what *was*.
+    advertised: Protocols,
     /// The request that is waiting for an answer, by element name.
     outstanding: Option<&'static str>,
     /// True once `SessionSetupRes` has assigned the session id, after which
@@ -185,6 +196,7 @@ impl Evcc {
             flow: None,
             events: VecDeque::new(),
             session_id,
+            advertised: Protocols::new(),
             outstanding: None,
             established: false,
             phase: None,
@@ -194,8 +206,23 @@ impl Evcc {
 
     /// Opens the session: queues `supportedAppProtocolReq` and starts the
     /// communication-setup timer.
+    ///
+    /// Only the generations this build has a message set for are advertised.
+    /// Offering one and then being unable to speak it wastes the single
+    /// exchange that exists to settle the question, so the filtering happens
+    /// here rather than when the answer comes back. If it leaves nothing to
+    /// offer, this returns [`EvccError::NothingToOffer`] — a configuration
+    /// mistake, and one worth reporting before a socket is opened rather than
+    /// as a session that dies at the first message.
     pub fn start(&mut self, now: Instant) -> Result<(), EvccError> {
-        let req = SupportedAppProtocolReq::advertising(self.config.protocols);
+        let mut advertised = self.config.protocols;
+        advertised.retain(Flow::supports);
+        if advertised.is_empty() {
+            return Err(EvccError::NothingToOffer { configured: self.config.protocols });
+        }
+        trace_event!(protocols = %advertised, "advertising");
+        self.advertised = advertised;
+        let req = SupportedAppProtocolReq::advertising(advertised);
         self.conn.send(&Message::AppProtocolReq(Box::new(req)))?;
         self.timers.arm(Timer::CommunicationSetup, now, self.config.setup_timeout);
         self.timers.arm(
@@ -373,22 +400,25 @@ impl Evcc {
                 return Ok(());
             };
             // The charger echoes the schema id, not the namespace, so the
-            // vehicle has to remember which id it gave to which protocol.
-            let Some(protocol) =
-                self.config.protocols.get(usize::from(schema_id).wrapping_sub(1)).copied()
+            // vehicle has to remember which id it gave to which protocol. The
+            // lookup is against what was actually *advertised* and not against
+            // the configuration: the two differ whenever a configured
+            // generation had no message set in this build, and indexing the
+            // wrong one would map the charger's answer onto a protocol it never
+            // chose.
+            let Some(protocol) = self.advertised.iter().nth(usize::from(schema_id).wrapping_sub(1))
             else {
                 return Err(EvccError::UnknownSchemaId(schema_id));
             };
+            // Always `Some`: `start` advertised only what `Flow::supports`
+            // allows, and the id just resolved against that same set.
             let Some(flow) = Flow::new(protocol) else {
-                // The charger chose a generation this build cannot speak. It
-                // was offered, so this is a configuration mistake rather than a
-                // hostile answer — but the session still cannot continue.
                 self.close(Close::NoCommonProtocol);
                 return Ok(());
             };
             self.conn.set_protocol(protocol);
             self.flow = Some(flow);
-            trace_event!(protocol = ?protocol, "protocol agreed");
+            trace_event!(protocol = %protocol, "protocol agreed");
             self.events.push_back(Event::ProtocolAgreed(protocol));
             return Ok(());
         }
@@ -396,7 +426,7 @@ impl Evcc {
         // The charger assigns the session id in `SessionSetupRes`; every later
         // message must carry that same id, and the setup budget stops there.
         // A charger that changes it mid-session is either confused or is not
-        // the charger the session started with. \[V2G2-390\]
+        // the charger the session started with. \[V2G2-751\]
         //
         // "Has one been assigned yet" is its own flag rather than
         // `session_id.is_none()`, because the two are not the same question: a
@@ -549,6 +579,16 @@ pub enum EvccError {
     },
     /// The charger accepted a schema id the vehicle never offered.
     UnknownSchemaId(u8),
+    /// [`EvccConfig::protocols`] named no generation this build can speak, so
+    /// there is nothing to put in `supportedAppProtocolReq`.
+    ///
+    /// A configuration mistake rather than anything the charger did — the
+    /// session has not started, and no bytes have been queued.
+    NothingToOffer {
+        /// What was configured, before the build's message sets narrowed it to
+        /// nothing.
+        configured: Protocols,
+    },
     /// The charger answered something other than the outstanding request, or
     /// answered when nothing was outstanding.
     UnexpectedResponse {
@@ -605,6 +645,10 @@ impl fmt::Display for EvccError {
             Self::UnknownSchemaId(id) => {
                 write!(f, "the charger chose schema id {id}, which was never offered")
             }
+            Self::NothingToOffer { configured } => write!(
+                f,
+                "none of the configured protocols ({configured}) has a message set in this build"
+            ),
             Self::UnexpectedResponse { expected: Some(req), got } => {
                 write!(f, "{got} arrived while {req} was outstanding")
             }

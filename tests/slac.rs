@@ -561,3 +561,175 @@ fn nothing_a_bystander_can_send_disturbs_a_run() {
     medium.run();
     assert!(medium.stations[0].is_matched());
 }
+
+/// The measurement window must be bounded from when it opened, not from the
+/// last thing that arrived.
+///
+/// Everything a forged `CM_ATTEN_CHAR.IND` needs — the run id, the vehicle's
+/// MAC and its `source_id` — is broadcast in the clear during sounding, so
+/// anyone on the segment can make one. If each accepted report pushed the
+/// choice further out, one frame every `TT_match_response` would hold the
+/// vehicle in `AwaitingMeasurements` for ever and it would never charge.
+#[test]
+fn a_flood_of_measurements_cannot_postpone_the_choice_for_ever() {
+    use iso15118::slac::{AttenCharInd, Mmtype, Mmv, SlacParmCnf, write_frame};
+
+    let mut payload = [0u8; 192];
+    let mut wire = [0u8; 256];
+    let mut ev = ev();
+    let mut now = Instant::ZERO;
+    ev.start(now);
+    while ev.poll_transmit().is_some() {}
+
+    // One station answers the probe, so the run gets as far as sounding.
+    let cnf = SlacParmCnf {
+        m_sound_target: [0xff; 6],
+        num_sounds: 10,
+        timeout: 6,
+        resp_type: 0x01,
+        forwarding_sta: EV_MAC,
+        run_id: RUN_ID,
+    };
+    let n = cnf.encode(&mut payload).unwrap();
+    let len =
+        write_frame(&mut wire, EV_MAC, NEAR_MAC, Mmv::Av1_1, Mmtype::SlacParmCnf, &payload[..n])
+            .unwrap();
+    ev.handle_frame(now, &wire[..len]);
+
+    // Run the clock until the sounding burst is over. The window that opens
+    // then is `TT_EV_atten_results`, which is far longer than the 40 ms pace of
+    // the burst — so a deadline a second or more out is how it announces itself.
+    let window_end = loop {
+        let next = ev.poll_timeout().expect("the run is still waiting on something");
+        now = next.max(now + Millis::from_millis(1));
+        ev.handle_timeout(now);
+        while ev.poll_transmit().is_some() {}
+        while ev.poll_event().is_some() {}
+        if let Some(d) = ev.poll_timeout()
+            && d.saturating_duration_since(now).as_millis() >= 1_000
+        {
+            break d;
+        }
+        assert!(now.as_millis() < 30_000, "the run never reached the attenuation-report stage");
+    };
+
+    // The forgery: a well-formed report for this run, from a bystander, quieter
+    // than anything real so it is tempting, repeated just inside
+    // `TT_match_response` for as long as anyone will listen.
+    let ind = AttenCharInd {
+        source_address: EV_MAC,
+        run_id: RUN_ID,
+        source_id: station_id(b'V'),
+        resp_id: station_id(0x99),
+        num_sounds: 10,
+        profile: flat(1),
+    };
+    let n = ind.encode(&mut payload).unwrap();
+    let len =
+        write_frame(&mut wire, EV_MAC, FAR_MAC, Mmv::Av1_1, Mmtype::AttenCharInd, &payload[..n])
+            .unwrap();
+
+    let mut chose = false;
+    for _ in 0..200 {
+        now = now + Millis::from_millis(150); // comfortably inside TT_match_response
+        ev.handle_frame(now, &wire[..len]);
+        ev.handle_timeout(now);
+        if ev.poll_transmit().is_some() {
+            // `CM_ATTEN_CHAR.RSP` and `CM_SLAC_MATCH.REQ`: the choice was made.
+            chose = true;
+            break;
+        }
+        while ev.poll_event().is_some() {}
+        if now.as_millis() > window_end.as_millis() + 2_000 {
+            break;
+        }
+    }
+
+    assert!(chose, "the vehicle never chose a station");
+    assert!(
+        now.as_millis() <= window_end.as_millis() + 200,
+        "the collection window was pushed past TT_EV_atten_results by forged reports: \
+         chose at {} ms, window ended at {} ms",
+        now.as_millis(),
+        window_end.as_millis()
+    );
+}
+
+/// The list of stations that answered is bounded.
+///
+/// The source MAC of a `CM_SLAC_PARM.CNF` is an unauthenticated Ethernet header
+/// field, so without a ceiling every distinct forged value costs another entry
+/// for the life of the run. Bounding it is safe because the list is
+/// informational: the winner is decided by attenuation, not by this.
+#[test]
+fn the_station_list_cannot_be_grown_without_bound() {
+    use iso15118::slac::matching::MAX_STATIONS;
+    use iso15118::slac::{Mmtype, Mmv, SlacParmCnf, write_frame};
+
+    let mut ev = ev();
+    ev.start(Instant::ZERO);
+    while ev.poll_transmit().is_some() {}
+
+    let mut payload = [0u8; 192];
+    let mut wire = [0u8; 256];
+    for i in 0..u32::try_from(MAX_STATIONS).unwrap() + 200 {
+        let cnf = SlacParmCnf {
+            m_sound_target: [0xff; 6],
+            num_sounds: 10,
+            timeout: 6,
+            resp_type: 0x01,
+            forwarding_sta: EV_MAC,
+            run_id: RUN_ID,
+        };
+        let n = cnf.encode(&mut payload).unwrap();
+        let mut from = FAR_MAC;
+        from[2..6].copy_from_slice(&i.to_be_bytes());
+        let len =
+            write_frame(&mut wire, EV_MAC, from, Mmv::Av1_1, Mmtype::SlacParmCnf, &payload[..n])
+                .unwrap();
+        ev.handle_frame(Instant::ZERO, &wire[..len]);
+    }
+    assert_eq!(ev.stations().len(), MAX_STATIONS);
+    assert!(
+        core::iter::from_fn(|| ev.poll_event()).count() <= MAX_STATIONS,
+        "one event per forged station, without limit"
+    );
+}
+
+/// A repeated request is answered again — and cannot grow either queue without
+/// bound.
+///
+/// ISO 15118-3 has the vehicle repeat `CM_SLAC_PARM.REQ` when the confirmation
+/// is lost, and the station must answer it again, so the repeat is legitimate
+/// traffic. But `CM_SLAC_PARM.REQ` is a broadcast that anything on the segment
+/// can send, so "answer it again" must not mean "queue without limit".
+#[test]
+fn a_repeated_request_cannot_grow_the_queues_without_bound() {
+    use iso15118::slac::matching::MAX_PENDING_EVENTS;
+    use iso15118::slac::{Mmtype, Mmv, SlacParmReq, write_frame};
+
+    let mut station = evse(NEAR_MAC, 0x11);
+    let mut payload = [0u8; 192];
+    let mut wire = [0u8; 256];
+    let n = SlacParmReq { run_id: RUN_ID }.encode(&mut payload).unwrap();
+    let len =
+        write_frame(&mut wire, NEAR_MAC, EV_MAC, Mmv::Av1_1, Mmtype::SlacParmReq, &payload[..n])
+            .unwrap();
+
+    let mut started = 0;
+    let mut answers = 0;
+    for _ in 0..50 {
+        station.handle_frame(Instant::ZERO, &wire[..len]);
+        while station.poll_transmit().is_some() {
+            answers += 1;
+        }
+        started += core::iter::from_fn(|| station.poll_event())
+            .filter(|e| matches!(e, EvseEvent::RunStarted(_)))
+            .count();
+    }
+    assert!(answers >= 16, "each retry gets its confirmation, up to the queue bound");
+    assert!(
+        started <= MAX_PENDING_EVENTS,
+        "a peer that repeats one broadcast must not set the event queue's length: {started}"
+    );
+}

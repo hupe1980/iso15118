@@ -25,7 +25,7 @@ use iso15118::iso2::{
 };
 use iso15118::message::Message;
 use iso15118::session::Instant;
-use iso15118::{Protocol, iso2};
+use iso15118::{Protocol, Protocols, iso2};
 
 const CONNECT: &str = "127.0.0.1:15119";
 
@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut evcc = Evcc::new(EvccConfig {
         // Most preferred first: the station is required to honour the order.
-        protocols: &[Protocol::Iso2],
+        protocols: Protocols::only(Protocol::Iso2),
         ..EvccConfig::default()
     });
 
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Some(event) = evcc.poll_event() {
             match event {
                 Event::ProtocolAgreed(p) => {
-                    println!("speaking {p:?}");
+                    println!("speaking {p}");
                     awaiting = false;
                 }
                 Event::Response(res) => {

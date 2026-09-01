@@ -38,7 +38,7 @@ nothing, because with no message set there is no flow.
 
 | Flag | Effect |
 |---|---|
-| `iso2` | ISO 15118-2:2014 — all 34 body messages. |
+| `iso2` | ISO 15118-2:2014 — all 34 body messages, the ordering graph and the charging-profile rule. |
 | `iso20` | Shorthand for all four -20 schema sets. |
 | `iso20-common` | ISO 15118-20 `CommonMessages`. Implied by each of the four below. |
 | `iso20-ac` | AC charging. |
@@ -72,7 +72,7 @@ CPU, and every test, would otherwise have to write itself.
 
 | Flag | Effect |
 |---|---|
-| `serde` | `Serialize`/`Deserialize` on the message types and the session state. What -20 pause and resume across a power cycle needs. |
+| `serde` | `Serialize`/`Deserialize` on the message types and the session state — what -20 pause and resume across a power cycle needs. `Protocol` and `Protocols` serialise as their stable short names, so serde, `Display` and a hand-written `match` produce one spelling. |
 | `tracing` | Structured spans and events from the protocol engines. |
 
 ## Compiling only what you need

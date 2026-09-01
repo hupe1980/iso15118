@@ -85,6 +85,12 @@ friendlier one.
 | **PnC** | Plug & Charge — authenticating with a contract certificate instead of a card. |
 | **BPT** | Bidirectional Power Transfer — the vehicle discharging back to the grid. |
 
+One term the vocabulary is careless about is the protocol's own name. "ISO 15118"
+covers two incompatible generations, and this crate never writes it without one:
+`Protocol::as_str()` is `"iso15118-2"` or `"iso15118-20"`, never a bare
+`"iso15118"`, and it refuses to parse one. See
+[Getting started](@/docs/getting-started.md#recording-which-generation-you-spoke).
+
 ## A note on scope
 
 The engines own **framing, decoding, the handshake, session-id stamping and checking, message

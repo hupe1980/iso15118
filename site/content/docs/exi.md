@@ -152,7 +152,7 @@ use iso15118::exi::{Decoder, Encoder, ExiDocument, Header};
 use iso15118::app_protocol::SupportedAppProtocolReq;
 use iso15118::Protocol;
 
-let req = SupportedAppProtocolReq::advertising(&[Protocol::Iso20, Protocol::Iso2]);
+let req = SupportedAppProtocolReq::advertising([Protocol::Iso20, Protocol::Iso2]);
 let bytes = req.to_vec()?;
 assert_eq!(bytes[0], 0x80, "the ISO 15118 EXI header is a single byte");
 assert_eq!(SupportedAppProtocolReq::from_bytes(&bytes)?, req);

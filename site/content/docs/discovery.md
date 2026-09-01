@@ -92,20 +92,42 @@ crate surfaces the two outcomes as different events so the decision cannot be
 made by accident:
 
 ```rust
-use iso15118::sdp::{Discovery, Event, Request};
+use iso15118::sdp::{Discovery, Event, Refusal, Request};
 use iso15118::session::Instant;
 
 let mut d = Discovery::new(Request::TLS);
 d.start(Instant::ZERO);
 
-// ...feed datagrams with `handle_datagram`, then:
+// ...feed datagrams with `handle_datagram`, polling events each time round:
 match d.poll_event() {
     Some(Event::Found(res)) => { /* connect to res.ipv6():res.port */ }
-    Some(Event::Refused(_)) => { /* the charger offered less security */ }
-    Some(Event::GaveUp { attempts }) => { /* nothing answered */ }
+    Some(Event::Refused { response, reason }) => { /* logged; the run continues */ }
+    Some(Event::GaveUp { attempts }) => { /* nothing usable answered */ }
     None => {}
 }
 ```
+
+### Three ways an answer can be unusable
+
+`Refusal` names which, because the three call for different things:
+
+| Reason | What happened |
+|---|---|
+| `SecurityDowngrade` | Less transport security than the request asked for. |
+| `TransportMismatch` | A different transport protocol than the request asked for. |
+| `OffLink` | An address that is not link-local. |
+
+`OffLink` is the one that needs a word. ISO 15118 runs over an IPv6 link-local
+segment brought up by SLAAC on the charging cable, with no router on it, so a
+station's own address is in `fe80::/10`. An answer naming anything else names
+somewhere this vehicle has no protocol reason to connect to — and SDP is an
+unauthenticated multicast, so *anything on the segment can send one*. Refused by
+default; a test rig on an ordinary LAN says `allow_off_link(true)`, deliberately
+and visibly.
+
+Two addresses never get that far: the codec refuses the unspecified address (`::`)
+and any multicast group outright, for the same reason it refuses port `0` — those
+are not endpoints, and no caller could act on one.
 
 ### The retry engine
 
@@ -122,3 +144,16 @@ here, so you own the socket and the clock.
 A datagram that is not a well-formed response is an error but **not** the end of
 discovery: the request went to a multicast group, so anything on the link can
 answer, and one bad answer must not stop the vehicle waiting for a good one.
+
+**Neither is a well-formed answer the vehicle must not act on.** Only a *usable*
+answer ends the run. This is the whole of the difference between reporting a bad
+answer and obeying one: if the first answer to arrive were the last, a single
+spoofed datagram — a TLS downgrade, or an address pointing off the link — would
+stop the vehicle from ever hearing the station it is plugged into. One packet,
+and the charge does not happen.
+
+So a refusal leaves the deadline armed and the attempt counter untouched, exactly
+as if the datagram had never arrived, and the caller polls for events *inside*
+its loop rather than only after it. The engine holds one unread event: a terminal
+one always displaces a refusal, and a refusal never displaces anything, so a
+flood cannot push the real outcome out before the caller reads it.

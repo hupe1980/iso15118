@@ -144,6 +144,66 @@ Whether an arriving id names a resumable session is stored state — a schedule,
 authorization, an energy reading — that the protocol core does not hold. So that
 call is the application's, and the core does not pretend otherwise.
 
+## The charging profile has to fit the schedule
+
+Ordering is not the only rule the standard states and both sides need. When the
+vehicle sends `PowerDeliveryReq` it picks one of the `SAScheduleTuple`s the
+station offered and states, as a `ChargingProfile`, the power it intends to draw
+over time.
+
+| | |
+|---|---|
+| \[V2G2-224\] | the SECC **shall always accept** a profile that does not exceed the `PMax` of every entry of the chosen tuple |
+| \[V2G2-225\] | and **shall answer `FAILED_ChargingProfileInvalid`** to one that does |
+| \[V2G2-479\] | `FAILED_TariffSelectionInvalid` if the `SAScheduleTupleID` was never offered |
+
+The station does not *decide* whether a profile conforms — arithmetic does — so
+this is protocol, and it lives in `session::iso2::schedule`. Without it,
+`ResponseCode::FAILEDChargingProfileInvalid` is a value the crate can name and no
+caller can know when to send.
+
+```rust
+match schedule::check_power_delivery(&offered, &req) {
+    Ok(()) => { /* [V2G2-224]: this one must be accepted */ }
+    // Every error names the code the standard prescribes, and `is_local_fault`
+    // says whether the schedule *we* offered was the malformed one.
+    Err(e) => respond(failure(e.response_code())),
+}
+```
+
+Both sides measure from the same origin and are step functions over it, with
+breakpoints that need not line up:
+
+```text
+offered   |<-- PMax A -->|<------ PMax B ------>|<-- PMax C -->|
+          0             300                   1800           3600   (duration)
+
+profile   |<--- P1 --->|<-------- P2 -------->|<------- P3 ------->  (open)
+          0           240                    1500
+```
+
+A `PMaxScheduleEntry`'s `start` is seconds from NOW and is also the stop of the
+interval before it \[V2G2-328\], \[V2G2-329\]; only the last may carry a
+`duration`, which ends the coverage \[V2G2-331\]. A `ChargingProfileEntryStart`
+is an offset from the same NOW, the next start is when this entry stops, and the
+last runs on until the profile is replaced \[V2G2-289\]..\[V2G2-291\].
+
+Two details decide whether the arithmetic is right. The multiplier is a power of
+ten — `1100` with multiplier `1` is 11 kW — so comparison is in exact integer
+milliwatts and no floating point goes near a decision that ends a session. And
+the unit is checked rather than assumed: `PMax` is watts \[V2G2-832\], and 32 A
+and 32 W are the same integer.
+
+Where the schedule states no limit there is nothing to exceed and nothing fails.
+A profile routinely runs past the coverage, and ISO 15118-2 handles that by having
+the vehicle ask for a new schedule \[V2G2-305\]; `schedule::coverage` reports
+where the edge is.
+
+`Secc` deliberately does not do this for you. Keeping the `SAScheduleList` would
+cost the session state the property that makes pause and resume cheap — that a
+snapshot holds no buffers — and your application built the schedule, so it already
+has it.
+
 ## Timers
 
 Every constant cites the requirement it comes from, and where ISO 15118-2 and -20

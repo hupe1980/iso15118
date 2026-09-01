@@ -59,10 +59,10 @@ Answering them is your job, because the answer is a charging decision.
 use iso15118::message::Message;
 use iso15118::secc::{Event, Secc, SeccConfig, SeccError};
 use iso15118::session::{Instant, SessionId};
-use iso15118::Protocol;
+use iso15118::Protocols;
 
 let mut secc = Secc::new(SeccConfig {
-    protocols: &[Protocol::Iso20, Protocol::Iso2],
+    protocols: Protocols::ISO,                         // -20 and -2, whichever wins
     session_id: SessionId::new(random_session_id()),   // must be unpredictable
     ..SeccConfig::default()
 });
@@ -75,7 +75,7 @@ loop {
     while let Some(event) = secc.poll_event() {
         match event {
             // The handshake is pure protocol; the answer is already queued.
-            Event::ProtocolAgreed(p) => println!("speaking {p:?}"),
+            Event::ProtocolAgreed(p) => println!("speaking {p}"),   // "iso15118-20"
             // This is where your charging station lives.
             Event::Request(req) => secc.respond(now(), my_logic(&req)?)?,
             // Out of sequence: answer with `response_code`, then it is over.
@@ -141,11 +141,12 @@ vehicle accepts requests to be sent and surfaces the answers.
 
 ```rust,no_run
 use iso15118::evcc::{Evcc, EvccConfig, Event};
-use iso15118::Protocol;
+use iso15118::{Protocol, Protocols};
 
 let mut evcc = Evcc::new(EvccConfig {
     // Most preferred first — the charger is required to honour the order.
-    protocols: &[Protocol::Iso20, Protocol::Iso2],
+    // (`Protocols::ISO` is exactly this pair, in this order.)
+    protocols: Protocols::new().with(Protocol::Iso20).with(Protocol::Iso2),
     ..EvccConfig::default()
 });
 evcc.start(now())?;                       // queues supportedAppProtocolReq
@@ -157,6 +158,17 @@ evcc.request(now(), session_setup_req())?;
 `Evcc::request` checks the ordering rules **before** the request reaches the
 wire. A charger would answer `FAILED_SequenceError` and drop the session; finding
 out locally, synchronously, with the offending message in hand, is better.
+
+<div class="note">
+<span class="note-title">What you configure is not always what goes on the wire</span>
+Both sides narrow their configured set to the generations this build has a message
+set for, <em>before</em> the handshake rather than after it. So a station
+configured for <code>[din70121, iso15118-2]</code> meeting a vehicle that prefers
+DIN still agrees on ISO 15118-2, rather than letting DIN win and then finding
+there is no codec for it. A vehicle never advertises what it cannot speak, and
+<code>Evcc::start</code> reports <code>NothingToOffer</code> if that leaves
+nothing to offer.
+</div>
 
 ## Run it
 
@@ -172,6 +184,31 @@ cargo run --example sdp_discovery -- eth0
 And `tests/session.rs` runs a complete **DC** session — handshake, setup, service
 discovery, authorization, cable check, pre-charge, charge loop, welding detection,
 shutdown — through both engines with no I/O at all and time as a variable.
+
+## Recording which generation you spoke
+
+`Event::ProtocolAgreed` carries a `Protocol`, and it has a short stable name for
+the places a protocol gets written down — a charge-detail record, a log line, a
+metric label, a database column:
+
+```rust
+use iso15118::{Protocol, Protocols};
+
+assert_eq!(Protocol::Iso20.as_str(), "iso15118-20");
+assert_eq!(Protocol::Iso20.title(), "ISO 15118-20:2022");
+assert_eq!("iso15118-2".parse(), Ok(Protocol::Iso2));   // ...and back again
+
+// `Protocols` is the set form, printed and parsed as one comma-separated token,
+// so a supported set can live in a config file or an environment variable.
+let station: Protocols = "iso15118-20,iso15118-2".parse()?;
+assert_eq!(station.best(), Some(Protocol::Iso20));
+```
+
+Every name says which generation, and a bare `"iso15118"` does not parse. That is
+not fussiness: the DATEX II profile European operators publish for AFIR
+compliance spells its literal `iso15118`, means ISO 15118-**20** by it, and has no
+literal for ISO 15118-2 at all — so a name without a generation is one somebody
+downstream has to guess at.
 
 ## What you still have to bring
 

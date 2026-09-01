@@ -16,7 +16,9 @@ In practice that means one of:
 
 - `scripts/verify-grammars.sh` and `scripts/verify-messages.sh` still pass;
 - a new golden vector captured from another implementation;
-- a citation to the requirement in ISO 15118 or in EXI 1.0.
+- a citation to the requirement in ISO 15118 or in EXI 1.0 — checked against the
+  text, not written from memory. A citation nobody can check is worth less than
+  none.
 
 ## Before opening a pull request
 
@@ -46,6 +48,13 @@ If you touched a decoder, give the fuzzer a few minutes:
 cargo +nightly fuzz run <target> fuzz/corpus/<target> fuzz/seeds/<target> -- -max_total_time=60
 ```
 
+The fuzz crate is not in the workspace, so `cargo check` will not tell you a
+target has stopped compiling against an API change. `cd fuzz && cargo check
+--all-targets` will.
+
+Anything a user would notice — an API change, a fixed defect, a new rule — gets an
+entry in `CHANGELOG.md` under the unreleased heading.
+
 ## Generated code
 
 `src/generated/` is committed but is **not** edited by hand. The generator in
@@ -63,7 +72,10 @@ A change there belongs in the generator.
   invented citation is worse than an honest gap.
 - Comments explain *why*, not *what*. The protocol is full of decisions that look
   arbitrary until you know which field failure they prevent; those are the ones
-  worth writing down.
+  worth writing down — briefly. A paragraph that does not change what a reader
+  does is one to cut.
+- Documentation describes what the crate is now, never how it got there. Findings,
+  fixes and "what a later pass found" belong in `CHANGELOG.md`.
 
 ## The documentation site
 

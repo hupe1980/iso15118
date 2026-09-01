@@ -37,7 +37,7 @@ pub const MAX_PENDING_FRAMES: usize = 4;
 /// use iso15118::session::Connection;
 ///
 /// let mut evcc = Connection::new();
-/// let req = SupportedAppProtocolReq::advertising(&[Protocol::Iso20]);
+/// let req = SupportedAppProtocolReq::advertising([Protocol::Iso20]);
 /// evcc.send(&Message::AppProtocolReq(Box::new(req)))?;
 /// let wire = evcc.take_transmit();
 ///
@@ -183,8 +183,40 @@ impl Connection {
     /// `Ok(None)` means "not yet, read more". An error means the frame did not
     /// hold a message this session can decode.
     pub fn next_message(&mut self) -> Result<Option<Message>, ConnectionError> {
-        let Some((payload_type, payload)) = self.frames.pop_front() else { return Ok(None) };
+        let Some((payload_type, payload)) = self.next_frame() else { return Ok(None) };
         Ok(Some(Message::decode(self.protocol, payload_type, &payload)?))
+    }
+
+    /// Takes the next complete frame without decoding it.
+    ///
+    /// The same reassembly and the same limits as
+    /// [`Connection::next_message`], stopping one layer short: a payload type
+    /// and the bytes under it. `None` means "not yet, read more".
+    ///
+    /// This is the seam for a message set this crate does not have. The
+    /// reassembly, the attacker-controlled length field and both ceilings are
+    /// identical for every generation, so a consumer with its own DIN SPEC
+    /// 70121 codec can drive this and supply only the message set.
+    ///
+    /// ```
+    /// use iso15118::session::Connection;
+    /// use iso15118::v2gtp::PayloadType;
+    ///
+    /// let mut conn = Connection::new();
+    /// conn.send_frame(PayloadType::ExiEncodedV2gMessage, b"not ours to decode")?;
+    /// let wire = conn.take_transmit();
+    ///
+    /// let mut peer = Connection::new();
+    /// peer.receive(&wire)?;
+    /// assert_eq!(
+    ///     peer.next_frame(),
+    ///     Some((PayloadType::ExiEncodedV2gMessage, b"not ours to decode".to_vec())),
+    /// );
+    /// # Ok::<_, iso15118::session::ConnectionError>(())
+    /// ```
+    #[must_use]
+    pub fn next_frame(&mut self) -> Option<(PayloadType, Vec<u8>)> {
+        self.frames.pop_front()
     }
 
     /// Queues a message for the wire.
@@ -194,11 +226,25 @@ impl Connection {
     /// once, and only once, the bytes actually exist.
     pub fn send(&mut self, message: &Message) -> Result<(), ConnectionError> {
         let (payload_type, payload) = message.encode()?;
+        self.send_frame(payload_type, &payload)
+    }
+
+    /// Queues an already-encoded payload for the wire, under `payload_type`.
+    ///
+    /// The sending half of [`Connection::next_frame`], and subject to the same
+    /// `max_payload_len` ceiling — which is checked here rather than left to
+    /// the caller, because a payload too large to send is also one the peer
+    /// will refuse to receive.
+    pub fn send_frame(
+        &mut self,
+        payload_type: PayloadType,
+        payload: &[u8],
+    ) -> Result<(), ConnectionError> {
         if payload.len() > self.max_payload_len {
             return Err(ConnectionError::Overflow { limit: self.max_payload_len });
         }
         let mut frame = alloc::vec![0u8; v2gtp::HEADER_LEN + payload.len()];
-        let n = v2gtp::write_frame(payload_type, &payload, &mut frame)
+        let n = v2gtp::write_frame(payload_type, payload, &mut frame)
             .map_err(ConnectionError::Framing)?;
         self.tx.extend(frame[..n].iter().copied());
         Ok(())
@@ -300,7 +346,7 @@ mod tests {
     use crate::app_protocol::SupportedAppProtocolReq;
 
     fn handshake() -> Message {
-        Message::AppProtocolReq(Box::new(SupportedAppProtocolReq::advertising(&[
+        Message::AppProtocolReq(Box::new(SupportedAppProtocolReq::advertising([
             Protocol::Iso20,
             Protocol::Iso2,
         ])))

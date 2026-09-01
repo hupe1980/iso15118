@@ -85,7 +85,7 @@ ordering and every spec timer. Your code owns the charging decisions.
 use iso15118::message::Message;
 use iso15118::secc::{Event, Secc, SeccConfig, SeccError};
 use iso15118::session::{Instant, SessionId};
-use iso15118::Protocol;
+use iso15118::Protocols;
 # use std::io::{Read, Write};
 # fn now() -> Instant { Instant::ZERO }
 # fn random_session_id() -> [u8; 8] { [0; 8] }
@@ -94,7 +94,7 @@ use iso15118::Protocol;
 # fn run(stream: &mut std::net::TcpStream) -> Result<(), Box<dyn std::error::Error>> {
 # let mut buf = [0u8; 4096];
 let mut secc = Secc::new(SeccConfig {
-    protocols: &[Protocol::Iso20, Protocol::Iso2],
+    protocols: Protocols::ISO,                         // -20 and -2, whichever wins
     session_id: SessionId::new(random_session_id()),   // must be unpredictable
     ..SeccConfig::default()
 });
@@ -107,7 +107,7 @@ loop {
     while let Some(event) = secc.poll_event() {
         match event {
             // The handshake is pure protocol; the answer is already queued.
-            Event::ProtocolAgreed(p) => println!("speaking {p:?}"),
+            Event::ProtocolAgreed(p) => println!("speaking {p}"),   // "iso15118-20"
             // This is where your charging station lives.
             Event::Request(req) => secc.respond(now(), my_logic(&req)?)?,
             // Out of sequence: answer with `response_code`, then it is over.
@@ -132,6 +132,39 @@ same way from the vehicle's side — it answers with `request` rather than
 cargo run --example secc_tcp     # a minimal charging station
 cargo run --example evcc_tcp     # ...and a car that charges from it
 ```
+
+## 🏷️ Which generation
+
+"ISO 15118" names two incompatible protocols, and the vocabularies around it are
+careless about which — DATEX II's `VehicleToGridCommunicationTypeEnum`, which
+European operators publish for AFIR compliance, spells its literal `iso15118`,
+means ISO 15118-**20** by it, and has no literal for ISO 15118-2 at all.
+
+So every name this crate emits says the generation, and it will not parse one that
+does not.
+
+```rust
+use iso15118::{Protocol, Protocols};
+
+// A short stable name for a CDR, a log line, a metric label, a database column.
+assert_eq!(Protocol::Iso20.as_str(), "iso15118-20");
+assert_eq!(Protocol::Iso20.title(), "ISO 15118-20:2022");
+assert_eq!("iso15118-2".parse(), Ok(Protocol::Iso2));
+
+// ...and it round-trips, so a value written under one release parses under the next.
+let speaks: Protocols = "iso15118-20,iso15118-2".parse()?;
+assert_eq!(speaks, Protocols::ISO);
+assert_eq!(speaks.best(), Some(Protocol::Iso20));   // the newest it implements
+
+// A bare "iso15118" is refused rather than guessed at, and says why.
+let err = "iso15118".parse::<Protocol>().unwrap_err();
+assert!(err.generation_omitted());
+# Ok::<_, iso15118::ParseProtocolError>(())
+```
+
+`Protocol` is what a session negotiated; `Protocols` is what a piece of equipment
+*implements* — a `Copy`, allocation-free set, and also what an EVCC offers and an
+SECC accepts. A regulation binds a charge point by the second, whoever plugs in.
 
 ## 📨 Messages
 
@@ -167,18 +200,21 @@ assert_eq!(SessionStopReq::from_bytes(&bytes)?, req);
 | **SLAC** (ISO 15118-3) | frame codec with every layout pinned byte for byte, timers, and the matching state machine for both roles |
 | **ISO 15118-2** message set | all 34 body messages, `ds:Signature` included |
 | **ISO 15118-20** message sets | `CommonMessages`, AC, DC, WPT, ACDP |
-| **Session layer** | clock, spec timers and loop budgets, ordering graphs for both generations |
+| **Session layer** | clock, spec timers and loop budgets, ordering graphs for both generations, and the ISO 15118-2 rule that a charging profile must fit the schedule it was offered — with the `ResponseCode` the standard prescribes |
 | **EVCC / SECC drivers** | handshake, sequencing, session-id stamping and checking, half-duplex in both directions, pause and resume — with a whole DC session per generation as an end-to-end test |
+| **Protocol identity** | `Protocol` / `Protocols` with stable short names, `Display`, `FromStr` and serde that all agree on one spelling |
 | **Plug & Charge signatures** | XMLDSig over EXI fragments, build and verify, algorithm restrictions enforced, and the two bindings that make a signature mean something: the `GenChallenge` for authorization and the echoed reading for metering |
 
 ⚠️ Not here: **V2G PKI** (X.509 path validation and the certificate flows),
-transport bindings, DIN SPEC 70121. See
+transport bindings, and the DIN SPEC 70121 *message set* — though the handshake,
+the framing and the timers below it are generation-agnostic and public, so a DIN
+codec of your own can ride them. See
 [what is not here](https://hupe1980.github.io/iso15118/docs/roadmap/).
 
 ## 🔬 Verification
 
-Four layers, in increasing strength. Only the last two say anything about other
-implementations.
+Four passes, each asking a question the others cannot. Only the first says
+anything about other implementations.
 
 ```text
 scripts/verify-grammars.sh   all 2 / 80 / 54 / 42 / 48 / 38 / 34 element
@@ -187,20 +223,26 @@ scripts/verify-messages.sh   all 121 documents round-trip against the reference
                              all 121 fragments round-trip against the reference
 ```
 
-Between them, and the fuzzers, they have found nine defects no round-trip test
-could — a dropped substitution-group head, mixed content on the wrong side of
-`EE`, a string-table partition populated on a global hit, and six more.
+**Differential, against `exificient`.** The scripts above prove the encoding, and
+catch what no round-trip can: a dropped substitution-group head, mixed content on
+the wrong side of `EE`, a string-table partition populated on a global hit.
 
-The scripts prove the encoding and nothing above it. Reading the layers against
-the standards, and against what EVerest and Josev do, found twenty-two more the
-scripts cannot reach: a deadlocked DC renegotiation, a SLAC key handover any
-station on the segment could forge, ISO 15118-20 service ids mapped to the wrong
-flows, `xs:length` treated as `xs:maxLength` on the six types where a truncated
-value is a security problem, and eighteen others. Each is a test.
+**Read against the standards**, and against what EVerest and Josev do — because
+the scripts prove the encoding and nothing above it. `xs:length` is not
+`xs:maxLength` on the six types where a truncated value is a security problem, a
+DC renegotiation must not deadlock, ISO 15118-20 service ids belong to particular
+flows. Each rule is a test.
 
-Three of those found further defects on their first run — including a four-byte
-ISO 15118-20 `SessionID` in this README, legal in ISO 15118-2 and not in -20,
-which stopped compiling the moment the facet was enforced.
+**Adversarial**, for the engines on a shared, unauthenticated medium: not "is this
+frame well-formed" but "what can a frame nobody can authenticate make this engine
+*do*". Dropping a bad frame is half of not being steered by one; the other half is
+that such a frame must set neither a deadline nor a queue length. So a refused SDP
+answer does not end discovery, a forged attenuation report cannot postpone a SLAC
+choice, and every queue an unauthenticated peer can reach is bounded.
+
+**Citations checked against the text**, not against memory: every `[V2G2-nnn]`
+names the requirement that states the rule it is attached to, and every timing
+constant matches Table 109 and Table 111.
 
 SLAC is the one wire format with no reference implementation to differ against,
 so its thirteen message layouts are pinned byte for byte instead — checked field
@@ -238,7 +280,8 @@ committed.
 | [Embedded and `no_std`](https://hupe1980.github.io/iso15118/docs/embedded/) | Shipping it on a microcontroller |
 | [FAQ](https://hupe1980.github.io/iso15118/docs/faq/) | Short answers to the common questions |
 
-The API reference is on [docs.rs](https://docs.rs/iso15118).
+The API reference is on [docs.rs](https://docs.rs/iso15118), and what changed
+between releases is in [CHANGELOG.md](CHANGELOG.md).
 
 ## 🤝 Contributing
 

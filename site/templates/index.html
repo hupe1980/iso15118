@@ -183,7 +183,7 @@
           <tr><td><strong>V2GTP</strong> framing</td>
               <td>All payload types, hostile-length handling, bounded stream reassembly</td></tr>
           <tr><td><strong>SDP</strong> discovery</td>
-              <td>Codec, the vehicle-side retry engine, TLS-downgrade rejection</td></tr>
+              <td>Codec, the vehicle-side retry engine, TLS-downgrade and off-link rejection</td></tr>
           <tr><td><strong>SLAC</strong> — ISO 15118-3</td>
               <td>Frame codec, timers, and the matching state machine for both roles</td></tr>
           <tr><td><strong>ISO 15118-2</strong> message set</td>
@@ -191,7 +191,7 @@
           <tr><td><strong>ISO 15118-20</strong> message sets</td>
               <td><code>CommonMessages</code>, AC, DC, WPT, ACDP</td></tr>
           <tr><td><strong>Session layer</strong></td>
-              <td>Clock, spec timers and loop budgets, ordering graphs for both generations</td></tr>
+              <td>Clock, spec timers and loop budgets, ordering graphs for both generations, the ISO 15118-2 charging-profile rule</td></tr>
           <tr><td><strong>EVCC / SECC drivers</strong></td>
               <td>Handshake, sequencing, session-id checks, half-duplex enforcement, pause and resume</td></tr>
           <tr><td><strong>Plug &amp; Charge signatures</strong></td>
@@ -235,9 +235,10 @@
       <article class="card">
         <h3>DIN SPEC 70121</h3>
         <p>
-          Its schemas are behind a paywall. Hand-transcribing them would produce a
-          codec with no reference to check against — precisely the failure mode
-          this project exists to avoid.
+          Its <em>message set</em> is not here: the schemas are behind a paywall,
+          and hand-transcribing them would produce a codec with no reference to
+          check against. The handshake, the framing and the timers below it are
+          generation-agnostic, so a DIN codec of your own can ride them.
         </p>
       </article>
     </div>

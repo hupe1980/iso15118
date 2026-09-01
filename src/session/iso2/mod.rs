@@ -31,6 +31,8 @@
 //! # Ok::<_, iso15118::session::SequenceError>(())
 //! ```
 
+pub mod schedule;
+
 use crate::iso2::{
     ChargeProgress, ChargingSession, EnergyTransferMode, PaymentOption, ResponseCode,
 };
@@ -221,7 +223,10 @@ impl Phase {
     /// Ongoing` and the EVCC repeats the same request until it does not. Each
     /// such loop has a bound of its own, separate from the per-message response
     /// timeout, and missing it is how a vehicle sits for an hour waiting for an
-    /// isolation test that will never finish \[V2G2-716\]..\[V2G2-718\].
+    /// isolation test that will never finish: `V2G_EVCC_CableCheck_Timer`
+    /// \[V2G2-700\]..\[V2G2-703\], `V2G_EVCC_PreCharge_Timer`
+    /// \[V2G2-704\]..\[V2G2-707\], and `V2G_EVCC_Ongoing_Timer`
+    /// \[V2G2-710\], \[V2G2-711\] for every phase answered `Ongoing`.
     ///
     /// `None` for the phases that are not loops, and for `Charging` — a charge
     /// loop runs as long as the vehicle wants it to.

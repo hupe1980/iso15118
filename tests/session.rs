@@ -11,7 +11,6 @@
 
 #![cfg(all(feature = "iso2", feature = "evcc", feature = "secc"))]
 
-use iso15118::Protocol;
 use iso15118::evcc::{Evcc, EvccConfig};
 use iso15118::iso2::{
     Body, BodyChoice, ChargeProgress, DCEVSEStatus, DCEVSEStatusCode, EnergyTransferMode,
@@ -20,6 +19,7 @@ use iso15118::iso2::{
 use iso15118::message::Message;
 use iso15118::secc::{self, Secc, SeccConfig};
 use iso15118::session::{Instant, Millis, SessionId, Timer};
+use iso15118::{Protocol, Protocols};
 use iso15118::{evcc, iso2};
 
 const SESSION_ID: SessionId = SessionId::new([0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]);
@@ -33,9 +33,12 @@ struct Link {
 
 impl Link {
     fn new() -> Self {
-        let evcc = Evcc::new(EvccConfig { protocols: &[Protocol::Iso2], ..Default::default() });
+        let evcc = Evcc::new(EvccConfig {
+            protocols: Protocols::only(Protocol::Iso2),
+            ..Default::default()
+        });
         let mut secc = Secc::new(SeccConfig {
-            protocols: &[Protocol::Iso2],
+            protocols: Protocols::only(Protocol::Iso2),
             session_id: SESSION_ID,
             ..Default::default()
         });
@@ -414,9 +417,10 @@ fn a_silent_charger_expires_the_vehicles_message_timer() {
 
 #[test]
 fn a_charger_with_nothing_in_common_says_so_and_stops() {
-    let mut evcc = Evcc::new(EvccConfig { protocols: &[Protocol::Iso20], ..Default::default() });
+    let mut evcc =
+        Evcc::new(EvccConfig { protocols: Protocols::only(Protocol::Iso20), ..Default::default() });
     let mut secc = Secc::new(SeccConfig {
-        protocols: &[Protocol::Din70121],
+        protocols: Protocols::only(Protocol::Din70121),
         session_id: SESSION_ID,
         ..Default::default()
     });
@@ -581,7 +585,7 @@ fn a_station_can_join_the_session_a_vehicle_asks_to_resume() {
     // session id is its own to choose.
     let mut link = Link::new();
     link.evcc = Evcc::new(EvccConfig {
-        protocols: &[Protocol::Iso2],
+        protocols: Protocols::only(Protocol::Iso2),
         rejoin: Some(PAUSED),
         ..Default::default()
     });
@@ -642,24 +646,99 @@ fn wrap_with(session_id: SessionId, choice: BodyChoice) -> Message {
     })))
 }
 
+/// A `supportedAppProtocolReq` on the wire, offering exactly `protocols` in
+/// exactly that priority order.
+///
+/// Built by hand rather than by an [`Evcc`], because an `Evcc` deliberately
+/// will not offer a generation it has no message set for — and these tests are
+/// about the charger meeting a vehicle that does.
+fn offering(protocols: &[Protocol]) -> Vec<u8> {
+    let mut conn = iso15118::session::Connection::new();
+    let req = iso15118::app_protocol::SupportedAppProtocolReq::advertising(protocols);
+    conn.send(&Message::AppProtocolReq(Box::new(req))).expect("encode the handshake");
+    conn.take_transmit()
+}
+
 /// `Protocol::Din70121` exists so a charger can decline it by name, but this
 /// crate has no DIN message set — its schemas are not freely available. A
 /// charger configured for it must decline rather than agree to something it
 /// cannot then speak.
 #[test]
 fn a_protocol_with_no_message_set_is_not_a_protocol_in_common() {
-    let mut evcc = Evcc::new(EvccConfig { protocols: &[Protocol::Din70121], ..Default::default() });
     let mut secc = Secc::new(SeccConfig {
-        protocols: &[Protocol::Din70121, Protocol::Iso2],
+        protocols: Protocols::only(Protocol::Din70121),
         session_id: SESSION_ID,
         ..Default::default()
     });
     let now = Instant::ZERO;
-    evcc.start(now).unwrap();
-    secc.handle_input(now, &evcc.take_transmit()).unwrap();
+    secc.handle_input(now, &offering(&[Protocol::Din70121])).unwrap();
 
     assert!(secc.is_closed(), "the charger must decline what it cannot speak");
     assert_eq!(secc.protocol(), None);
+}
+
+/// The narrowing has to happen *before* the negotiation, not after it.
+///
+/// A vehicle that prefers DIN SPEC 70121 and offers ISO 15118-2 as its fallback
+/// is the common case in the German DC fleet. Filtering the station's set after
+/// picking a winner would let DIN win on priority and then be dropped, taking
+/// the whole session with it — when the two sides had a generation in common
+/// all along.
+#[test]
+fn a_charger_falls_back_to_the_generation_it_can_actually_speak() {
+    let mut secc = Secc::new(SeccConfig {
+        protocols: Protocols::from_slice(&[Protocol::Din70121, Protocol::Iso2]),
+        session_id: SESSION_ID,
+        ..Default::default()
+    });
+    let now = Instant::ZERO;
+    // Priority 1 is DIN, priority 2 is ISO 15118-2.
+    secc.handle_input(now, &offering(&[Protocol::Din70121, Protocol::Iso2])).unwrap();
+
+    assert!(!secc.is_closed(), "ISO 15118-2 was on offer and the charger speaks it");
+    assert_eq!(secc.protocol(), Some(Protocol::Iso2));
+    assert_eq!(secc.poll_event(), Some(secc::Event::ProtocolAgreed(Protocol::Iso2)));
+}
+
+/// The vehicle's half of the same rule: what it cannot speak, it does not
+/// offer.
+///
+/// Advertising a generation and then failing on the charger's acceptance of it
+/// wastes the one exchange that exists to settle the question. And if the
+/// filtering leaves nothing, that is a configuration mistake worth reporting
+/// before any bytes exist rather than as a session that dies at the first
+/// message.
+#[test]
+fn a_vehicle_does_not_offer_a_generation_it_has_no_message_set_for() {
+    let mut evcc = Evcc::new(EvccConfig {
+        protocols: Protocols::from_slice(&[Protocol::Din70121, Protocol::Iso2]),
+        ..Default::default()
+    });
+    evcc.start(Instant::ZERO).unwrap();
+
+    let req = match iso15118::message::Message::decode(
+        None,
+        iso15118::v2gtp::PayloadType::ExiEncodedV2gMessage,
+        &evcc.take_transmit()[iso15118::v2gtp::HEADER_LEN..],
+    )
+    .unwrap()
+    {
+        iso15118::message::Message::AppProtocolReq(req) => req,
+        other => panic!("expected the handshake, got {}", other.name()),
+    };
+    assert_eq!(
+        req.app_protocols.iter().map(|e| e.protocol_namespace.as_str()).collect::<Vec<_>>(),
+        [Protocol::Iso2.namespace()],
+        "DIN was configured but has no message set, so it is never offered"
+    );
+    // ...and the schema id it did assign resolves back to what it meant.
+    assert_eq!(req.protocol_for_schema_id(1), Some(Protocol::Iso2));
+
+    let mut nothing = Evcc::new(EvccConfig {
+        protocols: Protocols::only(Protocol::Din70121),
+        ..Default::default()
+    });
+    assert!(matches!(nothing.start(Instant::ZERO), Err(evcc::EvccError::NothingToOffer { .. })));
 }
 
 /// The other half of half-duplex: the *vehicle* does not pipeline either.

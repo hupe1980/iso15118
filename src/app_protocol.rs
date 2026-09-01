@@ -22,7 +22,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::exi::{Decoder, Encoder, ExiDocument, ExiError, ExiResult, Header, Lengths, ValueCtx};
-use crate::{Error, Protocol, Result};
+use crate::{Error, Protocol, Protocols, Result};
 
 /// Maximum number of `AppProtocol` entries a request may carry (`maxOccurs`).
 pub const MAX_APP_PROTOCOLS: usize = 20;
@@ -216,20 +216,43 @@ pub struct SupportedAppProtocolReq {
 impl SupportedAppProtocolReq {
     /// Builds a request advertising `protocols`, most preferred first.
     ///
-    /// Schema ids are assigned in order starting at 1, and priorities follow
-    /// the slice order.
+    /// Schema ids and priorities are both assigned in order starting at 1, so
+    /// the *n*th protocol of the set is schema id *n*. A [`Protocols`] set
+    /// holds each protocol once, so no two entries can share a schema id —
+    /// which is what makes [`SupportedAppProtocolReq::protocol_for_schema_id`]
+    /// an unambiguous lookup on the way back.
+    ///
+    /// An empty set produces a request with no entries, which
+    /// [`SupportedAppProtocolReq::validate`] rejects: the schema requires at
+    /// least one.
     #[must_use]
-    pub fn advertising(protocols: &[Protocol]) -> Self {
+    pub fn advertising(protocols: impl Into<Protocols>) -> Self {
         let app_protocols = protocols
+            .into()
             .iter()
             .enumerate()
             .take(MAX_APP_PROTOCOLS)
-            .map(|(i, &p)| {
+            .map(|(i, p)| {
                 #[allow(clippy::cast_possible_truncation)]
                 AppProtocol::for_protocol(p, i as u8 + 1, i as u8 + 1)
             })
             .collect();
         Self { app_protocols }
+    }
+
+    /// The protocol the entry with this schema id names.
+    ///
+    /// The charger's answer echoes a schema id and not a namespace, so this is
+    /// how the vehicle learns which protocol was chosen. `None` means no entry
+    /// carries that id — a charger answering with one that was never offered —
+    /// or that the entry names a protocol this crate does not know.
+    ///
+    /// Where two entries share an id, the first wins. Schema ids are the
+    /// vehicle's to assign and nothing in the schema stops a peer repeating
+    /// one; [`SupportedAppProtocolReq::advertising`] never does.
+    #[must_use]
+    pub fn protocol_for_schema_id(&self, schema_id: u8) -> Option<Protocol> {
+        self.app_protocols.iter().find(|e| e.schema_id == schema_id)?.protocol()
     }
 
     /// Checks cardinality and every entry against the schema.
@@ -257,19 +280,33 @@ impl SupportedAppProtocolReq {
     /// Chooses the best protocol this charger and this vehicle share.
     ///
     /// The vehicle's `priority` decides, `1` being its first choice; ties fall
-    /// back to list order. A namespace match with a differing major version is
-    /// *not* a match — a major version bump means an incompatible schema — but
-    /// a differing minor version is, and is reported as a minor deviation so
-    /// the caller can send the response code the spec requires.
+    /// back to list order. `supported` is the station's set, and its own order
+    /// is ignored on purpose — \[V2G2-169\] has the SECC select, from its own
+    /// list, "the protocol with highest Priority indicated by the EVCC". The
+    /// station's preference is not a tie-break; it has no say at all.
+    ///
+    /// A namespace match with a differing major version is *not* a match — a
+    /// major version bump means an incompatible schema — but a differing minor
+    /// version is, and must be confirmed rather than refused \[V2G2-170\]. It
+    /// is reported as a minor deviation so the caller can send the response
+    /// code the spec requires.
+    ///
+    /// Narrow `supported` to what can actually be spoken *before* calling
+    /// this, not after. A protocol that wins here and is then discarded takes
+    /// the whole session with it, when a lower-priority entry both sides had in
+    /// common was sitting in the same request — see
+    /// [`Flow::supports`](crate::session::Flow::supports), which is what the
+    /// role drivers use.
     #[must_use]
-    pub fn negotiate(&self, supported: &[Protocol]) -> Option<Negotiated> {
+    pub fn negotiate(&self, supported: impl Into<Protocols>) -> Option<Negotiated> {
+        let supported = supported.into();
         // Track the winning priority alongside the winner: schema ids are the
         // vehicle's to choose and nothing stops it repeating one, so looking
         // the priority back up by schema id could find the wrong entry.
         let mut best: Option<(u8, Negotiated)> = None;
         for entry in &self.app_protocols {
             let Some(protocol) = entry.protocol() else { continue };
-            if !supported.contains(&protocol) {
+            if !supported.contains(protocol) {
                 continue;
             }
             let (major, minor) = protocol.version();
@@ -376,6 +413,10 @@ impl SupportedAppProtocolRes {
     }
 
     /// The response for "we have nothing in common".
+    ///
+    /// `Failed_NoNegotiation`, and **no schema id** — naming one would name a
+    /// protocol that was not agreed \[V2G2-172\]. The vehicle's own reaction is
+    /// fixed too: it does not open a communication session \[V2G2-173\].
     #[must_use]
     pub const fn reject() -> Self {
         Self { response_code: ResponseCode::FailedNoNegotiation, schema_id: None }
@@ -723,37 +764,37 @@ mod tests {
                 AppProtocol::for_protocol(Protocol::Iso20, 2, 1),
             ],
         };
-        let n = req.negotiate(&[Protocol::Iso2, Protocol::Iso20]).unwrap();
+        let n = req.negotiate([Protocol::Iso2, Protocol::Iso20]).unwrap();
         assert_eq!(n.protocol, Protocol::Iso20, "priority 1 beats list position");
         assert_eq!(n.schema_id, 2);
         assert!(!n.minor_deviation);
     }
 
-    /// The `supported` slice is a *set*: the vehicle's priority decides, and
-    /// [V2G2-172] gives the charger no say. `SeccConfig::protocols` says so in
+    /// The `supported` set really is a set: the vehicle's priority decides, and
+    /// \[V2G2-169\] gives the charger no say. `SeccConfig::protocols` says so in
     /// prose; this is the same claim as a test, because a charger operator who
     /// listed their preferred generation first and got the other one would have
     /// no way to tell prose from a bug.
     #[test]
     fn the_chargers_own_order_does_not_decide_anything() {
-        let req = SupportedAppProtocolReq::advertising(&[Protocol::Iso20, Protocol::Iso2]);
-        let forwards = req.negotiate(&[Protocol::Iso2, Protocol::Iso20]).unwrap();
-        let backwards = req.negotiate(&[Protocol::Iso20, Protocol::Iso2]).unwrap();
+        let req = SupportedAppProtocolReq::advertising([Protocol::Iso20, Protocol::Iso2]);
+        let forwards = req.negotiate([Protocol::Iso2, Protocol::Iso20]).unwrap();
+        let backwards = req.negotiate([Protocol::Iso20, Protocol::Iso2]).unwrap();
         assert_eq!(forwards, backwards);
         assert_eq!(forwards.protocol, Protocol::Iso20, "the vehicle's first choice");
     }
 
     #[test]
     fn negotiation_skips_protocols_the_charger_lacks() {
-        let req = SupportedAppProtocolReq::advertising(&[Protocol::Iso20, Protocol::Iso2]);
-        let n = req.negotiate(&[Protocol::Iso2]).unwrap();
+        let req = SupportedAppProtocolReq::advertising([Protocol::Iso20, Protocol::Iso2]);
+        let n = req.negotiate([Protocol::Iso2]).unwrap();
         assert_eq!(n.protocol, Protocol::Iso2);
     }
 
     #[test]
     fn negotiation_fails_with_nothing_in_common() {
-        let req = SupportedAppProtocolReq::advertising(&[Protocol::Iso20]);
-        assert!(req.negotiate(&[Protocol::Din70121]).is_none());
+        let req = SupportedAppProtocolReq::advertising([Protocol::Iso20]);
+        assert!(req.negotiate([Protocol::Din70121]).is_none());
         assert_eq!(
             SupportedAppProtocolRes::reject().response_code,
             ResponseCode::FailedNoNegotiation
@@ -765,7 +806,7 @@ mod tests {
         let mut entry = AppProtocol::for_protocol(Protocol::Iso2, 1, 1);
         entry.version_number_major = 3;
         let req = SupportedAppProtocolReq { app_protocols: vec![entry] };
-        assert!(req.negotiate(&[Protocol::Iso2]).is_none());
+        assert!(req.negotiate([Protocol::Iso2]).is_none());
     }
 
     #[test]
@@ -773,7 +814,7 @@ mod tests {
         let mut entry = AppProtocol::for_protocol(Protocol::Iso2, 7, 1);
         entry.version_number_minor = 9;
         let req = SupportedAppProtocolReq { app_protocols: vec![entry] };
-        let n = req.negotiate(&[Protocol::Iso2]).unwrap();
+        let n = req.negotiate([Protocol::Iso2]).unwrap();
         assert!(n.minor_deviation);
         assert_eq!(n.response_code(), ResponseCode::OkSuccessfulNegotiationWithMinorDeviation);
         assert_eq!(SupportedAppProtocolRes::accept(n).schema_id, Some(7));

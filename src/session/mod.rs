@@ -10,6 +10,8 @@
 //!   every constant tied to the requirement it comes from.
 //! * [`iso2::Sequencer`] and [`iso20::Sequencer`] — the message-ordering graphs,
 //!   one per protocol generation.
+//! * [`iso2::schedule`] — whether the vehicle's charging profile fits the
+//!   schedule the station offered, and which `ResponseCode` says so.
 //!
 //! # Two kinds of deadline
 //!
@@ -86,8 +88,46 @@ pub enum Flow {
 
 #[cfg(any(feature = "iso2", feature = "iso20-common"))]
 impl Flow {
+    /// Whether this build has the message set and ordering graph for
+    /// `protocol`.
+    ///
+    /// False for a generation whose feature is off, and for `Din70121`, whose
+    /// message set this crate does not implement at all.
+    ///
+    /// The role drivers ask this *before* the handshake, not after. A station
+    /// that let a generation it cannot speak win the negotiation would decline
+    /// the session rather than fall back to one both sides do have, so
+    /// [`SeccConfig::protocols`](crate::secc::SeccConfig::protocols) and
+    /// [`EvccConfig::protocols`](crate::evcc::EvccConfig::protocols) are
+    /// filtered through this before they reach the wire:
+    ///
+    /// ```
+    /// # #[cfg(feature = "iso2")] {
+    /// use iso15118::{Protocol, Protocols};
+    /// use iso15118::session::Flow;
+    ///
+    /// let mut speakable = Protocols::ALL;
+    /// speakable.retain(Flow::supports);
+    /// assert!(!speakable.contains(Protocol::Din70121));
+    /// # }
+    /// ```
+    #[must_use]
+    #[allow(unused_variables, reason = "the body is entirely feature-gated")]
+    pub const fn supports(protocol: crate::Protocol) -> bool {
+        match protocol {
+            #[cfg(feature = "iso2")]
+            crate::Protocol::Iso2 => true,
+            #[cfg(feature = "iso20-common")]
+            crate::Protocol::Iso20 => true,
+            _ => false,
+        }
+    }
+
     /// A fresh flow for `protocol`, or `None` when this build does not have
     /// that protocol enabled.
+    ///
+    /// Always `Some` where [`Flow::supports`] is true, and always `None` where
+    /// it is not.
     #[must_use]
     #[allow(unused_variables, reason = "every arm is behind a feature")]
     pub fn new(protocol: crate::Protocol) -> Option<Self> {

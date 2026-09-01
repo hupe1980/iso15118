@@ -25,7 +25,7 @@
 use iso15118::message::Message;
 use iso15118::secc::{Event, Secc, SeccConfig};
 use iso15118::session::{Instant, Millis, SessionId};
-use iso15118::{Protocol, iso2, iso20};
+use iso15118::{Protocol, Protocols, iso2, iso20};
 use libfuzzer_sys::fuzz_target;
 
 /// A response the station can always send, whatever was asked.
@@ -66,7 +66,7 @@ fn alloc_id() -> Vec<u8> {
 
 fuzz_target!(|data: &[u8]| {
     let mut secc = Secc::new(SeccConfig {
-        protocols: &[Protocol::Iso20, Protocol::Iso2],
+        protocols: Protocols::ISO,
         session_id: SessionId::new([1, 2, 3, 4, 5, 6, 7, 8]),
         // A small limit so the fuzzer reaches the refusal paths rather than
         // spending its budget allocating.

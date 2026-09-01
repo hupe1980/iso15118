@@ -193,6 +193,14 @@ impl Response {
         if port == 0 {
             return Err(SdpError::InvalidPort);
         }
+        // The same reasoning as port zero, applied to the other half of the
+        // endpoint: the unspecified address names nothing and a multicast
+        // group cannot be the far end of a TCP connection. Neither is a
+        // station that answered wrongly — it is a station that answered with
+        // something no caller could act on, and the codec is where that stops.
+        if address == [0u8; 16] || address[0] == 0xff {
+            return Err(SdpError::InvalidAddress(address));
+        }
         Ok(Self {
             address,
             port,
@@ -317,6 +325,7 @@ impl Response {
 pub struct Discovery {
     request: Request,
     wireless: bool,
+    allow_off_link: bool,
     interval: crate::session::Millis,
     max_attempts: u32,
     attempts: u32,
@@ -332,19 +341,64 @@ pub struct Discovery {
 pub enum Event {
     /// A charger answered, and its answer gives the vehicle at least what it
     /// asked for. Connect to [`Response::ipv6`] and [`Response::port`].
-    Found(Response),
-    /// A charger answered, but with *less* security than was requested.
     ///
-    /// This is the downgrade the check exists to catch, so it is surfaced as
-    /// its own event rather than as a `Found` the caller might not inspect.
-    /// ISO 15118-20 mandates TLS outright; under -2 a vehicle doing Plug &
-    /// Charge must refuse this, and one doing EIM may choose not to.
-    Refused(Response),
-    /// No charger answered within the permitted number of attempts.
+    /// Terminal: discovery is finished.
+    Found(Response),
+    /// A well-formed answer arrived that the vehicle must not act on.
+    ///
+    /// Surfaced as its own event rather than as a `Found` the caller might not
+    /// inspect. **Not terminal** — see [`Discovery::handle_datagram`].
+    Refused {
+        /// The answer, so a log line can say who sent what.
+        response: Response,
+        /// What was wrong with it.
+        reason: Refusal,
+    },
+    /// No usable answer arrived within the permitted number of attempts.
+    ///
+    /// Terminal.
     GaveUp {
         /// How many requests went out.
         attempts: u32,
     },
+}
+
+/// Why a well-formed SDP answer is one the vehicle must not act on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
+pub enum Refusal {
+    /// The answer offered *less* security than the request asked for.
+    ///
+    /// ISO 15118-20 mandates TLS outright; under -2 a vehicle doing Plug &
+    /// Charge must refuse this, and one doing EIM may choose not to — by
+    /// starting a new run with [`Request::PLAIN`], not by using this answer.
+    SecurityDowngrade,
+    /// The answer named a different transport protocol than the request.
+    TransportMismatch,
+    /// The answer pointed off the V2G link.
+    ///
+    /// ISO 15118 runs over an IPv6 link-local segment brought up by SLAAC on
+    /// the charging cable, with no router on it, so a station's own address is
+    /// link-local (`fe80::/10`). An answer naming anything else is naming
+    /// somewhere this vehicle has no protocol reason to connect to — and SDP
+    /// is an unauthenticated multicast, so *anything on the segment* can send
+    /// one.
+    ///
+    /// A test rig on an ordinary LAN is the legitimate exception:
+    /// [`Discovery::allow_off_link`] turns this refusal off, deliberately and
+    /// visibly.
+    OffLink,
+}
+
+impl fmt::Display for Refusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SecurityDowngrade => f.write_str("less transport security than requested"),
+            Self::TransportMismatch => f.write_str("a different transport protocol"),
+            Self::OffLink => f.write_str("an address that is not link-local"),
+        }
+    }
 }
 
 impl Discovery {
@@ -354,6 +408,7 @@ impl Discovery {
         Self {
             request,
             wireless: false,
+            allow_off_link: false,
             interval: crate::session::timers::sdp::RESPONSE_TIMEOUT,
             max_attempts: crate::session::timers::sdp::MAX_REQUESTS,
             attempts: 0,
@@ -369,6 +424,24 @@ impl Discovery {
     #[must_use]
     pub const fn wireless(mut self, wireless: bool) -> Self {
         self.wireless = wireless;
+        self
+    }
+
+    /// Accepts an answer whose address is not link-local.
+    ///
+    /// Off by default, and the default is the one to keep on a vehicle: the
+    /// V2G link is an IPv6 link-local segment with no router, so a station's
+    /// own address is link-local, and SDP is an unauthenticated multicast that
+    /// anything on the segment can answer. An off-link address in an answer is
+    /// therefore either a misconfigured station or somebody redirecting the
+    /// session somewhere the cable does not go.
+    ///
+    /// Turn it on for a test rig on an ordinary LAN, where the address really
+    /// is global or unique-local and there is no powerline segment for anyone
+    /// to sit on.
+    #[must_use]
+    pub const fn allow_off_link(mut self, allow: bool) -> Self {
+        self.allow_off_link = allow;
         self
     }
 
@@ -436,10 +509,18 @@ impl Discovery {
 
     /// Feeds a datagram received on the discovery port.
     ///
-    /// A datagram that is not a well-formed `SECCDiscoveryRes` is an error but
-    /// **not** the end of discovery: the request went to a multicast group, so
-    /// anything on the link can answer, and one bad answer must not stop the
-    /// vehicle waiting for a good one. Retrying continues either way.
+    /// **Only a usable answer ends discovery.** The request went to a multicast
+    /// group on a shared segment, so anything can answer and nothing
+    /// authenticates who did. An answer that is malformed (an `Err` from here)
+    /// or well-formed but unusable (an [`Event::Refused`]) leaves the run armed
+    /// and retrying, as if it had never arrived — otherwise one spoofed
+    /// datagram would stop the vehicle ever hearing the station it is plugged
+    /// into.
+    ///
+    /// A refusal still has to reach the caller, so poll for events *inside* the
+    /// loop rather than only after it. The engine holds one unread event: a
+    /// terminal one displaces a refusal, and a refusal displaces nothing, so a
+    /// flood cannot push the outcome out before it is read.
     pub fn handle_datagram(
         &mut self,
         _now: crate::session::Instant,
@@ -449,15 +530,36 @@ impl Discovery {
             return Ok(());
         }
         let response = Response::from_frame(frame)?;
+        if let Some(reason) = self.refusal(&response) {
+            // Report it and keep listening. The deadline and the attempt
+            // counter are untouched: as far as the run is concerned, this
+            // datagram did not happen.
+            if self.event.is_none() {
+                self.event = Some(Event::Refused { response, reason });
+            }
+            return Ok(());
+        }
         self.done = true;
         self.deadline = None;
         self.pending = None;
-        self.event = Some(if response.satisfies(&self.request) {
-            Event::Found(response)
-        } else {
-            Event::Refused(response)
-        });
+        self.event = Some(Event::Found(response));
         Ok(())
+    }
+
+    /// Why `response` is not one to act on, if it is not.
+    fn refusal(&self, response: &Response) -> Option<Refusal> {
+        if response.transport as u8 != self.request.transport as u8 {
+            return Some(Refusal::TransportMismatch);
+        }
+        // A charger may answer with *more* security than requested and the
+        // vehicle must then use TLS; it may never answer with less.
+        if matches!((self.request.security, response.security), (Security::Tls, Security::None)) {
+            return Some(Refusal::SecurityDowngrade);
+        }
+        if !self.allow_off_link && !response.is_link_local() {
+            return Some(Refusal::OffLink);
+        }
+        None
     }
 
     /// The outcome, once there is one.
@@ -493,6 +595,9 @@ pub enum SdpError {
     UnknownTransport(u8),
     /// Port zero cannot be connected to.
     InvalidPort,
+    /// The address names no connectable endpoint: the unspecified address
+    /// (`::`) or a multicast group (`ff00::/8`).
+    InvalidAddress([u8; 16]),
     /// The V2GTP frame did not hold the SDP message we were parsing.
     WrongPayloadType(PayloadType),
     /// Bytes remained after the datagram.
@@ -516,6 +621,10 @@ impl fmt::Display for SdpError {
             Self::UnknownSecurity(v) => write!(f, "unknown SDP security value {v:#04x}"),
             Self::UnknownTransport(v) => write!(f, "unknown SDP transport value {v:#04x}"),
             Self::InvalidPort => f.write_str("SDP response advertises port 0"),
+            Self::InvalidAddress(a) if *a == [0u8; 16] => {
+                f.write_str("SDP response advertises the unspecified address")
+            }
+            Self::InvalidAddress(_) => f.write_str("SDP response advertises a multicast address"),
             Self::WrongPayloadType(t) => write!(f, "unexpected payload type {t:?} for SDP message"),
             Self::TrailingData => f.write_str("trailing data after SDP datagram"),
             Self::Framing(e) => write!(f, "V2GTP framing: {e}"),
@@ -535,6 +644,8 @@ impl std::error::Error for SdpError {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     use super::*;
 
     const LINK_LOCAL: [u8; 16] =
@@ -701,22 +812,144 @@ mod tests {
         assert_eq!(d.attempts(), 1);
     }
 
+    /// A well-formed answer on the wire, for feeding to a `Discovery`.
+    fn answer(address: [u8; 16], security: Security, transport: TransportProtocol) -> Vec<u8> {
+        let res = Response { address, port: 15118, security, transport };
+        let mut frame = [0u8; 64];
+        let n = res.write_frame(&mut frame, false).unwrap();
+        frame[..n].to_vec()
+    }
+
     #[test]
     fn a_downgrade_is_surfaced_as_a_refusal_not_a_find() {
         use crate::session::Instant;
 
         let mut d = Discovery::new(Request::TLS);
         d.start(Instant::ZERO);
-        let res = Response {
-            address: LINK_LOCAL,
-            port: 15118,
-            security: Security::None,
-            transport: TransportProtocol::Tcp,
-        };
-        let mut frame = [0u8; 64];
-        let n = res.write_frame(&mut frame, false).unwrap();
-        d.handle_datagram(Instant::ZERO, &frame[..n]).unwrap();
-        assert_eq!(d.poll_event(), Some(Event::Refused(res)));
+        let wire = answer(LINK_LOCAL, Security::None, TransportProtocol::Tcp);
+        d.handle_datagram(Instant::ZERO, &wire).unwrap();
+        assert_eq!(
+            d.poll_event(),
+            Some(Event::Refused {
+                response: Response::from_frame(&wire).unwrap(),
+                reason: Refusal::SecurityDowngrade,
+            })
+        );
+    }
+
+    /// The one that matters: SDP is unauthenticated multicast on a shared
+    /// segment, so if any answer could end the run, one spoofed datagram would
+    /// stop the vehicle hearing the station it is plugged into.
+    #[test]
+    fn a_refused_answer_does_not_end_discovery() {
+        use crate::session::Instant;
+
+        let mut d = Discovery::new(Request::TLS);
+        d.start(Instant::ZERO);
+        let _ = d.poll_transmit();
+
+        // Somebody on the segment answers first, without TLS.
+        d.handle_datagram(
+            Instant::ZERO,
+            &answer(LINK_LOCAL, Security::None, TransportProtocol::Tcp),
+        )
+        .unwrap();
+        assert!(matches!(d.poll_event(), Some(Event::Refused { .. })));
+        assert!(!d.is_finished(), "one spoofed packet must not end the run");
+        assert!(d.poll_timeout().is_some(), "the retry is still armed");
+        assert_eq!(d.attempts(), 1, "a refused answer does not consume an attempt");
+
+        // ...and the real station is still heard.
+        let good = answer(LINK_LOCAL, Security::Tls, TransportProtocol::Tcp);
+        d.handle_datagram(Instant::ZERO, &good).unwrap();
+        assert_eq!(d.poll_event(), Some(Event::Found(Response::from_frame(&good).unwrap())));
+        assert!(d.is_finished());
+    }
+
+    /// A terminal outcome displaces an unread refusal; a refusal displaces
+    /// nothing. So a flood of refusals cannot push the real answer out of the
+    /// single event slot before the caller reads it.
+    #[test]
+    fn a_flood_of_refusals_cannot_hide_the_outcome() {
+        use crate::session::Instant;
+
+        let mut d = Discovery::new(Request::TLS);
+        d.start(Instant::ZERO);
+        let bad = answer(LINK_LOCAL, Security::None, TransportProtocol::Tcp);
+        for _ in 0..100 {
+            d.handle_datagram(Instant::ZERO, &bad).unwrap();
+        }
+        let good = answer(LINK_LOCAL, Security::Tls, TransportProtocol::Tcp);
+        d.handle_datagram(Instant::ZERO, &good).unwrap();
+        assert_eq!(d.poll_event(), Some(Event::Found(Response::from_frame(&good).unwrap())));
+        assert_eq!(d.poll_event(), None, "one unread event, not a hundred");
+    }
+
+    /// The V2G link is link-local and has no router, so an answer pointing
+    /// anywhere else is pointing somewhere the cable does not go.
+    #[test]
+    fn an_off_link_address_is_refused_by_default() {
+        use crate::session::Instant;
+
+        const GLOBAL: [u8; 16] = [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+        let wire = answer(GLOBAL, Security::Tls, TransportProtocol::Tcp);
+
+        let mut d = Discovery::new(Request::TLS);
+        d.start(Instant::ZERO);
+        d.handle_datagram(Instant::ZERO, &wire).unwrap();
+        assert_eq!(
+            d.poll_event(),
+            Some(Event::Refused {
+                response: Response::from_frame(&wire).unwrap(),
+                reason: Refusal::OffLink,
+            })
+        );
+        assert!(!d.is_finished());
+
+        // ...and a test rig on an ordinary LAN can say so, visibly.
+        let mut d = Discovery::new(Request::TLS).allow_off_link(true);
+        d.start(Instant::ZERO);
+        d.handle_datagram(Instant::ZERO, &wire).unwrap();
+        assert!(matches!(d.poll_event(), Some(Event::Found(_))));
+    }
+
+    #[test]
+    fn a_transport_mismatch_is_named_as_one() {
+        use crate::session::Instant;
+
+        let mut d = Discovery::new(Request::TLS);
+        d.start(Instant::ZERO);
+        d.handle_datagram(
+            Instant::ZERO,
+            &answer(LINK_LOCAL, Security::Tls, TransportProtocol::Udp),
+        )
+        .unwrap();
+        assert!(matches!(
+            d.poll_event(),
+            Some(Event::Refused { reason: Refusal::TransportMismatch, .. })
+        ));
+    }
+
+    /// Port zero has always been refused by the codec. An address that names
+    /// no endpoint is the same defect on the other half of the pair.
+    #[test]
+    fn an_address_that_is_not_an_endpoint_is_refused_by_the_codec() {
+        let mut payload = [0u8; RESPONSE_LEN];
+        payload[16] = 0x3B; // port 15118
+        payload[17] = 0x0E;
+        assert_eq!(
+            Response::from_payload(&payload),
+            Err(SdpError::InvalidAddress([0u8; 16])),
+            "the unspecified address"
+        );
+
+        payload[0] = 0xff;
+        payload[15] = 0x01; // ff00::1, a multicast group
+        assert!(matches!(Response::from_payload(&payload), Err(SdpError::InvalidAddress(_))));
+
+        payload[0] = 0xfe;
+        payload[1] = 0x80;
+        assert!(Response::from_payload(&payload).is_ok(), "a link-local address is fine");
     }
 
     /// The request goes to a multicast group, so anything on the link can

@@ -79,6 +79,19 @@ second kind belongs in a library.
 
 ## The layers
 
+### `protocol`
+
+Which generation, and which set of them. `Protocol` is what one session
+negotiated; `Protocols` is what a piece of equipment implements — an ordered,
+`Copy`, allocation-free set that is also what an EVCC offers and an SECC accepts.
+
+It is its own layer rather than a detail of the handshake because it is the one
+fact that outlives the session: a charge-detail record, a metric label, a
+compliance feed and a datasheet all have to name a generation, and every one of
+them should name it the same way. `Protocol::as_str` is that name — `"din70121"`,
+`"iso15118-2"`, `"iso15118-20"` — with `Display`, `FromStr` and `serde` agreeing
+on it and refusing the ambiguous bare `"iso15118"`.
+
 ### `exi`
 
 Bit I/O over caller-owned slices, the EXI built-in datatypes, the value string
@@ -109,8 +122,9 @@ message if -2 won. Sniffing is not an option; the session has to remember.
 
 ### `session`
 
-The clock, the spec timers, V2GTP stream framing, and the message-ordering graphs
-— one per protocol generation, shared by both roles. The sequencers hold no
+The clock, the spec timers, V2GTP stream framing, the message-ordering graphs —
+one per protocol generation, shared by both roles — and the ISO 15118-2 rule that
+a `ChargingProfile` must fit the `SAScheduleTuple` it names. The sequencers hold no
 buffers and no keys, so a session snapshot is small, `Clone` and
 `serde`-serialisable, which is what ISO 15118-20 pause and resume across a power
 cycle needs. See [Sessions and ordering](@/docs/sessions.md).

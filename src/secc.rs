@@ -36,14 +36,14 @@
 //! ```no_run
 //! use iso15118::secc::{Event, Secc, SeccConfig};
 //! use iso15118::session::{Instant, SessionId};
-//! use iso15118::Protocol;
+//! use iso15118::Protocols;
 //!
 //! # fn read(_: &mut [u8]) -> usize { 0 }
 //! # fn write(_: &[u8]) {}
 //! # fn now() -> Instant { Instant::ZERO }
 //! # fn answer(_: &iso15118::message::Message) -> iso15118::message::Message { unimplemented!() }
 //! let mut secc = Secc::new(SeccConfig {
-//!     protocols: &[Protocol::Iso20, Protocol::Iso2],
+//!     protocols: Protocols::ISO,
 //!     session_id: SessionId::new(*b"\x11\x22\x33\x44\x55\x66\x77\x88"),
 //!     ..SeccConfig::default()
 //! });
@@ -54,7 +54,7 @@
 //!     secc.handle_input(now(), &buf[..n])?;
 //!     while let Some(event) = secc.poll_event() {
 //!         match event {
-//!             Event::ProtocolAgreed(p) => println!("speaking {p:?}"),
+//!             Event::ProtocolAgreed(p) => println!("speaking {p}"),
 //!             Event::Request(req) => secc.respond(now(), answer(&req))?,
 //!             Event::Refused { .. } => break,
 //!             Event::Closed(why) => return Ok(println!("session over: {why}")),
@@ -68,6 +68,18 @@
 //!
 //! The caller also arms its own timer for [`Secc::poll_timeout`] and calls
 //! [`Secc::handle_timeout`] when it fires. Nothing else is required.
+//!
+//! # One check the engine cannot make for you
+//!
+//! ISO 15118-2 obliges a station to check the `ChargingProfile` in
+//! `PowerDeliveryReq` against the `SAScheduleList` it offered, and prescribes
+//! the response code either way \[V2G2-224\], \[V2G2-225\]. That is protocol,
+//! so it is in this crate — as
+//! [`session::iso2::schedule`](crate::session::iso2::schedule) — but not in
+//! this engine: keeping the schedule would hold up to three tuples of a
+//! thousand entries for the life of every session, costing the session state
+//! the property that makes pause and resume cheap. Your application built the
+//! list, so it already has it; one call at `PowerDeliveryReq` closes it.
 
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
@@ -81,19 +93,23 @@ use crate::session::{
     Timers,
 };
 use crate::trace::{trace_close, trace_event};
-use crate::{MAX_EXI_PAYLOAD_LEN, Protocol};
+use crate::{MAX_EXI_PAYLOAD_LEN, Protocol, Protocols};
 
 /// What a charging station needs to know before the first byte arrives.
 #[derive(Debug, Clone)]
 pub struct SeccConfig {
-    /// Protocol generations this station speaks. The vehicle's stated priority
-    /// decides which of the ones in common is used, not this order.
+    /// Protocol generations this station speaks.
+    ///
+    /// A set rather than a list, because the order here means nothing: the
+    /// vehicle's stated priority decides which of the ones in common is used,
+    /// and the standard requires the station to honour it.
     ///
     /// A generation this build has no message set for — `Din70121`, or `Iso2`
-    /// without the `iso2` feature — is treated as not supported, and the
-    /// handshake declines it rather than agreeing to something that cannot be
-    /// spoken.
-    pub protocols: &'static [Protocol],
+    /// without the `iso2` feature — is dropped from the set before the
+    /// handshake sees it, so the station never agrees to something it cannot
+    /// then speak, *and* still falls back to a generation both sides do have.
+    /// See [`Flow::supports`].
+    pub protocols: Protocols,
     /// The session id to assign.
     ///
     /// It has to be unpredictable — it is what a paused session is resumed
@@ -116,7 +132,7 @@ pub struct SeccConfig {
 impl Default for SeccConfig {
     fn default() -> Self {
         Self {
-            protocols: &[Protocol::Iso20, Protocol::Iso2],
+            protocols: Protocols::ISO,
             session_id: SessionId::NONE,
             max_payload_len: MAX_EXI_PAYLOAD_LEN,
             sequence_timeout: crate::session::timers::iso2::SECC_SEQUENCE_TIMEOUT,
@@ -133,6 +149,15 @@ pub enum Event {
     /// queued for the wire; nothing is required of the application.
     ProtocolAgreed(Protocol),
     /// A request arrived and is legal. Answer it with [`Secc::respond`].
+    ///
+    /// "Legal" here means the ordering rules and the session id — what the
+    /// engine can check without knowing anything about charging. One rule sits
+    /// just outside that line because it needs a message the *application*
+    /// built: a `PowerDeliveryReq` has to be checked against the
+    /// `SAScheduleList` this station offered in `ChargeParameterDiscoveryRes`,
+    /// and the engine does not keep that list — see
+    /// [`session::iso2::schedule`](crate::session::iso2::schedule), which is
+    /// one call and gives you the `ResponseCode` to answer with.
     Request(Box<Message>),
     /// A request arrived that the protocol does not allow here.
     ///
@@ -316,9 +341,16 @@ impl Secc {
             // protocol in common, whatever the configuration says. Agreeing to
             // one and then failing on its first message would be worse than
             // declining it here.
-            let agreed = req
-                .negotiate(self.config.protocols)
-                .and_then(|a| Flow::new(a.protocol).map(|flow| (a, flow)));
+            //
+            // The narrowing happens *before* negotiation and not after. A
+            // vehicle that prefers DIN SPEC 70121 and offers ISO 15118-2 as its
+            // fallback would otherwise win the negotiation with a protocol this
+            // station cannot speak, and the fallback both sides do have would
+            // never be considered.
+            let mut speakable = self.config.protocols;
+            speakable.retain(Flow::supports);
+            let agreed =
+                req.negotiate(speakable).and_then(|a| Flow::new(a.protocol).map(|flow| (a, flow)));
             let Some((agreed, flow)) = agreed else {
                 self.conn
                     .send(&Message::AppProtocolRes(Box::new(SupportedAppProtocolRes::reject())))?;
@@ -330,7 +362,7 @@ impl Secc {
             ))))?;
             self.conn.set_protocol(agreed.protocol);
             self.flow = Some(flow);
-            trace_event!(protocol = ?agreed.protocol, "protocol agreed");
+            trace_event!(protocol = %agreed.protocol, "protocol agreed");
             self.events.push_back(Event::ProtocolAgreed(agreed.protocol));
             return Ok(());
         }
@@ -343,7 +375,7 @@ impl Secc {
         };
 
         // Every request after `SessionSetupReq` must carry the id this station
-        // assigned. \[V2G2-388\] — the answer is `FAILED_UnknownSession`.
+        // assigned. \[V2G2-460\] — the answer is `FAILED_UnknownSession`.
         // A request with *no* id is refused for the same reason: an
         // unidentified request in an established session is not this session's.
         if self.established && message.session_id() != Some(self.config.session_id) {
@@ -445,7 +477,7 @@ impl Secc {
     ///
     /// The session id is stamped in rather than taken from the message. The
     /// station assigned it and every message of the session carries it
-    /// \[V2G2-390\], so it is not a per-response decision, and an application
+    /// \[V2G2-752\], so it is not a per-response decision, and an application
     /// that has to remember it in thirty places will eventually not.
     pub fn respond(&mut self, now: Instant, mut response: Message) -> Result<(), SeccError> {
         if response.is_request() {

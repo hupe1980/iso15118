@@ -9,8 +9,9 @@ name: Release
 # Cutting a release:
 #
 #   1. bump `version` under `[workspace.package]` in Cargo.toml
-#   2. `cargo update -p iso15118` so Cargo.lock agrees, and commit both
-#   3. `git tag v0.2.0 && git push origin v0.2.0`
+#   2. `cargo update -p iso15118` so Cargo.lock agrees
+#   3. date the release's section in CHANGELOG.md, and commit all three
+#   4. `git tag vX.Y.Z && git push origin vX.Y.Z`
 #
 # The tag is the whole trigger; everything below follows from it.
 #
