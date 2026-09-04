@@ -210,6 +210,35 @@ compliance spells its literal `iso15118`, means ISO 15118-**20** by it, and has 
 literal for ISO 15118-2 at all — so a name without a generation is one somebody
 downstream has to guess at.
 
+## Asking the vehicle's battery one question
+
+The layer above the protocol almost always wants the same four things — state of
+charge, battery capacity, how much energy is being asked for, and when the car is
+leaving — and the two generations hide them in different places. ISO 15118-2 puts
+a state of charge inside `DC_EVStatus`, which rides on six different requests, and
+its energy figures in `ChargeParameterDiscoveryReq`; ISO 15118-20 puts the state
+of charge in `DisplayParameters` on every charge-loop message and the energy
+request in `ScheduleExchangeReq` or in a dynamic control mode.
+
+`Message::ev_energy_status()` asks it once, for either generation:
+
+```rust
+// Whatever arrived — a -2 cable check, a -20 charge loop, a schedule exchange.
+if let Some(energy) = message.ev_energy_status() {
+    println!("{:?}% charged", energy.present_soc);
+    println!("{:?} mWh capacity", energy.energy_capacity);
+    println!("leaving in {:?} s", energy.departure_in);
+}
+```
+
+Two things about the shape are deliberate. Every field is `Option`, because every
+one of them is optional *somewhere* — an AC ISO 15118-2 session states no charge
+level at all — and `None` means "this message did not say", never "zero". And
+energy is exact integer **milliwatt-hours**, not a float: these numbers decide how
+much energy a vehicle is sold. A value in a unit that is not watt-hours is dropped
+rather than converted, on the principle that a wrong number is worse than no
+number.
+
 ## What you still have to bring
 
 Deliberately, and permanently:

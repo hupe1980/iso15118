@@ -8,6 +8,7 @@
 
 use iso15118::session::{Instant, Millis};
 use iso15118::slac::matching::{Ev, EvConfig, Evse, EvseConfig};
+use iso15118::slac::{AAG_LEN, AttenProfile};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -29,6 +30,16 @@ fuzz_target!(|data: &[u8]| {
 
     let mut now = Instant::ZERO;
     for piece in data.chunks(64) {
+        // The modem's measurement is caller-supplied and never went through the
+        // codec, so `num_groups` can be anything — including a count larger
+        // than the array it indexes. That is the one input to these engines the
+        // wire does not bound.
+        if let Some((&count, aag)) = piece.split_first() {
+            let mut groups = [0u8; AAG_LEN];
+            let n = aag.len().min(AAG_LEN);
+            groups[..n].copy_from_slice(&aag[..n]);
+            evse.observe(&AttenProfile { num_groups: count, aag: groups });
+        }
         evse.handle_frame(now, piece);
         ev.handle_frame(now, piece);
         while evse.poll_transmit().is_some() {}

@@ -26,17 +26,15 @@ pub const RESPONSE_LEN: usize = 20;
 /// The link-local multicast address SDP requests go to.
 pub const MULTICAST_ADDR: [u8; 16] = [0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01];
 
-/// Transport-layer security the session will use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Security {
-    /// TLS. Mandatory for ISO 15118-20 and for Plug & Charge under -2.
-    Tls,
-    /// No transport security. Permitted by DIN SPEC 70121 and by ISO 15118-2
-    /// with external identification (EIM) only.
-    None,
-}
+pub use crate::session::Security;
 
+/// The SDP wire encoding of [`Security`].
+///
+/// The *type* is [`crate::session::Security`] rather than one of this module's
+/// own, so the answer a vehicle accepts here is the same value it hands the
+/// session — where it decides whether Plug & Charge is available at all
+/// \[V2G2-634\]. Two enumerations meaning "TLS or not" could disagree; one
+/// cannot.
 impl Security {
     /// The on-the-wire byte.
     #[must_use]
@@ -85,6 +83,39 @@ impl TransportProtocol {
             other => Err(SdpError::UnknownTransport(other)),
         }
     }
+}
+
+/// What a station will do about transport security.
+///
+/// The station's half of the negotiation is not a preference — ISO 15118-2
+/// determines the answer from this and the request, in three requirements — so
+/// this is the only input [`Response::answering`] needs beyond the endpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum TlsPolicy {
+    /// This station cannot do TLS.
+    ///
+    /// A TLS request is answered "No transport layer security" \[V2G2-627\].
+    /// That is a *conforming* answer and not a downgrade attack, though it
+    /// looks identical to one from the vehicle's side — which is why the
+    /// vehicle decides what to do about it \[V2G2-628\] and this crate's
+    /// [`Discovery`] refuses it by default.
+    Unsupported,
+    /// This station can do TLS, and offers it when asked \[V2G2-626\].
+    ///
+    /// A plaintext request is answered plaintext: the vehicle asked for what it
+    /// wanted, and ISO 15118-2 permits an EIM session without TLS.
+    Supported,
+    /// This station requires TLS, so even a plaintext request is answered with
+    /// TLS.
+    ///
+    /// Not a case the -2 text spells out, and not an invention either: -20
+    /// mandates TLS outright, and -2 requires it for Plug & Charge. A station in
+    /// either position has nothing to offer a plaintext request *but* an
+    /// upgrade, and upgrading is the one direction
+    /// [`Response::satisfies`] accepts — so the vehicle can act on the answer
+    /// rather than being cut off without one.
+    Required,
 }
 
 /// An SDP request: what the vehicle would like to speak.
@@ -230,8 +261,21 @@ impl Response {
     /// Whether this response gives the vehicle what it asked for.
     ///
     /// A charger may answer with *more* security than requested, and the
-    /// vehicle must then use TLS; it may never answer with less. Downgrade is
-    /// the attack this check exists to stop.
+    /// vehicle must then use TLS.
+    ///
+    /// An answer with **less** is not, by itself, an attack: \[V2G2-627\]
+    /// *obliges* a station that does not support TLS to answer a TLS request
+    /// with "No transport layer security". A conforming station downgrades. So
+    /// what this returns is not "somebody is attacking you" but the question
+    /// \[V2G2-628\] puts to the vehicle — use what was offered, or stop — and
+    /// the answer depends on the vehicle, not on the station: under Plug &
+    /// Charge, or under ISO 15118-20, it must stop.
+    ///
+    /// Which is exactly why it is a returned `bool` rather than a silent
+    /// acceptance. The failure this prevents is a vehicle that asked for TLS,
+    /// was answered plaintext, and never noticed — whether the answer came from
+    /// an honest station or from anything else on an unauthenticated multicast
+    /// segment.
     #[must_use]
     pub const fn satisfies(&self, request: &Request) -> bool {
         if self.transport as u8 != request.transport as u8 {
@@ -240,6 +284,66 @@ impl Response {
         // A TLS request must be answered with TLS; a plaintext request may be
         // upgraded. Only the downgrade direction is refused.
         !matches!((request.security, self.security), (Security::Tls, Security::None))
+    }
+
+    /// The answer ISO 15118-2 obliges a station to give.
+    ///
+    /// The station's side of discovery is one of the few places where the
+    /// standard leaves *no* discretion, and it says so in three requirements —
+    /// which means a station has nothing to decide here beyond its own TLS
+    /// policy, and every station that re-derives this from prose is re-deriving
+    /// the same table:
+    ///
+    /// | Request | [`TlsPolicy::Unsupported`] | [`TlsPolicy::Supported`] | [`TlsPolicy::Required`] |
+    /// |---|---|---|---|
+    /// | TLS | plaintext \[V2G2-627\] | TLS \[V2G2-626\] | TLS |
+    /// | plaintext | plaintext | plaintext | TLS |
+    ///
+    /// The transport is echoed \[V2G2-625\]: a TCP request is answered TCP.
+    /// Table 16 defines UDP and no profile selects it, so echoing is the
+    /// generalisation rather than a second rule — and a station that cannot
+    /// serve the transport asked for should not answer at all.
+    ///
+    /// `address` and `port` are where the vehicle will open its TCP connection,
+    /// so they are this station's own — link-local on a CCS link, which is what
+    /// [`Response::is_link_local`] checks and what a vehicle refuses without.
+    ///
+    /// ```
+    /// use iso15118::sdp::{Request, Response, Security, TlsPolicy};
+    ///
+    /// let station = [0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+    ///
+    /// // A station with no TLS is *obliged* to answer a TLS request in plain
+    /// // [V2G2-627] — and the vehicle is then obliged to notice.
+    /// let answer = Response::answering(Request::TLS, station, 15118, TlsPolicy::Unsupported);
+    /// assert_eq!(answer.security, Security::None);
+    /// assert!(!answer.satisfies(&Request::TLS), "the vehicle has a decision to make");
+    ///
+    /// // A station that requires it upgrades a plaintext request instead.
+    /// let answer = Response::answering(Request::PLAIN, station, 15118, TlsPolicy::Required);
+    /// assert_eq!(answer.security, Security::Tls);
+    /// assert!(answer.satisfies(&Request::PLAIN), "an upgrade is one the vehicle may act on");
+    /// ```
+    #[must_use]
+    #[allow(
+        clippy::match_same_arms,
+        reason = "one arm per requirement; \\[V2G2-627\\]'s obligatory downgrade \
+                  and an ordinary plaintext answer produce the same byte for \
+                  entirely different reasons, and merging them would lose the \
+                  citation that says so"
+    )]
+    pub const fn answering(request: Request, address: [u8; 16], port: u16, tls: TlsPolicy) -> Self {
+        let security = match (request.security, tls) {
+            // \[V2G2-626\] and the -20 / Plug & Charge case.
+            (Security::Tls, TlsPolicy::Supported | TlsPolicy::Required)
+            | (Security::None, TlsPolicy::Required) => Security::Tls,
+            // \[V2G2-627\]: asked for TLS, cannot do it, must say so.
+            (Security::Tls, TlsPolicy::Unsupported) => Security::None,
+            // Asked for plaintext by a station that does not insist otherwise.
+            (Security::None, TlsPolicy::Unsupported | TlsPolicy::Supported) => Security::None,
+        };
+        // \[V2G2-625\]: the transport is the one that was asked for.
+        Self { address, port, security, transport: request.transport }
     }
 
     /// True when the advertised address is IPv6 link-local (`fe80::/10`), which
@@ -331,7 +435,21 @@ pub struct Discovery {
     attempts: u32,
     deadline: Option<crate::session::Instant>,
     pending: Option<[u8; v2gtp::HEADER_LEN + REQUEST_LEN]>,
-    event: Option<Event>,
+    /// The run's one outcome: [`Event::Found`] or [`Event::GaveUp`].
+    outcome: Option<Event>,
+    /// The most recent thing worth reporting that is *not* the outcome — a
+    /// refusal or a conflict.
+    ///
+    /// Its own slot rather than sharing the outcome's, because the two answer
+    /// different questions and the interesting runs produce both: an answer
+    /// that had to be refused, and then a usable one. One slot meant the
+    /// outcome overwrote the refusal, which is exactly the signal a caller
+    /// wants when deciding whether the segment has something else on it.
+    /// Bounded at one, so a flood cannot grow anything or push the outcome out.
+    notice: Option<Event>,
+    /// What [`Event::Found`] reported, kept so a later answer can be compared
+    /// against it.
+    accepted: Option<Response>,
     done: bool,
 }
 
@@ -360,6 +478,31 @@ pub enum Event {
     GaveUp {
         /// How many requests went out.
         attempts: u32,
+    },
+    /// A *second*, different, perfectly usable answer arrived.
+    ///
+    /// One V2G link has one SECC on it, answering from one address
+    /// \[V2G2-144\]. Two different endpoints is somebody else on the segment
+    /// answering as well.
+    ///
+    /// This is the half of SDP spoofing [`Refused`](Event::Refused) cannot
+    /// cover. A downgrade or an off-link redirect is refused because the vehicle
+    /// can *tell*; an answer that is well-formed, link-local and offers the
+    /// requested security is indistinguishable from the real station's, so
+    /// whichever arrives first wins and an attacker need only be quicker
+    /// (arXiv 2512.15966 §3.2).
+    ///
+    /// The engine therefore keeps listening after it has an answer, and reports
+    /// a second that disagrees. It does not decide: `accepted` has already been
+    /// reported as [`Event::Found`] and may have a TCP connection on it, and the
+    /// crate cannot tell a spoofer from a misconfigured second station.
+    ///
+    /// Not terminal, and does not displace the outcome — both are delivered.
+    Conflict {
+        /// The answer that was accepted, and reported as [`Event::Found`].
+        accepted: Response,
+        /// The one that arrived afterwards and named somewhere else.
+        other: Response,
     },
 }
 
@@ -414,7 +557,9 @@ impl Discovery {
             attempts: 0,
             deadline: None,
             pending: None,
-            event: None,
+            outcome: None,
+            notice: None,
+            accepted: None,
             done: false,
         }
     }
@@ -464,7 +609,9 @@ impl Discovery {
     pub fn start(&mut self, now: crate::session::Instant) {
         self.attempts = 0;
         self.done = false;
-        self.event = None;
+        self.outcome = None;
+        self.notice = None;
+        self.accepted = None;
         self.send(now);
     }
 
@@ -501,7 +648,7 @@ impl Discovery {
         self.deadline = None;
         if self.attempts >= self.max_attempts {
             self.done = true;
-            self.event = Some(Event::GaveUp { attempts: self.attempts });
+            self.outcome = Some(Event::GaveUp { attempts: self.attempts });
             return;
         }
         self.send(now);
@@ -509,40 +656,63 @@ impl Discovery {
 
     /// Feeds a datagram received on the discovery port.
     ///
-    /// **Only a usable answer ends discovery.** The request went to a multicast
-    /// group on a shared segment, so anything can answer and nothing
-    /// authenticates who did. An answer that is malformed (an `Err` from here)
-    /// or well-formed but unusable (an [`Event::Refused`]) leaves the run armed
-    /// and retrying, as if it had never arrived — otherwise one spoofed
-    /// datagram would stop the vehicle ever hearing the station it is plugged
-    /// into.
+    /// **Only a usable answer ends discovery, and even that does not stop the
+    /// listening.** The request went to a multicast group on a shared segment,
+    /// so anything can answer and nothing authenticates who did. Three cases,
+    /// and none of them lets one datagram decide the run:
     ///
-    /// A refusal still has to reach the caller, so poll for events *inside* the
-    /// loop rather than only after it. The engine holds one unread event: a
-    /// terminal one displaces a refusal, and a refusal displaces nothing, so a
-    /// flood cannot push the outcome out before it is read.
+    /// * **Malformed** — an `Err` from here. The run is untouched: same
+    ///   deadline, same attempt count, as if it had never arrived.
+    /// * **Well-formed but unusable** — [`Event::Refused`]. Reported, and the
+    ///   run carries on armed and retrying. Otherwise one spoofed downgrade
+    ///   would stop the vehicle ever hearing the station it is plugged into.
+    /// * **Usable** — [`Event::Found`], and the run is finished. But keep
+    ///   feeding datagrams until the connection is up: a *second* usable answer
+    ///   naming somewhere else is [`Event::Conflict`], and it is the only
+    ///   evidence a vehicle gets that something on the segment answered as well.
+    ///
+    /// The third case is the one worth understanding. A refusal is a *judgement*
+    /// the vehicle can make about a single datagram; a race is not. Two
+    /// well-formed, link-local, correctly-secured answers are indistinguishable
+    /// one at a time, and the attacker's whole job is to be first. Comparing
+    /// them to each other is the only check there is.
+    ///
+    /// Poll for events *inside* the receive loop rather than only after it. The
+    /// engine holds the outcome in one slot and the latest notice in another,
+    /// so a flood grows nothing and cannot push either out.
     pub fn handle_datagram(
         &mut self,
         _now: crate::session::Instant,
         frame: &[u8],
     ) -> Result<(), SdpError> {
+        let response = Response::from_frame(frame)?;
+        // Already answered: the only thing left worth saying about a datagram
+        // is that it disagrees with the answer taken.
+        if let Some(accepted) = self.accepted {
+            if response != accepted && self.refusal(&response).is_none() {
+                self.notice = Some(Event::Conflict { accepted, other: response });
+            }
+            return Ok(());
+        }
+        // Finished without one — the attempt ceiling ran out. A datagram after
+        // that does not un-give-up: `GaveUp` may already have been polled and
+        // acted on, and a run that quietly acquires an answer after reporting it
+        // had none is worse than a slow charger.
         if self.done {
             return Ok(());
         }
-        let response = Response::from_frame(frame)?;
         if let Some(reason) = self.refusal(&response) {
             // Report it and keep listening. The deadline and the attempt
             // counter are untouched: as far as the run is concerned, this
             // datagram did not happen.
-            if self.event.is_none() {
-                self.event = Some(Event::Refused { response, reason });
-            }
+            self.notice = Some(Event::Refused { response, reason });
             return Ok(());
         }
         self.done = true;
         self.deadline = None;
         self.pending = None;
-        self.event = Some(Event::Found(response));
+        self.accepted = Some(response);
+        self.outcome = Some(Event::Found(response));
         Ok(())
     }
 
@@ -552,7 +722,9 @@ impl Discovery {
             return Some(Refusal::TransportMismatch);
         }
         // A charger may answer with *more* security than requested and the
-        // vehicle must then use TLS; it may never answer with less.
+        // vehicle must then use TLS. Less is a conforming answer from a station
+        // without TLS \[V2G2-627\]; whether to accept it is the vehicle's
+        // decision \[V2G2-628\], and this engine's default is not to.
         if matches!((self.request.security, response.security), (Security::Tls, Security::None)) {
             return Some(Refusal::SecurityDowngrade);
         }
@@ -562,9 +734,16 @@ impl Discovery {
         None
     }
 
-    /// The outcome, once there is one.
+    /// The next event, if any.
+    ///
+    /// A refusal or a conflict comes out before the outcome, because the
+    /// outcome is the one that will still be true next time round and the
+    /// notice is not.
     pub const fn poll_event(&mut self) -> Option<Event> {
-        self.event.take()
+        match self.notice.take() {
+            Some(notice) => Some(notice),
+            None => self.outcome.take(),
+        }
     }
 
     fn send(&mut self, now: crate::session::Instant) {
@@ -639,6 +818,80 @@ impl std::error::Error for SdpError {
             Self::Framing(e) => Some(e),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod answering_tests {
+    use super::{Request, Response, Security, TlsPolicy, TransportProtocol};
+
+    const STATION: [u8; 16] = [0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+
+    /// The whole of \[V2G2-625\]..\[V2G2-627\] as one table, because it is one
+    /// table — and because a station that gets it wrong is a station a vehicle
+    /// either cannot reach or reaches unencrypted.
+    #[test]
+    fn the_answer_is_determined_by_the_request_and_the_policy() {
+        use Security::{None as Plain, Tls};
+        use TlsPolicy::{Required, Supported, Unsupported};
+
+        for (asked, policy, expected) in [
+            // \[V2G2-627\]: no TLS available, so say so rather than not answer.
+            (Tls, Unsupported, Plain),
+            // \[V2G2-626\]: asked for and available.
+            (Tls, Supported, Tls),
+            (Tls, Required, Tls),
+            // A plaintext request stands unless the station insists.
+            (Plain, Unsupported, Plain),
+            (Plain, Supported, Plain),
+            // -20, and -2 under Plug & Charge: nothing else is on offer.
+            (Plain, Required, Tls),
+        ] {
+            let request = Request { security: asked, transport: TransportProtocol::Tcp };
+            let answer = Response::answering(request, STATION, 15118, policy);
+            assert_eq!(answer.security, expected, "{asked:?} + {policy:?}");
+            assert_eq!(answer.transport, TransportProtocol::Tcp, "\\[V2G2-625\\]");
+            assert_eq!(answer.address, STATION);
+            assert_eq!(answer.port, 15118);
+        }
+    }
+
+    /// The two halves have to agree about which answers a vehicle may act on,
+    /// or a conforming station and this crate's own vehicle cannot charge.
+    #[test]
+    fn what_a_station_answers_is_what_a_vehicle_accepts_except_the_one_case() {
+        for policy in [TlsPolicy::Supported, TlsPolicy::Required] {
+            for request in [Request::TLS, Request::PLAIN] {
+                let answer = Response::answering(request, STATION, 15118, policy);
+                assert!(answer.satisfies(&request), "{request:?} + {policy:?}");
+            }
+        }
+        // The exception, and it is the standard's rather than this crate's: a
+        // station with no TLS answers a TLS request in plain \[V2G2-627\], and
+        // the vehicle then decides \[V2G2-628\].
+        let answer = Response::answering(Request::TLS, STATION, 15118, TlsPolicy::Unsupported);
+        assert!(!answer.satisfies(&Request::TLS));
+        // ...and a plaintext request to that same station is fine.
+        let answer = Response::answering(Request::PLAIN, STATION, 15118, TlsPolicy::Unsupported);
+        assert!(answer.satisfies(&Request::PLAIN));
+    }
+
+    /// A station answers on the link it is on, and a vehicle refuses anything
+    /// else by default — so the constructor has to make the common case right.
+    #[test]
+    fn a_station_answering_with_its_link_local_address_is_accepted() {
+        let answer = Response::answering(Request::TLS, STATION, 15118, TlsPolicy::Supported);
+        assert!(answer.is_link_local());
+    }
+
+    /// The answer round-trips the wire, which is the only thing that makes it
+    /// an answer.
+    #[test]
+    fn the_answer_survives_a_v2gtp_frame() {
+        let answer = Response::answering(Request::TLS, STATION, 15118, TlsPolicy::Supported);
+        let mut frame = [0u8; 64];
+        let n = answer.write_frame(&mut frame, false).unwrap();
+        assert_eq!(Response::from_frame(&frame[..n]).unwrap(), answer);
     }
 }
 
@@ -881,8 +1134,78 @@ mod tests {
         }
         let good = answer(LINK_LOCAL, Security::Tls, TransportProtocol::Tcp);
         d.handle_datagram(Instant::ZERO, &good).unwrap();
+
+        // A hundred refusals collapse to one — the queue is two slots, not a
+        // buffer — and the refusal is delivered *and* the outcome survives it.
+        // Both matter: the outcome is the run's answer, and the refusal is the
+        // only sign the vehicle gets that something else on the segment is
+        // answering. One slot each is what lets a flood cost nothing without
+        // either half being lost.
+        assert!(matches!(d.poll_event(), Some(Event::Refused { .. })));
         assert_eq!(d.poll_event(), Some(Event::Found(Response::from_frame(&good).unwrap())));
-        assert_eq!(d.poll_event(), None, "one unread event, not a hundred");
+        assert_eq!(d.poll_event(), None, "two unread events, not a hundred and one");
+    }
+
+    /// Listening on past the answer must not also mean listening on past the
+    /// *giving up*: `GaveUp` may already have been polled and acted on.
+    #[test]
+    fn an_answer_after_the_attempt_ceiling_does_not_undo_giving_up() {
+        use crate::session::Instant;
+
+        let mut d = Discovery::new(Request::TLS).with_max_attempts(1);
+        let mut now = Instant::ZERO;
+        d.start(now);
+        now = d.poll_timeout().unwrap();
+        d.handle_timeout(now);
+        assert_eq!(d.poll_event(), Some(Event::GaveUp { attempts: 1 }));
+
+        d.handle_datagram(now, &answer(LINK_LOCAL, Security::Tls, TransportProtocol::Tcp)).unwrap();
+        assert_eq!(d.poll_event(), None);
+        assert!(d.is_finished());
+    }
+
+    /// The attack a refusal cannot catch: a well-formed, link-local, correctly
+    /// secured answer that simply arrives first.
+    ///
+    /// Nothing about one such datagram distinguishes it from the real station's
+    /// — that is the point of the attack (arXiv 2512.15966 §3.2) — so the only
+    /// check available is against the *other* answer, and the only way to have
+    /// one is to go on listening after the run is finished.
+    #[test]
+    fn a_second_station_answering_is_reported_rather_than_ignored() {
+        use crate::session::Instant;
+
+        const OTHER: [u8; 16] = [0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9];
+
+        let mut d = Discovery::new(Request::TLS);
+        d.start(Instant::ZERO);
+
+        let first = answer(LINK_LOCAL, Security::Tls, TransportProtocol::Tcp);
+        d.handle_datagram(Instant::ZERO, &first).unwrap();
+        let accepted = Response::from_frame(&first).unwrap();
+        assert_eq!(d.poll_event(), Some(Event::Found(accepted)));
+        assert!(d.is_finished());
+
+        // The station the cable is actually plugged into, answering second.
+        let second = answer(OTHER, Security::Tls, TransportProtocol::Tcp);
+        d.handle_datagram(Instant::ZERO, &second).unwrap();
+        assert_eq!(
+            d.poll_event(),
+            Some(Event::Conflict { accepted, other: Response::from_frame(&second).unwrap() }),
+        );
+
+        // A retransmission of the answer already taken is not a conflict — an
+        // SDP server may legitimately answer twice, and calling that an attack
+        // would make the check useless.
+        d.handle_datagram(Instant::ZERO, &first).unwrap();
+        assert_eq!(d.poll_event(), None);
+
+        // Nor is an answer that would have been refused on its own merits: it
+        // is already reported as what it is, and the vehicle is not acting on
+        // it either way.
+        d.handle_datagram(Instant::ZERO, &answer(OTHER, Security::None, TransportProtocol::Tcp))
+            .unwrap();
+        assert_eq!(d.poll_event(), None);
     }
 
     /// The V2G link is link-local and has no router, so an answer pointing

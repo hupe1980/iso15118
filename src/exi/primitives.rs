@@ -45,9 +45,15 @@ pub fn write_uint(w: &mut BitWriter<'_>, mut value: u64) -> ExiResult<()> {
 /// *accepted*. EXI does not require minimality outside Canonical EXI, every
 /// encoder in the field produces the minimal form anyway, and refusing them
 /// would only turn another implementation's harmless quirk into a failed
-/// charging session. Nothing downstream can be confused by it: the decoded
-/// value is the same, and Plug & Charge signatures are verified against the
-/// bytes as received rather than against a re-encoding.
+/// charging session over a value that decodes identically either way.
+///
+/// The scope is worth stating. Plug & Charge digests are **not** taken over the
+/// bytes as received: ISO 15118-2 Annex J.4 has reference validation
+/// de-reference the signed element and *re-encode* it as an EXI fragment, and
+/// `SignedInfo` is canonicalised the same way. A non-minimal integer inside a
+/// signed element therefore fails the **signature**, not the decode — which is
+/// what the profile wants, since the transform it names is canonical EXI and
+/// non-canonical bytes are not what that transform is defined over.
 pub fn read_uint(r: &mut BitReader<'_>) -> ExiResult<u64> {
     let mut value: u64 = 0;
     let mut shift: u32 = 0;

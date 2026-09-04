@@ -219,11 +219,16 @@ mismatch is how a peer talks a signature down to the weaker of two algorithms.
 <div class="note note-warn">
 <span class="note-title">Two limits worth stating plainly</span>
 
-**A verifying key is not a trusted key.** Nothing in this crate parses X.509,
-walks a V2G chain, or checks revocation. Verifying with a key you took out of an
-unvalidated certificate proves only that whoever sent the certificate also made
-the signature. Certificate path validation is the largest gap in this crate and is
-named as one — see [What is not here](@/docs/roadmap.md).
+**A verifying key is a trusted key only once its chain says so.** `pnc::pki`
+is that half — RFC 5280 basic path validation under the Annex F profiles, with
+the depth limit, the key-usage bits and the `Domain Component` \[V2G2-925\]
+makes a validity condition — and it is a *separate call*, deliberately: the
+challenge binding says which session a signature is about, the chain says whose
+key made it, and a crate that did one and implied the other would be the more
+dangerous kind of half-done.
+
+What no chain establishes is **revocation**: there is no OCSP and no CRL here,
+for reasons the standard itself gives. See [What is not here](@/docs/roadmap.md).
 
 **A valid signature does not mean the car is plugged in here.** What the vehicle
 signs is the station's random challenge and nothing else: no timestamp, no station

@@ -4,10 +4,12 @@
 //!
 //! [`grammar`](crate::grammar) derives a deterministic state machine, and it is
 //! verified against the EXI reference implementation. It is the wrong thing to
-//! *generate code from*, though: a `maxOccurs="2048"` particle becomes 2049
-//! states, and emitting a table that size — times every type that has one —
-//! would put hundreds of kilobytes of static data in a crate meant to run on a
-//! microcontroller.
+//! *generate code from*, though: a particle unrolls to one state per permitted
+//! occurrence, and these schemas have a `maxOccurs="2048"` (ISO 15118-20's
+//! `CommonMessages`), seven at 1024, and sixteen at `unbounded` — which does
+//! not unroll at all. Emitting those tables would put hundreds of kilobytes of
+//! static data in a crate meant to run on a microcontroller, and for the
+//! unbounded ones there is no table to emit.
 //!
 //! The DFA is regular, so the same information fits in a handful of integers
 //! per sequence position. This module computes those, and the generated code

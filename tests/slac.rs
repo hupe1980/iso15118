@@ -733,3 +733,46 @@ fn a_repeated_request_cannot_grow_the_queues_without_bound() {
         "a peer that repeats one broadcast must not set the event queue's length: {started}"
     );
 }
+
+/// ISO 15118-3 gives the vehicle `C_EV_match_retry` attempts at a whole
+/// matching run, so a retry is an ordinary thing rather than an edge case — and
+/// it has to start from nothing.
+///
+/// What the first attempt learned describes a burst that is over: the station
+/// it measured may have gone away, and its attenuation was measured against
+/// sounding packets nobody is listening for any more. Carried forward, the
+/// retry would send `CM_SLAC_MATCH.REQ` to a station that never answered it and
+/// then sit waiting for a key that is not coming.
+#[test]
+fn a_retry_forgets_everything_the_failed_run_learned() {
+    let mut medium = Medium { ev: ev(), stations: Vec::new(), now: Instant::ZERO };
+
+    // First attempt: one station answers and reports, but it is too far away
+    // for this vehicle's limit, so the run fails with nothing chosen.
+    let mut far = evse(FAR_MAC, 0x22);
+    far.observe(&flat(90));
+    medium.stations.push(far);
+    medium.run();
+    assert!(!medium.ev.is_matched());
+    assert!(medium.ev_events().iter().any(|e| matches!(e, EvEvent::Failed(Reason::TooFarAway))));
+    assert_eq!(medium.ev.stations(), &[FAR_MAC], "it did answer the first run");
+
+    // The station is unplugged before the retry.
+    medium.stations.clear();
+    medium.ev.start(medium.now);
+    assert!(medium.ev.stations().is_empty(), "the retry starts from nothing");
+    medium.settle();
+    for _ in 0..200 {
+        if medium.ev.is_matched() || !medium.tick() {
+            break;
+        }
+    }
+
+    // With nobody there, the retry must give up rather than match the station
+    // the *previous* run had measured.
+    assert!(!medium.ev.is_matched());
+    assert!(
+        medium.ev_events().iter().any(|e| matches!(e, EvEvent::Failed(Reason::NoStation))),
+        "a retry with nothing on the medium has no station, not a remembered one"
+    );
+}

@@ -57,6 +57,80 @@ session, and the graph branches on exactly the facts the protocol branches on:
 
 Every branch has a test.
 
+## The graph is a function of requests only
+
+Worth stating before the rules, because every apparent leniency in it follows
+from this one choice.
+
+ISO 15118-2's own state chart has a wait-state per *response*, and several of
+those branch on response **content** a sequencer fed only requests cannot see.
+`EVSEProcessing` decides whether `ChargeParameterDiscoveryReq` may repeat
+\[V2G2-688\] or must give way to `PowerDeliveryReq` \[V2G2-573\];
+`ReceiptRequired` decides whether the next legal request is `MeteringReceiptReq`
+or `ChargingStatusReq` \[V2G2-575\], \[V2G2-577\].
+
+Feeding the sequencer responses as well would reproduce those states exactly —
+and would need both role drivers to hand it every response, would hold state
+neither side reads afterwards, and would give the two sides two chances to
+disagree instead of one. So it takes requests only, and where the standard has
+several wait-states inside one phase, **the graph is their union**:
+
+| Collapsed phase | The union allows | Because the branch lives in |
+|---|---|---|
+| `ChargeParameters` | a repeat, or moving on | `EVSEProcessing` |
+| `Charging` (AC) | `ChargingStatusReq`, `MeteringReceiptReq`, `PowerDeliveryReq` | `ReceiptRequired` |
+| `CableCheck`, `PreCharge`, `Authorized`, `WeldingDetection` | a repeat, or moving on | `EVSEProcessing` |
+
+Everything a *request* can decide is still decided — the payment option, the
+energy transfer mode, the selected service, `ChargeProgress`, `ChargingSession`.
+Those are why the flow is a graph rather than a list.
+
+This is a boundary, not an excuse: a rule the sequencer could enforce from
+requests alone and does not is a defect, and several were.
+
+## Plug & Charge needs TLS, and the graph is where that is enforced
+
+ISO 15118-2 is explicit and it is not a recommendation:
+
+| | |
+|---|---|
+| \[V2G2-634\] | "If a V2G Communication Session without TLS is used, the SECC **shall not provide** the PnC Message Sets" |
+| \[V2G2-635\] | the same, of the EVCC |
+| \[V2G2-633\] | such a session shall accept external identification **and nothing else** |
+
+A sans-I/O core cannot see whether TLS is underneath it — the socket is the
+caller's — and nothing on the wire says. So the caller states it, in
+`SeccConfig::security` / `EvccConfig::security`, and the -2 graph refuses
+`PaymentServiceSelectionReq` with `SelectedPaymentOption = Contract` when the
+answer is `Security::None`.
+
+That one message is where the rule becomes enforceable, because it is the
+message that decides which kind of session this is — and the contract
+certificate chain, the signature over the authorization and the EMAID all hang
+off it. Refusing it keeps every one of them off a plaintext wire.
+
+```rust
+use iso15118::secc::SeccConfig;
+use iso15118::session::Security;
+
+let config = SeccConfig {
+    // The value SDP already negotiated, passed along rather than re-decided.
+    security: Security::Tls,
+    ..SeccConfig::default()
+};
+```
+
+**The default is `Security::None`**, because the safe default for a security
+decision is the restrictive one: a session that has not said it is secured is
+treated as though it is not. A deployment that forgets gets
+`FAILED_SequenceError` on the contract selection — loud, and diagnosable —
+rather than a certificate travelling in clear.
+
+It is the same `Security` type SECC discovery negotiates, so the value flows
+from one to the other unchanged instead of being two enumerations that mean the
+same thing and can disagree. ISO 15118-20 mandates TLS outright, so its graph
+has nothing to condition.
+
 ## Stopping is part of the graph
 
 Three rules that are easy to leave out, and each of which produces a different
@@ -76,7 +150,7 @@ Leaving this out is the class of bug behind EVerest's
 a peer keeps walking the flow as though the refusal had not happened. Here it is
 a state, two lines of graph, and a test.
 
-### `SessionStopReq` is legal from any established phase
+### `SessionStopReq` with `Terminate` is legal from any established phase
 
 Not only at the end of a completed charge. Vehicles abort — a fault, a driver
 unplugging, an answer they did not like — and refusing the stop does not prevent
@@ -84,18 +158,41 @@ it. It just replaces a clean shutdown with a sixty-second timeout.
 
 ### Not every "stop" stops
 
-`ChargingSession` is an enumeration and its values mean different things:
+`ChargingSession` is an enumeration, its values mean different things, and only
+one of the three is free to arrive at any moment:
 
-| Value | Effect |
-|---|---|
-| `Terminate` | Ends the session. |
-| `Pause` | Suspends it for a later resume under the same session id. |
-| `ServiceRenegotiation` (-20) | Does not end it at all — keeps the authorization and returns to service discovery to pick a different service. |
+| Value | Effect | When it is legal |
+|---|---|---|
+| `Terminate` | Ends the session. | Any established phase. |
+| `Pause` | Suspends it for a later resume under the same session id. | Only once the cable is not live. |
+| `ServiceRenegotiation` (-20) | Does not end it at all — keeps the authorization and returns to service discovery to pick a different service. | Only once a service has been selected. |
 
 Treating all three as terminal drops a session the standard says continues. A
 station that does not implement renegotiation answers
 `FAILED_NoServiceRenegotiationSupported`, and the failure rule above then ends the
 session — the same outcome, by the right route.
+
+<div class="note note-warn">
+<span class="note-title">Two "stops" that need a precondition</span>
+
+**A pause is not a stop, and it must not arrive while power is flowing.**
+\[V2G2-739\] has a pause take the transport connection down with it, and §8.4.1
+permits one only "at any time after sending `PowerDeliveryReq` with
+`ChargeProgress` equal to `'Stop'`". A graph that accepts one from the charge
+loop ends the conversation with the contactors closed and the link at the
+battery's voltage — power flowing with nobody talking about it. So `Pause` is
+refused in the phases where the cable is live: the charge loop, and in DC the
+cable check and the pre-charge. `Terminate` stays available everywhere, because
+an abort is exactly the case where the vehicle cannot do the tidy thing first.
+
+**A service renegotiation needs a service to renegotiate.** In -20 it lands the
+flow back at the phase from which `ServiceDiscoveryReq` is legal — which is the
+phase *after* authorization. Accepted from `SessionSetup` or
+`AuthorizationSetup`, it is not a shortcut but an authorization bypass: a peer
+that never sent an `AuthorizationReq` arrives there and walks the rest of the
+flow to `PowerDeliveryReq(Start)`. It is therefore accepted only from
+`ServiceSelected` onwards, which is also the only place the word means anything.
+</div>
 
 ## Renegotiation is not a restart
 
@@ -117,6 +214,18 @@ Those run once, on the way up; the renegotiation comes back through with the
 contactors still closed and the link still at the battery's voltage. A graph that
 demands a cable check there does not merely add a message — it strands every DC
 vehicle that renegotiates, because the vehicle will not send one.
+
+DC has a third way back, and it is the standard's own: \[V2G2-601\] makes
+`ChargeParameterDiscoveryReq` a legal next request after `PowerDeliveryRes` for
+`ChargeProgress = Stop`, alongside welding detection and the session stop, and
+\[V2G2-797\] allows the same jump straight out of the charge loop once a metering
+receipt has been acknowledged. Both are the same manoeuvre as a schedule
+renegotiation — a second charge under new terms, without dropping the session —
+so the graph treats *any* return to parameter discovery from a charge that has
+already started as a renegotiation, rather than keying on which of the three
+spellings got it there. Keying on the request instead is how the two the graph
+gained here would deadlock: the vehicle arrives at parameter discovery, and the
+station demands an isolation test it will not send.
 
 A **service** renegotiation is the opposite case and needs the opposite answer.
 Changing the energy transfer service means power stopped and the contactors
@@ -219,3 +328,28 @@ two families fail in opposite directions and are modelled separately:
 See [Architecture](@/docs/architecture.md#two-kinds-of-deadline) for why a loop
 budget is not the same thing as a per-message timeout, and why conflating them
 leaves a cable-check loop unbounded.
+
+### Performance times, surfaced
+
+Two accessors, and they are the whole of what Table 109's *other* half is for:
+
+```rust,ignore
+secc.response_due();       // V2G_SECC_Msg_Performance_Time from this request's arrival
+evcc.next_request_due();   // V2G_EVCC_Sequence_Performance_Time from the last response
+```
+
+Nothing arms a timer from either, and nothing can: missing a performance time is
+not a fault the side that missed it can observe — it is the *peer's* timeout
+expiring later, with nothing in this side's log to say why. Putting the number in
+front of the application is all a library can do.
+
+| Request | The station has | The vehicle waits |
+|---|---|---|
+| Most messages | 1,5 s | 2 s |
+| `ServiceDetail`, `PaymentDetails`, `PowerDelivery`, the certificate flows | 4,5 s | 5 s |
+| `CurrentDemand` — the DC charge loop | **25 ms** | 250 ms |
+
+The last row is a constraint on *where the answer may come from*, not on how fast
+a handler is: a DC charge loop cannot reach a database, share a lock with a web
+server, or sit behind a garbage collector. The vehicle's 250 ms is generous
+enough to hide that; the station's own budget is not.

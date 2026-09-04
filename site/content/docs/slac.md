@@ -66,6 +66,33 @@ So both engines bind every frame to the run it claims:
   stall for another. A genuinely new vehicle waits out `TT_EVSE_match_session`,
   which is what that timer is for.
 
+### The one thing binding cannot fix
+
+All of that narrows *who* a frame can be accepted from. It cannot make the
+measurement itself trustworthy, and that gap now has a CVE against the standard:
+**CVE-2025-12357** (CVSS 6.3), which describes manipulating SLAC with **spoofed
+measurements** to stage a man-in-the-middle between a vehicle and any
+ISO 15118-2 charger — wirelessly, at close range, by electromagnetic induction.
+
+The mechanism is the protocol's own logic used honestly. A station that reports
+an implausibly low attenuation is claiming to be the closest thing on the medium,
+and the quietest link is *defined* to win. Everything a forged report needs — the
+run id, the vehicle's MAC, its `source_id` — is broadcast in the clear during
+sounding, so the report costs nothing to make and the binding checks above all
+pass.
+
+This crate cannot fix that, and does not pretend to. What it does is refuse to
+make it worse: a forged report can move the choice **earlier and never later**,
+so it cannot also be used to stall the run; the key is taken only from the
+station the vehicle actually chose; and `EvEvent::Measurement` surfaces *every*
+station's report rather than only the winner, so an application that wants to
+refuse an ambiguous run — two stations within a few dB of each other, where there
+should be one loud one — has the numbers to do it.
+
+The standard's own answer, and CISA's recommendation, is ISO 15118-20: TLS is
+mandatory there and the certificate chain authenticates the station the link was
+established with. That is a reason to prefer -20, not a patch for -3.
+
 ### Nothing a bystander sends is an error
 
 The same reasoning decides the shape of the API. `handle_frame` returns nothing

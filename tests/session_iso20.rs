@@ -72,7 +72,7 @@ impl Link {
         }
         let down = self.secc.take_transmit();
         if !down.is_empty() {
-            self.evcc.handle_input(&down).expect("EVCC input");
+            self.evcc.handle_input(self.now, &down).expect("EVCC input");
         }
     }
 

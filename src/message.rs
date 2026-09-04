@@ -122,7 +122,19 @@ impl Message {
                     .map(|m| Self::Iso20Acdp(Box::new(m)))
                     .map_err(MessageError::Exi)
             }
-            _ => Err(MessageError::Unsupported { payload_type, protocol }),
+            // Nothing matched, and the two reasons are not the same fault.
+            _ if !payload_type.belongs_to(protocol) => {
+                // A message for a session other than this one — a -20 payload
+                // type in a -2 session, or any type before negotiation.
+                // \[V2G2-800\] has the receiver ignore it.
+                Err(MessageError::NotForThisSession { payload_type, protocol })
+            }
+            // The payload type *is* this session's, and there is no message set
+            // compiled in for it — DIN SPEC 70121, or a -20 schema set behind a
+            // feature that is off. Ignoring would silently drop a message this
+            // session is genuinely part of, so it is reported; the caller's own
+            // codec rides `Connection::next_frame`.
+            _ => Err(MessageError::NoCodec { payload_type, protocol }),
         }
     }
 
@@ -247,6 +259,97 @@ impl Message {
         }
     }
 
+    /// What this message says about the vehicle's battery, if anything.
+    ///
+    /// `None` for a message that carries no battery information at all — every
+    /// response, the handshake, and the requests that are pure protocol.
+    ///
+    /// This is the one question a consumer above the protocol actually has, and
+    /// answering it otherwise means knowing both message sets: -2 hides a state of
+    /// charge in `DC_EVStatus` on six different requests and its energy figures
+    /// in `ChargeParameterDiscoveryReq`, while -20 puts the state of charge in
+    /// `DisplayParameters` on the charge loop and the energy figures in
+    /// `ScheduleExchangeReq`. See [`EvEnergyStatus`].
+    ///
+    /// An energy value in a unit that is not watt-hours is dropped rather than
+    /// converted, and so is one that cannot be scaled to an exact integer —
+    /// both are `None`, on the principle that a wrong number is worse than no
+    /// number for a quantity somebody is billed for.
+    /// Present only when a build has a message set to read one out of — with
+    /// neither generation enabled there is no message that carries a battery.
+    #[must_use]
+    #[cfg(any(feature = "iso2", feature = "iso20-common"))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "iso2", feature = "iso20-common"))))]
+    pub fn ev_energy_status(&self) -> Option<EvEnergyStatus> {
+        let status = match self {
+            #[cfg(feature = "iso2")]
+            Self::Iso2(m) => iso2_energy_status(m)?,
+            #[cfg(feature = "iso20-common")]
+            Self::Iso20(m) => iso20_common_energy_status(m)?,
+            #[cfg(feature = "iso20-ac")]
+            Self::Iso20Ac(m) => {
+                use crate::iso20::ac::ACChargeLoopReqChoice as C;
+                let crate::iso20::ac::Document::ACChargeLoopReq(r) = &**m else { return None };
+                let mut out = display_energy_status(r.display_parameters.as_ref());
+                // The four *dynamic* control modes restate the energy request
+                // on every turn of the loop, which is what a load manager
+                // tracks. The scheduled ones do not: a vehicle following a
+                // schedule is not asking for an amount.
+                match &r.choice {
+                    C::DynamicACCLReqControlMode(c) => out.take_request(
+                        c.departure_time,
+                        &c.ev_target_energy_request,
+                        &c.ev_minimum_energy_request,
+                        &c.ev_maximum_energy_request,
+                    ),
+                    C::BPTDynamicACCLReqControlMode(c) => out.take_request(
+                        c.departure_time,
+                        &c.ev_target_energy_request,
+                        &c.ev_minimum_energy_request,
+                        &c.ev_maximum_energy_request,
+                    ),
+                    _ => {}
+                }
+                out
+            }
+            #[cfg(feature = "iso20-dc")]
+            Self::Iso20Dc(m) => {
+                use crate::iso20::dc::DCChargeLoopReqChoice as C;
+                let crate::iso20::dc::Document::DCChargeLoopReq(r) = &**m else { return None };
+                let mut out = display_energy_status(r.display_parameters.as_ref());
+                match &r.choice {
+                    C::DynamicDCCLReqControlMode(c) => out.take_request(
+                        c.departure_time,
+                        &c.ev_target_energy_request,
+                        &c.ev_minimum_energy_request,
+                        &c.ev_maximum_energy_request,
+                    ),
+                    C::BPTDynamicDCCLReqControlMode(c) => out.take_request(
+                        c.departure_time,
+                        &c.ev_target_energy_request,
+                        &c.ev_minimum_energy_request,
+                        &c.ev_maximum_energy_request,
+                    ),
+                    _ => {}
+                }
+                out
+            }
+            #[cfg(feature = "iso20-wpt")]
+            Self::Iso20Wpt(m) => match &**m {
+                // WPT has no dynamic control mode carrying an energy request,
+                // so the display parameters are the whole of what it states.
+                crate::iso20::wpt::Document::WPTChargeLoopReq(r) => {
+                    display_energy_status(r.display_parameters.as_ref())
+                }
+                _ => return None,
+            },
+            _ => return None,
+        };
+        // A `DisplayParameters` with every field absent is legal EXI and says
+        // nothing; reporting it as a status would be reporting an answer.
+        if status.is_empty() { None } else { Some(status) }
+    }
+
     /// True for a request — an element whose name ends in `Req`.
     ///
     /// Both generations name every message this way, and the direction decides
@@ -340,6 +443,114 @@ impl Message {
     }
 }
 
+/// Reads the ISO 15118-2 side: a state of charge from any of the six requests
+/// that carry `DC_EVStatus`, and the energy figures from the one that carries
+/// them.
+#[cfg(feature = "iso2")]
+fn iso2_energy_status(doc: &crate::iso2::Document) -> Option<EvEnergyStatus> {
+    use crate::iso2::{BodyChoice as B, ChargeParameterDiscoveryReqChoice as P};
+
+    let crate::iso2::Document::V2GMessage(v2g) = doc else { return None };
+    let mut out = EvEnergyStatus::default();
+
+    // `DC_EVStatus` rides on six different requests, and the state of charge
+    // inside it is the same field every time.
+    let dc_status = match v2g.body.choice.as_ref()? {
+        B::CableCheckReq(r) => Some(&r.dc_ev_status),
+        B::PreChargeReq(r) => Some(&r.dc_ev_status),
+        B::WeldingDetectionReq(r) => Some(&r.dc_ev_status),
+        B::CurrentDemandReq(r) => {
+            out.charging_complete = Some(r.charging_complete);
+            Some(&r.dc_ev_status)
+        }
+        B::PowerDeliveryReq(r) => match r.choice.as_ref() {
+            Some(crate::iso2::PowerDeliveryReqChoice::DCEVPowerDeliveryParameter(p)) => {
+                out.charging_complete = Some(p.charging_complete);
+                Some(&p.dc_ev_status)
+            }
+            _ => None,
+        },
+        B::ChargeParameterDiscoveryReq(r) => match &r.choice {
+            P::DCEVChargeParameter(p) => {
+                out.departure_in = p.departure_time;
+                out.full_soc = p.full_soc;
+                out.bulk_soc = p.bulk_soc;
+                out.energy_capacity = p.ev_energy_capacity.as_ref().and_then(energy_mwh);
+                out.target_energy_request = p.ev_energy_request.as_ref().and_then(energy_mwh);
+                Some(&p.dc_ev_status)
+            }
+            P::ACEVChargeParameter(p) => {
+                out.departure_in = p.departure_time;
+                // `EAmount` is AC's only energy figure: what the vehicle wants
+                // by the time it leaves. AC states no state of charge at all.
+                out.target_energy_request = energy_mwh(&p.e_amount);
+                None
+            }
+            P::EVChargeParameter(_) => None,
+        },
+        _ => return None,
+    };
+    if let Some(dc) = dc_status {
+        out.present_soc = Some(dc.ev_ress_soc);
+    }
+    Some(out)
+}
+
+/// Reads the ISO 15118-20 `CommonMessages` side, which is where the energy
+/// request lives — in whichever of the two control modes the vehicle chose.
+#[cfg(feature = "iso20-common")]
+fn iso20_common_energy_status(doc: &crate::iso20::messages::Document) -> Option<EvEnergyStatus> {
+    use crate::iso20::messages::{Document as D, ScheduleExchangeReqChoice as C};
+
+    let D::ScheduleExchangeReq(req) = doc else { return None };
+    let mut out = EvEnergyStatus::default();
+    match &req.choice {
+        // Dynamic mode states all three energy figures and a departure time;
+        // the schema makes them mandatory, which is what "dynamic" means here.
+        C::DynamicSEReqControlMode(m) => {
+            out.departure_in = Some(m.departure_time);
+            out.minimum_soc = m.minimum_soc;
+            out.target_soc = m.target_soc;
+            out.target_energy_request = rational_mwh(&m.ev_target_energy_request);
+            out.minimum_energy_request = rational_mwh(&m.ev_minimum_energy_request);
+            out.maximum_energy_request = rational_mwh(&m.ev_maximum_energy_request);
+        }
+        // Scheduled mode states the same things optionally: the vehicle is
+        // following a schedule rather than asking for an amount.
+        C::ScheduledSEReqControlMode(m) => {
+            out.departure_in = m.departure_time;
+            out.target_energy_request = m.ev_target_energy_request.as_ref().and_then(rational_mwh);
+            out.minimum_energy_request =
+                m.ev_minimum_energy_request.as_ref().and_then(rational_mwh);
+            out.maximum_energy_request =
+                m.ev_maximum_energy_request.as_ref().and_then(rational_mwh);
+        }
+    }
+    Some(out)
+}
+
+/// Reads the ISO 15118-20 charge-loop side, which is the same `DisplayParameters`
+/// for AC, DC and WPT.
+#[cfg(any(feature = "iso20-ac", feature = "iso20-dc", feature = "iso20-wpt"))]
+fn display_energy_status(p: Option<&crate::iso20::common::DisplayParameters>) -> EvEnergyStatus {
+    let Some(p) = p else { return EvEnergyStatus::default() };
+    EvEnergyStatus {
+        present_soc: p.present_soc,
+        target_soc: p.target_soc,
+        minimum_soc: p.minimum_soc,
+        // -20 calls the ceiling `MaximumSOC` where -2 calls it `FullSOC`; they
+        // are the same quantity, so they land in the same field.
+        full_soc: p.maximum_soc,
+        bulk_soc: None,
+        energy_capacity: p.battery_energy_capacity.as_ref().and_then(rational_mwh),
+        target_energy_request: None,
+        minimum_energy_request: None,
+        maximum_energy_request: None,
+        departure_in: None,
+        charging_complete: p.charging_complete,
+    }
+}
+
 #[cfg(feature = "iso20-common")]
 fn header_session_id(header: Option<&crate::iso20::common::MessageHeader>) -> Option<SessionId> {
     SessionId::from_slice(&header?.session_id).ok()
@@ -357,6 +568,179 @@ fn set_header_session_id(
         }
         None => false,
     }
+}
+
+/// Energy in milliwatt-hours.
+///
+/// Exact integers rather than a float, for the reason
+/// [`schedule::Milliwatts`](crate::session::iso2::schedule::Milliwatts) gives:
+/// these numbers decide how much energy a vehicle is sold, and a rounding error
+/// there is a billing error. Milliwatt-hours hold every value either generation
+/// can express — `i16::MAX * 10^6` at the widest — four orders of magnitude
+/// inside the type, with no rounding and no floating point anywhere near it.
+pub type MilliwattHours = i64;
+
+/// What the vehicle has said about its battery, whichever generation said it.
+///
+/// The two generations carry this in different places, in different types, in
+/// different messages: ISO 15118-2 puts a state of charge in `DC_EVStatus` —
+/// which rides on six different requests — and the energy figures in
+/// `ChargeParameterDiscoveryReq`, while ISO 15118-20 puts the state of charge
+/// in `DisplayParameters` on every charge-loop message and the energy figures
+/// in `ScheduleExchangeReq`. A caller that wanted the vehicle's state of
+/// charge therefore had to know both message sets, both control modes and both numeric
+/// encodings to ask one question.
+///
+/// This is that question asked once. Every field is `Option` because every one
+/// of them is optional *somewhere*: a -2 AC session states no charge level at all, and a
+/// -20 charge loop need not carry `DisplayParameters`. `None` means "this
+/// message did not say", never "zero".
+///
+/// ```
+/// # #[cfg(feature = "iso2")] {
+/// use iso15118::iso2;
+/// use iso15118::message::Message;
+///
+/// # let status = iso2::DCEVStatus {
+/// #     ev_ready: true,
+/// #     ev_error_code: iso2::DCEVErrorCode::NOERROR,
+/// #     ev_ress_soc: 42,
+/// # };
+/// let message = Message::Iso2(Box::new(iso2::Document::V2GMessage(iso2::V2GMessage {
+///     header: iso2::MessageHeader {
+///         session_id: vec![0; 8],
+///         notification: None,
+///         signature: None,
+///     },
+///     body: iso2::Body {
+///         choice: Some(iso2::BodyChoice::CableCheckReq(iso2::CableCheckReq {
+///             dc_ev_status: status,
+///         })),
+///     },
+/// })));
+///
+/// let energy = message.ev_energy_status().expect("a DC request states a SoC");
+/// assert_eq!(energy.present_soc, Some(42));
+/// assert_eq!(energy.energy_capacity, None, "a cable check says nothing about capacity");
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
+pub struct EvEnergyStatus {
+    /// State of charge right now, as a percentage.
+    ///
+    /// `EVRESSSOC` in ISO 15118-2, `PresentSOC` in ISO 15118-20.
+    pub present_soc: Option<u8>,
+    /// The state of charge the vehicle is aiming for.
+    ///
+    /// ISO 15118-20 only: -2 has no equivalent, and `FullSOC` is not it —
+    /// that is the point above which the vehicle considers itself *full*, which
+    /// is [`EvEnergyStatus::full_soc`].
+    pub target_soc: Option<u8>,
+    /// The state of charge below which the vehicle considers itself short.
+    ///
+    /// ISO 15118-20 only.
+    pub minimum_soc: Option<u8>,
+    /// The state of charge at which the vehicle is fully charged.
+    ///
+    /// `FullSOC` in ISO 15118-2, `MaximumSOC` in ISO 15118-20. Not always 100:
+    /// a vehicle may declare itself full below the cell chemistry's ceiling.
+    pub full_soc: Option<u8>,
+    /// The state of charge at which bulk charging ends and the taper begins.
+    ///
+    /// ISO 15118-2 only.
+    pub bulk_soc: Option<u8>,
+    /// Usable battery capacity.
+    ///
+    /// `EVEnergyCapacity` in ISO 15118-2, `BatteryEnergyCapacity` in
+    /// ISO 15118-20.
+    pub energy_capacity: Option<MilliwattHours>,
+    /// The energy the vehicle is asking for.
+    ///
+    /// `EAmount` (AC) or `EVEnergyRequest` (DC) in ISO 15118-2,
+    /// `EVTargetEnergyRequest` in ISO 15118-20.
+    pub target_energy_request: Option<MilliwattHours>,
+    /// The least the vehicle will accept, in ISO 15118-20's terms.
+    pub minimum_energy_request: Option<MilliwattHours>,
+    /// The most the vehicle will accept, in ISO 15118-20's terms.
+    pub maximum_energy_request: Option<MilliwattHours>,
+    /// Seconds from now until the vehicle intends to leave.
+    ///
+    /// Relative, not absolute, in both generations — which is what makes it
+    /// usable without a synchronised clock, and what makes it meaningless if
+    /// it is stored rather than acted on.
+    pub departure_in: Option<u32>,
+    /// True once the vehicle says it has finished charging.
+    pub charging_complete: Option<bool>,
+}
+
+impl EvEnergyStatus {
+    /// Folds in an ISO 15118-20 dynamic control mode's energy request.
+    ///
+    /// The four dynamic modes — AC and DC, each with and without bidirectional
+    /// power transfer — declare these four fields identically, so reading them
+    /// is one function rather than four copies of one.
+    #[cfg(any(feature = "iso20-ac", feature = "iso20-dc"))]
+    fn take_request(
+        &mut self,
+        departure: Option<u32>,
+        target: &crate::iso20::common::RationalNumber,
+        minimum: &crate::iso20::common::RationalNumber,
+        maximum: &crate::iso20::common::RationalNumber,
+    ) {
+        self.departure_in = departure;
+        self.target_energy_request = rational_mwh(target);
+        self.minimum_energy_request = rational_mwh(minimum);
+        self.maximum_energy_request = rational_mwh(maximum);
+    }
+
+    /// True when nothing at all was stated.
+    ///
+    /// [`Message::ev_energy_status`] returns `None` rather than an empty status
+    /// for a message that carries no battery information, so this is only ever
+    /// true for one built by hand.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Converts an ISO 15118-2 `PhysicalValue` energy to [`MilliwattHours`].
+///
+/// Refuses a value that is not in watt-hours. `EVEnergyCapacity`, `EAmount` and
+/// `EVEnergyRequest` are all `Wh` by Table 68, and reading a voltage as an
+/// energy because both happen to be integers is the kind of agreement nobody
+/// notices until it is on an invoice.
+#[cfg(feature = "iso2")]
+fn energy_mwh(value: &crate::iso2::PhysicalValue) -> Option<MilliwattHours> {
+    if value.unit != crate::iso2::UnitSymbol::Wh {
+        return None;
+    }
+    scale_mwh(i64::from(value.value), i32::from(value.multiplier))
+}
+
+/// The same for ISO 15118-20's `RationalNumber`, which carries no unit at all —
+/// the schema fixes it per element, and every element read here is energy.
+#[cfg(feature = "iso20-common")]
+fn rational_mwh(value: &crate::iso20::common::RationalNumber) -> Option<MilliwattHours> {
+    scale_mwh(i64::from(value.value), i32::from(value.exponent))
+}
+
+/// `value * 10^(exponent + 3)`, or `None` where that is not an exact integer or
+/// does not fit.
+///
+/// Both callers are behind a protocol feature, so this is too.
+///
+/// A negative result exponent would be a fraction of a milliwatt-hour. Rounding
+/// it away would be a silent loss on a billable quantity, so it is refused
+/// instead — both schemas' facets keep real values far inside the range where
+/// this cannot happen.
+#[cfg(any(feature = "iso2", feature = "iso20-common"))]
+fn scale_mwh(value: i64, exponent: i32) -> Option<MilliwattHours> {
+    let exponent = exponent.checked_add(3)?;
+    let scale = 10i64.checked_pow(u32::try_from(exponent).ok()?)?;
+    value.checked_mul(scale)
 }
 
 /// What a response's `ResponseCode` says about the session.
@@ -394,9 +778,29 @@ pub enum MessageError {
     /// The payload type carries something other than a V2G message — an SDP
     /// datagram, for instance.
     NotAMessage(PayloadType),
-    /// The payload type belongs to a protocol this build does not have enabled,
-    /// or one the session has not negotiated.
-    Unsupported {
+    /// The payload type does not belong to this session at all.
+    ///
+    /// A -20 type in a session that negotiated -2, or any session type before
+    /// the handshake. \[V2G2-800\] has a receiver **ignore** such a message, and
+    /// [`Connection::next_message`](crate::session::Connection::next_message)
+    /// does — so this variant is what that skipping is *made of* rather than
+    /// something a session driver ever surfaces.
+    NotForThisSession {
+        /// The payload type that arrived.
+        payload_type: PayloadType,
+        /// The protocol the session had agreed, if any.
+        protocol: Option<Protocol>,
+    },
+    /// The payload type belongs to this session, and this build has no message
+    /// set for it.
+    ///
+    /// DIN SPEC 70121, whose schemas are not freely available, or an
+    /// ISO 15118-20 schema set behind a feature that is off. Unlike
+    /// [`MessageError::NotForThisSession`] this is **not** ignored: the message
+    /// is part of the session, and silently dropping it would look like a peer
+    /// that had gone quiet. Supply the codec and drive
+    /// [`Connection::next_frame`](crate::session::Connection::next_frame).
+    NoCodec {
         /// The payload type that arrived.
         payload_type: PayloadType,
         /// The protocol the session had agreed, if any.
@@ -417,9 +821,18 @@ impl fmt::Display for MessageError {
             Self::NotAMessage(t) => {
                 write!(f, "V2GTP payload type {:#06x} does not carry a V2G message", t.as_u16())
             }
-            Self::Unsupported { payload_type, protocol } => write!(
+            Self::NotForThisSession { payload_type, protocol } => write!(
                 f,
-                "no decoder for V2GTP payload type {:#06x} under {}",
+                "V2GTP payload type {:#06x} does not belong to {}",
+                payload_type.as_u16(),
+                match protocol {
+                    Some(p) => p.as_str(),
+                    None => "an unnegotiated session",
+                }
+            ),
+            Self::NoCodec { payload_type, protocol } => write!(
+                f,
+                "no message set compiled in for V2GTP payload type {:#06x} under {}",
                 payload_type.as_u16(),
                 match protocol {
                     Some(p) => p.as_str(),

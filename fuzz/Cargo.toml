@@ -80,3 +80,10 @@ path = "fuzz_targets/slac_matching.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "certificate"
+path = "fuzz_targets/certificate.rs"
+test = false
+doc = false
+bench = false

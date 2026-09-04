@@ -268,6 +268,32 @@ impl Request {
         }
     }
 
+    /// The station's own budget for answering this request.
+    ///
+    /// The other half of the pair [`Request::response_timeout`] gives, and —
+    /// like it — carried over from ISO 15118-2's Table 109 rather than quoted
+    /// from -20's §8.5, which this project does not have. See
+    /// [`timers::iso20`](super::timers::iso20).
+    ///
+    /// Nothing enforces it; [`Secc::response_due`] surfaces it so a station can.
+    ///
+    /// [`Secc::response_due`]: crate::secc::Secc::response_due
+    #[must_use]
+    pub const fn performance_time(self) -> super::Millis {
+        use super::timers::iso2 as t;
+        match self {
+            Self::ChargeLoop => t::SECC_MSG_PERFORMANCE_CURRENT_DEMAND,
+            Self::Authorization
+            | Self::AuthorizationSetup
+            | Self::CertificateInstallation
+            | Self::ServiceDetail
+            | Self::ScheduleExchange
+            | Self::PowerDelivery(_)
+            | Self::MeteringConfirmation => t::SECC_MSG_PERFORMANCE_BACKEND,
+            _ => t::SECC_MSG_PERFORMANCE_DEFAULT,
+        }
+    }
+
     #[cfg(feature = "iso20-acdp")]
     fn of_acdp(doc: &crate::iso20::acdp::Document) -> Option<Self> {
         use crate::iso20::acdp::Document as D;
@@ -397,23 +423,44 @@ impl Phase {
     ///
     /// `None` for the phases that are not loops, and for `Charging` — a charge
     /// loop runs as long as the vehicle wants it to.
+    ///
+    /// `role` picks which half of the pair applies, for the reason
+    /// [`Role`](super::Role) gives: the station's budget is deliberately the
+    /// shorter one, so that a phase which stalls ends with a `FAILED` the
+    /// vehicle can read rather than with the vehicle's own timer running out.
     #[must_use]
-    pub const fn loop_timeout(self) -> Option<super::Millis> {
+    pub const fn loop_timeout(self, role: super::Role) -> Option<super::Millis> {
+        use super::Role;
         use super::timers::{iso2 as t2, iso20 as t};
-        Some(match self {
-            Self::Authorized => t::EIM_ONGOING_TIMEOUT,
-            Self::ChargeParameters | Self::ScheduleExchanged | Self::WeldingDetection => {
-                t::ONGOING_TIMEOUT
-            }
-            Self::CableCheck => t2::EVCC_CABLE_CHECK_TIMEOUT,
-            Self::PreCharge => t2::EVCC_PRE_CHARGE_TIMEOUT,
+        Some(match (self, role) {
+            (Self::Authorized, Role::Evcc) => t::EIM_ONGOING_TIMEOUT,
+            (Self::Authorized, Role::Secc) => t::SECC_EIM_ONGOING_PERFORMANCE_TIME,
+            (
+                Self::ChargeParameters | Self::ScheduleExchanged | Self::WeldingDetection,
+                Role::Evcc,
+            ) => t::ONGOING_TIMEOUT,
+            (
+                Self::ChargeParameters | Self::ScheduleExchanged | Self::WeldingDetection,
+                Role::Secc,
+            ) => t::SECC_ONGOING_PERFORMANCE_TIME,
+            (Self::CableCheck, Role::Evcc) => t2::EVCC_CABLE_CHECK_TIMEOUT,
+            (Self::CableCheck, Role::Secc) => t2::SECC_CABLE_CHECK_PERFORMANCE_TIME,
+            (Self::PreCharge, Role::Evcc) => t2::EVCC_PRE_CHARGE_TIMEOUT,
+            (Self::PreCharge, Role::Secc) => t2::SECC_PRE_CHARGE_PERFORMANCE_TIME,
             _ => return None,
         })
     }
 }
 
 /// Tracks an ISO 15118-20 session's position in the message flow.
+///
+/// As in [`super::iso2`], it holds no buffers and no keys, so a snapshot is
+/// cheap to take and — with the `serde` feature — to store and read back. -20
+/// is the generation where that matters most: a paused session keeps its
+/// authorization, its selected service and its agreed schedule, and those have
+/// to survive whatever the station does in between.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Sequencer {
     phase: Phase,
     service: Option<Service>,
@@ -518,12 +565,18 @@ impl Sequencer {
         let Some(next) = self.next_phase(request) else {
             return Err(self.refusal(request));
         };
+        // Coming *back* to parameter discovery from a charge that has already
+        // started is a renegotiation: the DC safety phases are behind us and
+        // the cable is live, so they must not be demanded again. Keyed on the
+        // transition rather than on the request, as in `super::iso2`.
+        if next == Phase::ChargeParameters
+            && matches!(self.phase, Phase::Charging | Phase::Standby | Phase::PowerStopped)
+        {
+            self.renegotiated = true;
+        }
         // Record the facts the rest of the graph branches on before moving.
         match request {
             Request::ServiceSelection(service) => self.service = Some(service),
-            Request::PowerDelivery(ChargeProgress::ScheduleRenegotiation) => {
-                self.renegotiated = true;
-            }
             // A *service* renegotiation unwinds the session to just after
             // authorization, and the two facts the DC branch depends on unwind
             // with it. Leaving `renegotiated` set would let the next service —
@@ -587,6 +640,9 @@ impl Sequencer {
             return match (self.phase, request) {
                 (F::Start | F::Stopped | F::Paused, _) => None,
                 (_, R::SessionStop(S::Terminate)) => Some(F::Stopped),
+                // A failure does not make a live cable safe to walk away from,
+                // so the pause rule below applies here too.
+                (F::CableCheck | F::PreCharge | F::Charging, R::SessionStop(S::Pause)) => None,
                 (_, R::SessionStop(S::Pause)) => Some(F::Paused),
                 _ => None,
             };
@@ -664,25 +720,55 @@ impl Sequencer {
             // session to stop before `SessionSetupReq`.
             (F::Start | F::Stopped | F::Paused, R::SessionStop(_)) => return None,
             (_, R::SessionStop(S::Terminate)) => F::Stopped,
+            // Pausing is not that same freedom. A pause takes the transport
+            // connection down and expects to be resumed later, so one accepted
+            // while the cable is live would end the conversation with the
+            // contactors closed and the link still at battery voltage. -2 says
+            // so outright — §8.4.1 permits a pause only after
+            // `PowerDeliveryReq(Stop)` — and the physics did not change between
+            // the generations. `Standby` is already power-down and does
+            // qualify.
+            (F::CableCheck | F::PreCharge | F::Charging, R::SessionStop(S::Pause)) => return None,
             (_, R::SessionStop(S::Pause)) => F::Paused,
             // `ServiceRenegotiation` is a "stop" that does not stop anything:
             // the session keeps its authorization and returns to service
             // discovery to pick a different one. A station that does not
             // support it answers `FAILED_NoServiceRenegotiationSupported`,
             // which ends the session by the failure rule above.
-            (_, R::SessionStop(S::ServiceRenegotiation)) => F::Authorized,
+            //
+            // It needs a service to renegotiate, and insisting on that is not
+            // pedantry — it is the difference between a shortcut and an
+            // authorization bypass. The phase it lands in is the one from which
+            // `ServiceDiscoveryReq` is legal, which in -20 is the phase
+            // *after* authorization; reachable from `SessionSetup` or
+            // `AuthorizationSetup`, this arm would let a peer that had never
+            // sent an `AuthorizationReq` arrive there and walk the rest of the
+            // flow to `PowerDeliveryReq(Start)`.
+            (
+                F::ServiceSelected
+                | F::ChargeParameters
+                | F::ScheduleExchanged
+                | F::CableCheck
+                | F::PreCharge
+                | F::Charging
+                | F::Standby
+                | F::PowerStopped
+                | F::WeldingDetection,
+                R::SessionStop(S::ServiceRenegotiation),
+            ) => F::Authorized,
 
             _ => return None,
         })
     }
 
-    /// How long the session may stay in its current phase.
+    /// How long the session may stay in its current phase, as `role` bounds
+    /// it.
     ///
     /// See [`Phase::loop_timeout`]; this is that value for the phase the
     /// session is in.
     #[must_use]
-    pub const fn loop_timeout(&self) -> Option<super::Millis> {
-        self.phase.loop_timeout()
+    pub const fn loop_timeout(&self, role: super::Role) -> Option<super::Millis> {
+        self.phase.loop_timeout(role)
     }
 
     /// The name of the current phase, for logs and errors.
@@ -728,22 +814,137 @@ mod tests {
         Request::ServiceDiscovery,
     ];
 
-    /// The loop budgets, and the two relationships between them that have to
-    /// hold whatever the numbers are: this side must decide before the peer
-    /// gives up on it, and a person is slower than a backend.
+    /// A service renegotiation needs a service to renegotiate — and insisting
+    /// on that is not pedantry, it is the difference between a shortcut and an
+    /// authorization bypass.
+    ///
+    /// `SessionStopReq(ServiceRenegotiation)` lands the flow in the phase from
+    /// which `ServiceDiscoveryReq` is legal, which in -20 is the phase *after*
+    /// authorization. Reachable from `SessionSetup`, it would let a peer that
+    /// never sent an `AuthorizationReq` arrive there and walk the whole flow to
+    /// `PowerDeliveryReq(Start)` — a full charge on a session that was never
+    /// authorized.
+    #[test]
+    fn service_renegotiation_cannot_stand_in_for_authorization() {
+        for preamble in [&PREAMBLE[..1], &PREAMBLE[..2]] {
+            let s = run(preamble);
+            let phase = s.phase();
+            assert!(
+                !s.permits(Request::SessionStop(ChargingSession::ServiceRenegotiation)),
+                "renegotiating from {phase:?} skips authorization"
+            );
+            // Stopping the session is a different matter and stays available.
+            assert!(s.permits(Request::SessionStop(ChargingSession::Terminate)));
+        }
+
+        // It is also refused between authorization and a selected service:
+        // there is still nothing to renegotiate.
+        let mut s = run(&PREAMBLE);
+        assert!(!s.permits(Request::SessionStop(ChargingSession::ServiceRenegotiation)));
+        s.accept(Request::ServiceSelection(Service::Ac)).unwrap();
+        assert!(s.permits(Request::SessionStop(ChargingSession::ServiceRenegotiation)));
+    }
+
+    /// A renegotiation that unwinds to a *different* service must not carry the
+    /// previous one's "the safety phases are behind us" with it.
+    #[test]
+    fn a_service_renegotiation_forgets_the_previous_service() {
+        let mut s = run(&PREAMBLE);
+        for r in [
+            Request::ServiceSelection(Service::Ac),
+            Request::ChargeParameterDiscovery,
+            Request::ScheduleExchange,
+            Request::PowerDelivery(ChargeProgress::Start),
+            Request::PowerDelivery(ChargeProgress::ScheduleRenegotiation),
+        ] {
+            s.accept(r).unwrap();
+        }
+        assert!(s.has_renegotiated());
+
+        s.accept(Request::SessionStop(ChargingSession::ServiceRenegotiation)).unwrap();
+        assert_eq!(s.service(), None);
+        assert!(!s.has_renegotiated(), "a DC service now must still prove its isolation");
+
+        s.accept(Request::ServiceDiscovery).unwrap();
+        s.accept(Request::ServiceSelection(Service::Dc)).unwrap();
+        s.accept(Request::ChargeParameterDiscovery).unwrap();
+        s.accept(Request::ScheduleExchange).unwrap();
+        assert!(
+            !s.permits(Request::PowerDelivery(ChargeProgress::Start)),
+            "the contactors opened when the previous service ended"
+        );
+        assert!(s.permits(Request::CableCheck));
+    }
+
+    /// A pause takes the transport connection down and expects to be resumed,
+    /// so one accepted while the cable is live would end the conversation with
+    /// the contactors closed. -2 says so outright (§8.4.1) and the physics did
+    /// not change between the generations.
+    #[test]
+    fn a_pause_is_refused_while_the_cable_is_live() {
+        let mut s = run(&PREAMBLE);
+        for r in [
+            Request::ServiceSelection(Service::Dc),
+            Request::ChargeParameterDiscovery,
+            Request::ScheduleExchange,
+        ] {
+            s.accept(r).unwrap();
+        }
+        assert!(s.permits(Request::SessionStop(ChargingSession::Pause)), "nothing is live yet");
+
+        for r in [Request::CableCheck, Request::PreCharge] {
+            s.accept(r).unwrap();
+            let phase = s.phase();
+            assert!(
+                !s.permits(Request::SessionStop(ChargingSession::Pause)),
+                "pausing from {phase:?} would leave the link energised"
+            );
+        }
+        s.accept(Request::PowerDelivery(ChargeProgress::Start)).unwrap();
+        assert!(!s.permits(Request::SessionStop(ChargingSession::Pause)));
+
+        // Standby is already power-down, so it qualifies...
+        s.accept(Request::PowerDelivery(ChargeProgress::Standby)).unwrap();
+        assert!(s.permits(Request::SessionStop(ChargingSession::Pause)));
+        // ...and so, of course, does a stopped charge.
+        s.accept(Request::PowerDelivery(ChargeProgress::Stop)).unwrap();
+        assert!(s.permits(Request::SessionStop(ChargingSession::Pause)));
+    }
+
+    /// The loop budgets, and the relationships between them that have to hold
+    /// whatever the numbers turn out to be: the station must decide before the
+    /// vehicle gives up on it, the station must decide before the *sequence*
+    /// window closes, and a person is slower than a backend.
     #[test]
     fn only_the_loops_have_a_loop_budget() {
+        use crate::session::Role::{Evcc, Secc};
         use crate::session::timers::iso20 as t;
-        assert_eq!(Phase::Authorized.loop_timeout(), Some(t::EIM_ONGOING_TIMEOUT));
-        assert_eq!(Phase::ChargeParameters.loop_timeout(), Some(t::ONGOING_TIMEOUT));
-        assert_eq!(Phase::ScheduleExchanged.loop_timeout(), Some(t::ONGOING_TIMEOUT));
-        assert_eq!(Phase::WeldingDetection.loop_timeout(), Some(t::ONGOING_TIMEOUT));
+        assert_eq!(Phase::Authorized.loop_timeout(Evcc), Some(t::EIM_ONGOING_TIMEOUT));
+        assert_eq!(Phase::ChargeParameters.loop_timeout(Evcc), Some(t::ONGOING_TIMEOUT));
+        assert_eq!(Phase::ScheduleExchanged.loop_timeout(Evcc), Some(t::ONGOING_TIMEOUT));
+        assert_eq!(Phase::WeldingDetection.loop_timeout(Evcc), Some(t::ONGOING_TIMEOUT));
         for phase in
             [Phase::Start, Phase::SessionSetup, Phase::Charging, Phase::Standby, Phase::Stopped]
         {
-            assert_eq!(phase.loop_timeout(), None, "{phase:?} is not a loop");
+            for role in [Evcc, Secc] {
+                assert_eq!(phase.loop_timeout(role), None, "{phase:?} is not a loop for {role}");
+            }
         }
-        assert!(t::ONGOING_TIMEOUT < t::SECC_SEQUENCE_TIMEOUT, "the station decides first");
+        for phase in [
+            Phase::Authorized,
+            Phase::ChargeParameters,
+            Phase::ScheduleExchanged,
+            Phase::WeldingDetection,
+            Phase::CableCheck,
+            Phase::PreCharge,
+        ] {
+            let (evcc, secc) = (phase.loop_timeout(Evcc), phase.loop_timeout(Secc));
+            assert!(secc < evcc, "{phase:?}: station {secc:?} must close before vehicle {evcc:?}");
+        }
+        assert!(
+            t::SECC_ONGOING_PERFORMANCE_TIME < t::SECC_SEQUENCE_TIMEOUT,
+            "the station decides first"
+        );
         assert!(t::EIM_ONGOING_TIMEOUT > t::ONGOING_TIMEOUT, "a person is slower than a backend");
     }
 

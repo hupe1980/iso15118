@@ -15,10 +15,12 @@
 //!   uses to choose its next request, and what a fuzzer uses to stay on-path)
 //!
 //! ```
+//! use iso15118::session::Security;
 //! use iso15118::session::iso2::{Request, Sequencer};
 //! use iso15118::iso2::{ChargeProgress, EnergyTransferMode, PaymentOption};
 //!
-//! let mut s = Sequencer::new();
+//! // The transport decides one rule: Plug & Charge needs TLS [V2G2-634].
+//! let mut s = Sequencer::new(Security::Tls);
 //! s.accept(Request::SessionSetup)?;
 //! s.accept(Request::ServiceDiscovery)?;
 //! s.accept(Request::PaymentServiceSelection(PaymentOption::ExternalPayment))?;
@@ -37,7 +39,7 @@ use crate::iso2::{
     ChargeProgress, ChargingSession, EnergyTransferMode, PaymentOption, ResponseCode,
 };
 
-use super::SequenceError;
+use super::{Security, SequenceError};
 
 /// A request, reduced to what sequencing depends on.
 ///
@@ -157,7 +159,7 @@ impl Request {
     }
 
     /// The `V2G_EVCC_Msg_Timeout` for this request's response
-    /// (ISO 15118-2 Table 105).
+    /// (ISO 15118-2 Table 109, \[V2G2-436\]).
     #[must_use]
     pub const fn response_timeout(self) -> super::Millis {
         use super::timers::iso2 as t;
@@ -173,6 +175,38 @@ impl Request {
             | Self::CertificateInstallation
             | Self::CertificateUpdate => t::MSG_TIMEOUT_BACKEND,
             _ => t::MSG_TIMEOUT_DEFAULT,
+        }
+    }
+
+    /// The `V2G_SECC_Msg_Performance_Time` for this request's response
+    /// (ISO 15118-2 Table 109).
+    ///
+    /// The other half of the pair [`Request::response_timeout`] gives. That one
+    /// is how long the *vehicle* waits and it is enforced — the session ends
+    /// when it expires. This one is how long the *station* has to answer, and
+    /// nothing enforces it, because nothing on this side can: missing it is not
+    /// a fault the station observes, it is the vehicle timing out half a second
+    /// later.
+    ///
+    /// What it is good for is budgeting. A station that has to reach a clearing
+    /// house to answer `PaymentDetailsReq` has 4,5 s to do it in and can decide
+    /// what to do at 4 s; one answering `CurrentDemandReq` has **25 ms**, which
+    /// is a fact about the architecture rather than about the request handler.
+    /// [`Secc::response_due`] turns it into a deadline against the session
+    /// clock.
+    ///
+    /// [`Secc::response_due`]: crate::secc::Secc::response_due
+    #[must_use]
+    pub const fn performance_time(self) -> super::Millis {
+        use super::timers::iso2 as t;
+        match self {
+            Self::CurrentDemand => t::SECC_MSG_PERFORMANCE_CURRENT_DEMAND,
+            Self::ServiceDetail
+            | Self::PaymentDetails
+            | Self::PowerDelivery(_)
+            | Self::CertificateInstallation
+            | Self::CertificateUpdate => t::SECC_MSG_PERFORMANCE_BACKEND,
+            _ => t::SECC_MSG_PERFORMANCE_DEFAULT,
         }
     }
 }
@@ -193,6 +227,17 @@ pub enum Phase {
     ServiceDiscovery,
     /// A payment option and services have been selected.
     ServiceSelected,
+    /// A contract certificate has been installed or updated.
+    ///
+    /// Its own phase rather than a return to [`Phase::ServiceSelected`],
+    /// because \[V2G2-554\], \[V2G2-557\] and \[V2G2-558\] all leave exactly one
+    /// legal next request — `PaymentDetailsReq` — whether the certificate
+    /// exchange succeeded or failed. Looping back would leave a second
+    /// `CertificateInstallationReq` legal, and that one reaches the CPO's
+    /// certificate pool: a peer with no credentials could hold the session open
+    /// and keep the backend busy for as long as it liked, one legal request at
+    /// a time.
+    CertificateInstalled,
     /// Contract credentials have been presented.
     PaymentDetails,
     /// The EVCC is authorized (or still being authorized).
@@ -230,21 +275,34 @@ impl Phase {
     ///
     /// `None` for the phases that are not loops, and for `Charging` — a charge
     /// loop runs as long as the vehicle wants it to.
+    ///
+    /// Every one of these budgets is a *pair*, and `role` picks the half that
+    /// applies: Table 109 and Table 111 give the station a shorter figure than
+    /// the vehicle for the same loop, so that a station which cannot decide
+    /// answers `FAILED` while the vehicle is still listening \[V2G2-713\]. A
+    /// station armed with the vehicle's number has a deadline it can never
+    /// reach in time to say anything. See [`Role`](super::Role).
     #[must_use]
-    pub const fn loop_timeout(self) -> Option<super::Millis> {
+    pub const fn loop_timeout(self, role: super::Role) -> Option<super::Millis> {
+        use super::Role;
         use super::timers::iso2 as t;
-        Some(match self {
+        Some(match (self, role) {
             // The DC safety phases have budgets of their own, and they are much
             // tighter than the general one: an isolation test that has not
             // finished in forty seconds has failed, and a pre-charge that has
             // not matched the battery voltage in seven is not going to.
-            Self::CableCheck => t::EVCC_CABLE_CHECK_TIMEOUT,
-            Self::PreCharge => t::EVCC_PRE_CHARGE_TIMEOUT,
+            (Self::CableCheck, Role::Evcc) => t::EVCC_CABLE_CHECK_TIMEOUT,
+            (Self::CableCheck, Role::Secc) => t::SECC_CABLE_CHECK_PERFORMANCE_TIME,
+            (Self::PreCharge, Role::Evcc) => t::EVCC_PRE_CHARGE_TIMEOUT,
+            (Self::PreCharge, Role::Secc) => t::SECC_PRE_CHARGE_PERFORMANCE_TIME,
             // Everything else that can answer `..._Ongoing`: authorization
             // waiting on a backend or a driver, parameter discovery waiting on
             // a schedule, welding detection waiting on the contactors to open.
-            Self::Authorized | Self::ChargeParameters | Self::WeldingDetection => {
+            (Self::Authorized | Self::ChargeParameters | Self::WeldingDetection, Role::Evcc) => {
                 t::EVCC_ONGOING_TIMEOUT
+            }
+            (Self::Authorized | Self::ChargeParameters | Self::WeldingDetection, Role::Secc) => {
+                t::SECC_ONGOING_PERFORMANCE_TIME
             }
             _ => return None,
         })
@@ -279,9 +337,18 @@ impl From<EnergyTransferMode> for Transfer {
 /// decide whether an arriving request is legal, and the EVCC uses it to decide
 /// what to send next. Both need the same graph, and having one copy of it means
 /// the two sides cannot drift apart.
+///
+/// It holds no buffers, no keys and no schedule — five small fields — so a
+/// snapshot is cheap to take and, with the `serde` feature, to store. That is
+/// what resuming a paused session across a power cycle needs: the phase and the
+/// two facts the graph branches on, written down and read back.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Sequencer {
     phase: Phase,
+    /// What the transport underneath is, which decides whether Plug & Charge is
+    /// available at all. \[V2G2-634\], \[V2G2-635\]
+    security: Security,
     transfer: Option<Transfer>,
     payment: Option<PaymentOption>,
     /// Set by a `PowerDeliveryReq(Renegotiate)`.
@@ -291,23 +358,30 @@ pub struct Sequencer {
     failed: bool,
 }
 
-impl Default for Sequencer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Sequencer {
-    /// A session that has not yet seen its first request.
+    /// A session that has not yet seen its first request, over a transport that
+    /// is `security`.
+    ///
+    /// There is no `Default`, and that is deliberate: the safe value of
+    /// `security` is the restrictive one, and a `Default` would have to pick a
+    /// side of a security decision on the caller's behalf. Saying it is one
+    /// word.
     #[must_use]
-    pub const fn new() -> Self {
+    pub const fn new(security: Security) -> Self {
         Self {
             phase: Phase::Start,
+            security,
             transfer: None,
             payment: None,
             renegotiated: false,
             failed: false,
         }
+    }
+
+    /// What the transport underneath this session is.
+    #[must_use]
+    pub const fn security(&self) -> Security {
+        self.security
     }
 
     /// Records that a `FAILED_*` response has gone past.
@@ -387,8 +461,23 @@ impl Sequencer {
         match request {
             Request::PaymentServiceSelection(option) => self.payment = Some(option),
             Request::ChargeParameterDiscovery(mode) => self.transfer = Some(mode.into()),
-            Request::PowerDelivery(ChargeProgress::Renegotiate) => self.renegotiated = true,
             _ => {}
+        }
+        // Coming *back* to parameter discovery from the charge loop, or from a
+        // charge whose power has been stopped, is a renegotiation whichever
+        // request got us here — `PowerDeliveryReq(Renegotiate)` \[V2G2-813\],
+        // a `ChargeParameterDiscoveryReq` after `PowerDeliveryReq(Stop)`
+        // \[V2G2-601\], or one after a metering receipt \[V2G2-797\]. What the
+        // flag records is a physical fact rather than a message: the DC
+        // isolation test and the pre-charge are behind us and the cable is
+        // live, so they must not be demanded again. Keying it on the
+        // *transition* rather than on one request is what keeps the three
+        // spellings from needing three copies of the rule — and what stops the
+        // two the graph gained here from deadlocking DC on the way back up.
+        if next == Phase::ChargeParameters
+            && matches!(self.phase, Phase::Charging | Phase::PowerStopped)
+        {
+            self.renegotiated = true;
         }
         self.phase = next;
         Ok(next)
@@ -441,6 +530,9 @@ impl Sequencer {
             return match (self.phase, request) {
                 (F::Start | F::Stopped | F::Paused, _) => None,
                 (_, R::SessionStop(S::Terminate)) => Some(F::Stopped),
+                // A failure does not make a live cable safe to walk away from,
+                // so the pause rule below applies here too.
+                (F::CableCheck | F::PreCharge | F::Charging, R::SessionStop(S::Pause)) => None,
                 (_, R::SessionStop(S::Pause)) => Some(F::Paused),
                 _ => None,
             };
@@ -450,6 +542,21 @@ impl Sequencer {
             (F::Start, R::SessionSetup) => F::SessionSetup,
             (F::SessionSetup, R::ServiceDiscovery) => F::ServiceDiscovery,
 
+            // Plug & Charge is not available without TLS. \[V2G2-634\] forbids
+            // the station to *provide* the PnC message sets over an unsecured
+            // session and \[V2G2-635\] forbids the vehicle to apply them;
+            // \[V2G2-633\] leaves such a session external identification and
+            // nothing else. Refusing the selection is where that becomes
+            // enforceable, because it is the one message that says which of the
+            // two a session is — and everything a contract would otherwise put
+            // on a plaintext wire (the certificate chain, the signature, the
+            // EMAID) hangs off it.
+            (F::ServiceDiscovery, R::PaymentServiceSelection(PaymentOption::Contract))
+                if !self.security.permits_plug_and_charge() =>
+            {
+                return None;
+            }
+
             // `ServiceDetail` is optional and repeatable; the EVCC asks about
             // as many of the advertised services as it cares to.
             (F::ServiceDiscovery, R::ServiceDetail) => F::ServiceDiscovery,
@@ -458,10 +565,16 @@ impl Sequencer {
             // With a contract, credentials come next — optionally preceded by
             // installing or updating that contract certificate. With external
             // identification there is nothing to present.
+            //
+            // The certificate exchange happens at most once, and lands in a
+            // phase of its own: \[V2G2-554\], \[V2G2-557\] and \[V2G2-558\] leave
+            // `PaymentDetailsReq` as the only legal next request either way.
             (F::ServiceSelected, R::CertificateInstallation | R::CertificateUpdate) if contract => {
-                F::ServiceSelected
+                F::CertificateInstalled
             }
-            (F::ServiceSelected, R::PaymentDetails) if contract => F::PaymentDetails,
+            (F::ServiceSelected | F::CertificateInstalled, R::PaymentDetails) if contract => {
+                F::PaymentDetails
+            }
             (F::ServiceSelected, R::Authorization) if !contract => F::Authorized,
             (F::PaymentDetails, R::Authorization) => F::Authorized,
 
@@ -488,7 +601,14 @@ impl Sequencer {
             (F::PreCharge, R::PowerDelivery(P::Start)) => F::Charging,
 
             // The charge loop. `MeteringReceipt` interleaves with it under a
-            // contract, acknowledging the signed meter readings.
+            // contract, acknowledging the signed meter readings — and only
+            // under a contract: \[V2G2-903\] has the vehicle sign that message
+            // "using the private key belonging to the Contract Certificate it
+            // has sent in PaymentDetailsReq in this session", which an
+            // externally identified session never sent. The station asks for
+            // one by setting `ReceiptRequired` \[V2G2-577\], \[V2G2-795\];
+            // asking an EIM session for a signature it has no key to make is
+            // the station's own error, and answering it is not possible.
             (F::Charging, R::ChargingStatus) if !dc => F::Charging,
             (F::Charging, R::CurrentDemand) if dc => F::Charging,
             (F::Charging, R::MeteringReceipt) if contract => F::Charging,
@@ -496,6 +616,16 @@ impl Sequencer {
             // session — a tariff change, or the EV revising its target.
             (F::Charging, R::PowerDelivery(P::Renegotiate)) => F::ChargeParameters,
             (F::Charging, R::PowerDelivery(P::Stop)) => F::PowerStopped,
+
+            // DC lets the vehicle revise its parameters after the power has
+            // stopped without dropping the session — a second charge under a
+            // new schedule, with the contactors still closed. \[V2G2-601\]
+            // names it alongside welding detection and the session stop, and
+            // refusing it is what strands a DC vehicle that wanted to carry on.
+            (F::PowerStopped, R::ChargeParameterDiscovery(_)) if dc => F::ChargeParameters,
+            // ...and \[V2G2-797\] allows the same jump straight out of the
+            // charge loop, once a metering receipt has been acknowledged.
+            (F::Charging, R::ChargeParameterDiscovery(_)) if dc && contract => F::ChargeParameters,
 
             // DC checks for welded contactors before anyone touches the cable.
             (F::PowerStopped, R::WeldingDetection) if dc => F::WeldingDetection,
@@ -509,19 +639,30 @@ impl Sequencer {
             // session to stop before `SessionSetupReq`.
             (F::Start | F::Stopped | F::Paused, R::SessionStop(_)) => return None,
             (_, R::SessionStop(S::Terminate)) => F::Stopped,
+            // Pausing is *not* the same freedom, and the difference is
+            // physical. §8.4.1 says an EV may pause "at any time after sending
+            // PowerDeliveryReq with ChargeProgress equal to 'Stop'", and
+            // \[V2G2-739\] has the pause take the transport connection down with
+            // it. So a pause accepted while the cable is live would end the
+            // conversation with the contactors still closed and the link still
+            // at battery voltage, leaving the power flowing with nobody talking
+            // about it. The vehicle stops power delivery first; then it may
+            // pause.
+            (F::CableCheck | F::PreCharge | F::Charging, R::SessionStop(S::Pause)) => return None,
             (_, R::SessionStop(S::Pause)) => F::Paused,
 
             _ => return None,
         })
     }
 
-    /// How long the session may stay in its current phase.
+    /// How long the session may stay in its current phase, as `role` bounds
+    /// it.
     ///
     /// See [`Phase::loop_timeout`]; this is that value for the phase the
     /// session is in.
     #[must_use]
-    pub const fn loop_timeout(&self) -> Option<super::Millis> {
-        self.phase.loop_timeout()
+    pub const fn loop_timeout(&self, role: super::Role) -> Option<super::Millis> {
+        self.phase.loop_timeout(role)
     }
 
     /// The name of the current phase, for logs and errors.
@@ -532,6 +673,7 @@ impl Sequencer {
             Phase::SessionSetup => "SessionSetup",
             Phase::ServiceDiscovery => "ServiceDiscovery",
             Phase::ServiceSelected => "ServiceSelected",
+            Phase::CertificateInstalled => "CertificateInstalled",
             Phase::PaymentDetails => "PaymentDetails",
             Phase::Authorized => "Authorized",
             Phase::ChargeParameters => "ChargeParameters",
@@ -556,7 +698,12 @@ mod tests {
     const PNC: PaymentOption = PaymentOption::Contract;
 
     fn run(requests: &[Request]) -> Result<Sequencer, SequenceError> {
-        let mut s = Sequencer::new();
+        run_with(Security::Tls, requests)
+    }
+
+    /// The same over a stated transport, for the one rule that depends on it.
+    fn run_with(security: Security, requests: &[Request]) -> Result<Sequencer, SequenceError> {
+        let mut s = Sequencer::new(security);
         for &r in requests {
             s.accept(r)?;
         }
@@ -711,7 +858,7 @@ mod tests {
 
     #[test]
     fn nothing_but_session_setup_starts_a_session() {
-        let s = Sequencer::new();
+        let s = Sequencer::new(Security::Tls);
         for r in [
             Request::ServiceDiscovery,
             Request::Authorization,
@@ -776,7 +923,10 @@ mod tests {
                 .unwrap_or_else(|e| panic!("stopping from {phase:?}: {e}"));
         }
         // ...but there is no session to stop before there is a session.
-        assert!(!Sequencer::new().permits(Request::SessionStop(ChargingSession::Terminate)));
+        assert!(
+            !Sequencer::new(Security::Tls)
+                .permits(Request::SessionStop(ChargingSession::Terminate))
+        );
     }
 
     #[test]
@@ -790,26 +940,229 @@ mod tests {
         assert!(s.is_paused(), "a pause keeps the session id for a later resume");
     }
 
+    /// \[V2G2-634\], \[V2G2-635\]: Plug & Charge is not available without TLS.
+    ///
+    /// The contract certificate chain, the signature over the authorization and
+    /// the EMAID all hang off this one selection, so refusing it is where the
+    /// rule becomes enforceable — and everything it would have put on a
+    /// plaintext wire stays off it.
+    #[test]
+    fn a_contract_cannot_be_selected_over_an_unsecured_transport() {
+        let mut plain =
+            run_with(Security::None, &[Request::SessionSetup, Request::ServiceDiscovery])
+                .expect("the session itself is fine");
+
+        assert!(
+            !plain.permits(Request::PaymentServiceSelection(PNC)),
+            "a contract over plaintext is what [V2G2-634] forbids"
+        );
+        let e = plain.accept(Request::PaymentServiceSelection(PNC)).unwrap_err();
+        assert_eq!(e.got, "PaymentServiceSelectionReq");
+        assert_eq!(e.response_code, ResponseCode::FAILEDSequenceError as u8);
+        assert_eq!(plain.phase(), Phase::ServiceDiscovery, "a refusal does not advance");
+
+        // External identification is exactly what such a session is left with.
+        assert!(plain.permits(Request::PaymentServiceSelection(EIM)));
+        plain.accept(Request::PaymentServiceSelection(EIM)).unwrap();
+        plain.accept(Request::Authorization).unwrap();
+
+        // ...and with TLS the same selection is the ordinary one.
+        let mut secured =
+            run_with(Security::Tls, &[Request::SessionSetup, Request::ServiceDiscovery]).unwrap();
+        assert!(secured.permits(Request::PaymentServiceSelection(PNC)));
+        secured.accept(Request::PaymentServiceSelection(PNC)).unwrap();
+        assert!(secured.permits(Request::PaymentDetails));
+    }
+
+    /// The rule is about the *contract*, not about the certificate flows in
+    /// general: without a contract selected they were already unreachable, so
+    /// nothing else in the graph needs a second condition.
+    #[test]
+    fn an_unsecured_session_reaches_no_part_of_the_contract_flow() {
+        let mut plain =
+            run_with(Security::None, &[Request::SessionSetup, Request::ServiceDiscovery]).unwrap();
+        plain.accept(Request::PaymentServiceSelection(EIM)).unwrap();
+        for request in
+            [Request::PaymentDetails, Request::CertificateInstallation, Request::CertificateUpdate]
+        {
+            assert!(!plain.permits(request), "{request:?} needs a contract, and there is none");
+        }
+        assert_eq!(plain.security(), Security::None);
+    }
+
+    /// §8.4.1 permits a pause only "after sending `PowerDeliveryReq` with
+    /// `ChargeProgress` equal to 'Stop'", and \[V2G2-739\] has the pause take the
+    /// transport connection down with it. So a pause accepted while the cable
+    /// is live ends the conversation with the contactors closed and the link at
+    /// battery voltage — power flowing with nobody talking about it.
+    #[test]
+    fn a_pause_is_refused_while_the_cable_is_live() {
+        let live = |steps: &[Request]| {
+            let mut s = up_to_authorized(EIM);
+            for &r in steps {
+                s.accept(r).unwrap();
+            }
+            let phase = s.phase();
+            assert!(
+                !s.permits(Request::SessionStop(ChargingSession::Pause)),
+                "pausing from {phase:?} would leave the power on"
+            );
+            // Stopping outright is still always available.
+            assert!(s.permits(Request::SessionStop(ChargingSession::Terminate)));
+            s
+        };
+
+        live(&[Request::ChargeParameterDiscovery(DC), Request::CableCheck]);
+        live(&[Request::ChargeParameterDiscovery(DC), Request::CableCheck, Request::PreCharge]);
+        let mut s = live(&[
+            Request::ChargeParameterDiscovery(AC),
+            Request::PowerDelivery(ChargeProgress::Start),
+        ]);
+
+        // Stopping power delivery is what unlocks it.
+        s.accept(Request::PowerDelivery(ChargeProgress::Stop)).unwrap();
+        assert!(s.permits(Request::SessionStop(ChargingSession::Pause)));
+    }
+
+    /// \[V2G2-601\]: after `PowerDeliveryRes` for `ChargeProgress = Stop`, a DC
+    /// session may go back to `ChargeParameterDiscoveryReq` as well as to
+    /// welding detection and the session stop — a second charge under a new
+    /// schedule, without dropping the session.
+    ///
+    /// The way back up must not demand the isolation test again: the contactors
+    /// never opened, so a cable check would be asking a connected vehicle to
+    /// prove its cable is not connected. Refusing `PowerDelivery(Start)` there
+    /// is what would strand it.
+    #[test]
+    fn dc_can_renegotiate_after_stopping_power() {
+        let mut s = up_to_authorized(EIM);
+        for r in [
+            Request::ChargeParameterDiscovery(DC),
+            Request::CableCheck,
+            Request::PreCharge,
+            Request::PowerDelivery(ChargeProgress::Start),
+            Request::CurrentDemand,
+            Request::PowerDelivery(ChargeProgress::Stop),
+        ] {
+            s.accept(r).unwrap();
+        }
+        assert_eq!(s.phase(), Phase::PowerStopped);
+        assert!(!s.has_renegotiated());
+
+        assert_eq!(
+            s.accept(Request::ChargeParameterDiscovery(DC)).unwrap(),
+            Phase::ChargeParameters
+        );
+        assert!(s.has_renegotiated(), "the safety phases are behind us");
+        // ...so power may resume without repeating them. A cable check is
+        // still *offered* — \[V2G2-582\] names it after every DC
+        // `ChargeParameterDiscoveryRes` — but it is no longer demanded, and
+        // demanding it is what would strand the vehicle.
+        s.accept(Request::PowerDelivery(ChargeProgress::Start)).unwrap();
+        assert_eq!(s.phase(), Phase::Charging);
+
+        // AC has no such rule: [V2G2-568] leaves only SessionStopReq.
+        let mut ac = up_to_authorized(EIM);
+        ac.accept(Request::ChargeParameterDiscovery(AC)).unwrap();
+        ac.accept(Request::PowerDelivery(ChargeProgress::Start)).unwrap();
+        ac.accept(Request::PowerDelivery(ChargeProgress::Stop)).unwrap();
+        assert!(!ac.permits(Request::ChargeParameterDiscovery(AC)));
+    }
+
+    /// \[V2G2-797\]: a DC metering receipt also leaves
+    /// `ChargeParameterDiscoveryReq` open, straight out of the charge loop.
+    #[test]
+    fn dc_can_renegotiate_from_the_charge_loop_under_a_contract() {
+        let mut s = up_to_authorized(PNC);
+        for r in [
+            Request::ChargeParameterDiscovery(DC),
+            Request::CableCheck,
+            Request::PreCharge,
+            Request::PowerDelivery(ChargeProgress::Start),
+            Request::CurrentDemand,
+            Request::MeteringReceipt,
+        ] {
+            s.accept(r).unwrap();
+        }
+        assert_eq!(
+            s.accept(Request::ChargeParameterDiscovery(DC)).unwrap(),
+            Phase::ChargeParameters
+        );
+        assert!(s.has_renegotiated());
+        s.accept(Request::PowerDelivery(ChargeProgress::Start)).unwrap();
+    }
+
+    /// \[V2G2-554\], \[V2G2-557\] and \[V2G2-558\] leave `PaymentDetailsReq` as
+    /// the only legal request after a certificate exchange, whichever way it
+    /// went.
+    ///
+    /// Worth being strict about rather than lenient: `CertificateInstallationReq`
+    /// reaches the CPO's certificate pool, so a peer that could repeat it
+    /// indefinitely — every request legal, the sequence timer restarting on each
+    /// one — would hold the session open and keep the backend working without
+    /// ever presenting a credential.
+    #[test]
+    fn a_certificate_exchange_happens_once_and_leads_to_payment_details() {
+        let mut s = run(&[
+            Request::SessionSetup,
+            Request::ServiceDiscovery,
+            Request::PaymentServiceSelection(PNC),
+        ])
+        .unwrap();
+        s.accept(Request::CertificateInstallation).unwrap();
+        assert_eq!(s.phase(), Phase::CertificateInstalled);
+        assert!(!s.permits(Request::CertificateInstallation), "once is once");
+        assert!(!s.permits(Request::CertificateUpdate));
+        assert!(!s.permits(Request::Authorization), "credentials come first");
+        assert!(s.permits(Request::PaymentDetails));
+        s.accept(Request::PaymentDetails).unwrap();
+        s.accept(Request::Authorization).unwrap();
+    }
+
     /// A loop budget is not a per-message timeout: it bounds a phase the peer
     /// repeats, and the phases that are not loops must have none — a bound on
     /// the charge loop would end a session that is working.
     #[test]
     fn only_the_loops_have_a_loop_budget() {
+        use crate::session::Role::{Evcc, Secc};
         use crate::session::timers::iso2 as t;
-        assert_eq!(Phase::CableCheck.loop_timeout(), Some(t::EVCC_CABLE_CHECK_TIMEOUT));
-        assert_eq!(Phase::PreCharge.loop_timeout(), Some(t::EVCC_PRE_CHARGE_TIMEOUT));
-        assert_eq!(Phase::Authorized.loop_timeout(), Some(t::EVCC_ONGOING_TIMEOUT));
-        assert_eq!(Phase::ChargeParameters.loop_timeout(), Some(t::EVCC_ONGOING_TIMEOUT));
-        assert_eq!(Phase::WeldingDetection.loop_timeout(), Some(t::EVCC_ONGOING_TIMEOUT));
+        assert_eq!(Phase::CableCheck.loop_timeout(Evcc), Some(t::EVCC_CABLE_CHECK_TIMEOUT));
+        assert_eq!(Phase::PreCharge.loop_timeout(Evcc), Some(t::EVCC_PRE_CHARGE_TIMEOUT));
+        assert_eq!(Phase::Authorized.loop_timeout(Evcc), Some(t::EVCC_ONGOING_TIMEOUT));
+        assert_eq!(Phase::ChargeParameters.loop_timeout(Evcc), Some(t::EVCC_ONGOING_TIMEOUT));
+        assert_eq!(Phase::WeldingDetection.loop_timeout(Evcc), Some(t::EVCC_ONGOING_TIMEOUT));
         for phase in [Phase::Start, Phase::SessionSetup, Phase::Charging, Phase::Stopped] {
-            assert_eq!(phase.loop_timeout(), None, "{phase:?} is not a loop");
+            for role in [Evcc, Secc] {
+                assert_eq!(phase.loop_timeout(role), None, "{phase:?} is not a loop for {role}");
+            }
         }
         // Pre-charge is the tightest: the link either reaches the battery's
         // voltage quickly or it is not going to.
         assert!(
-            Phase::PreCharge.loop_timeout() < Phase::CableCheck.loop_timeout(),
+            Phase::PreCharge.loop_timeout(Evcc) < Phase::CableCheck.loop_timeout(Evcc),
             "an isolation test takes longer than a voltage match"
         );
+    }
+
+    /// The station's budget for a loop is the shorter half of every pair, and
+    /// that is the whole reason there are two: at 55 s the station is obliged
+    /// to answer `FAILED` \[V2G2-713\], and a station carrying the vehicle's
+    /// 60 s could only ever reach its deadline after the vehicle had already
+    /// abandoned the session — a timer that can never fire in time to say
+    /// anything.
+    #[test]
+    fn the_station_decides_before_the_vehicle_gives_up() {
+        use crate::session::Role::{Evcc, Secc};
+        for phase in [
+            Phase::Authorized,
+            Phase::ChargeParameters,
+            Phase::WeldingDetection,
+            Phase::CableCheck,
+            Phase::PreCharge,
+        ] {
+            let (evcc, secc) = (phase.loop_timeout(Evcc), phase.loop_timeout(Secc));
+            assert!(secc < evcc, "{phase:?}: station {secc:?} must close before vehicle {evcc:?}");
+        }
     }
 
     #[test]

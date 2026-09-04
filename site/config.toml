@@ -65,7 +65,7 @@ tagline = "Vehicle-to-grid, from the ECU to the back end."
 messages = "121"
 grammars = "298"
 features = "129"
-fuzz_targets = "9"
+fuzz_targets = "10"
 
 # The documentation sidebar, in reading order. Keeping it here rather than
 # deriving it from front-matter weights means the order is one list a human can
@@ -85,6 +85,7 @@ items = [
   "docs/discovery.md",
   "docs/slac.md",
   "docs/plug-and-charge.md",
+  "docs/pki.md",
 ]
 
 [[extra.nav]]

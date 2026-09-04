@@ -28,6 +28,9 @@ target
 # Zola build output
 site/public
 
+# Internal-only documents (not published) — the architecture notes and the backlog
+concepts/
+
 # Custom
 CONCEPT.md
 .DS_Store

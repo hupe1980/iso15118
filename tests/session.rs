@@ -61,7 +61,7 @@ impl Link {
         }
         let down = self.secc.take_transmit();
         if !down.is_empty() {
-            self.evcc.handle_input(&down).expect("EVCC input");
+            self.evcc.handle_input(self.now, &down).expect("EVCC input");
         }
     }
 
@@ -427,7 +427,7 @@ fn a_charger_with_nothing_in_common_says_so_and_stops() {
     let now = Instant::ZERO;
     evcc.start(now).unwrap();
     secc.handle_input(now, &evcc.take_transmit()).unwrap();
-    evcc.handle_input(&secc.take_transmit()).unwrap();
+    evcc.handle_input(now, &secc.take_transmit()).unwrap();
 
     assert!(secc.is_closed());
     let closed = core::iter::from_fn(|| evcc.poll_event()).find_map(|e| match e {
@@ -904,6 +904,171 @@ fn a_flood_of_pipelined_frames_ends_the_stream() {
     assert!(link.secc.handle_input(link.now, &burst).is_err(), "the flood is refused");
 }
 
+/// A stream that stops being a V2G session ends the session, and it is not the
+/// application's decision.
+///
+/// `handle_input` returning `Err` is the whole of what the caller sees, and a
+/// caller that logs it and calls again is the ordinary shape of a server loop.
+/// So the engine has to be shut before it returns: `EVerest`'s MEDIUM-14 is a
+/// correctly-computed refusal an application was free to ignore, and a
+/// correctly-reported framing fault an application is free to ignore is the
+/// same bug wearing a different hat.
+///
+/// Four things are checked, because "it returned an error" is the one of them
+/// that was already true: the session is closed, the closure is *reported* as
+/// an event, later input is inert, and the frames the peer had already queued
+/// behind the fault are gone rather than waiting to be parsed on the next call.
+#[test]
+fn a_stream_that_stops_being_a_session_closes_it() {
+    let mut link = charging();
+
+    // A frame this session's own grammar cannot decode, followed by a request
+    // that would decode perfectly well.
+    let mut peer = iso15118::session::Connection::new();
+    peer.set_protocol(Protocol::Iso2);
+    peer.send_frame(iso15118::v2gtp::PayloadType::ExiEncodedV2gMessage, &[0xFF; 8]).unwrap();
+    let mut wire = peer.take_transmit();
+    wire.extend_from_slice(&pipelined(1));
+
+    let err = link.secc.handle_input(link.now, &wire);
+    assert!(err.is_err(), "the frame does not decode");
+    assert!(link.secc.is_closed(), "and the session is over, not merely complaining");
+
+    let closed = core::iter::from_fn(|| link.secc.poll_event())
+        .any(|e| matches!(e, secc::Event::Closed(secc::Close::Fatal)));
+    assert!(closed, "the application is told, rather than having to infer it from the Err");
+
+    assert_eq!(link.secc.poll_timeout(), None, "every timer is disarmed");
+    assert!(!link.secc.awaiting_response(), "there is nothing left to answer");
+
+    // The good frame behind the bad one is not resurrected by the next call:
+    // the peer that produced the fault also chose where that frame started.
+    link.secc.handle_input(link.now, &[]).expect("a closed session accepts input inertly");
+    assert!(link.secc.poll_event().is_none());
+}
+
+/// The same rule on the vehicle's side. \[V2G2-482\] has the EVCC stop the
+/// session on a response that answers nothing, and a rule the caller may skip
+/// is not that rule.
+#[test]
+fn a_charger_that_answers_nothing_closes_the_vehicles_session() {
+    let mut link = negotiated();
+    let mut charger = iso15118::session::Connection::new();
+    charger.set_protocol(Protocol::Iso2);
+    charger
+        .send(&wrap(reply_to(&wrap(BodyChoice::ServiceDiscoveryReq(iso2::ServiceDiscoveryReq {
+            service_scope: None,
+            service_category: None,
+        })))))
+        .unwrap();
+    let wire = charger.take_transmit();
+
+    assert!(link.evcc.handle_input(link.now, &wire).is_err());
+    assert!(link.evcc.is_closed());
+    assert!(
+        core::iter::from_fn(|| link.evcc.poll_event())
+            .any(|e| matches!(e, evcc::Event::Closed(evcc::Close::Fatal))),
+    );
+}
+
+/// The `supportedAppProtocol` handshake happens once \[V2G2-536\],
+/// \[V2G2-541\], and the reason to check it here rather than to reason about
+/// it is what a second one would *do*: replace the ordering graph with a fresh
+/// one at `Phase::Start`, discarding the payment option, the transfer mode and
+/// the failure latch. A peer with nothing left but `SessionStopReq` would be
+/// back at the top of the flow.
+///
+/// It is not reachable through `Connection` — once a generation has won,
+/// payload type `0x8001` is read as that generation's message set (D12) — which
+/// is exactly why the clause is here: that argument lives in another file.
+#[test]
+fn the_handshake_cannot_be_replayed_to_reset_the_flow() {
+    let mut link = charging();
+    assert!(matches!(link.secc.flow().map(iso15118::session::Flow::phase_name), Some("Charging")));
+
+    // Framed as the handshake is framed, but arriving in a session that has
+    // already negotiated one.
+    let mut peer = iso15118::session::Connection::new();
+    peer.send(&Message::AppProtocolReq(Box::new(
+        iso15118::app_protocol::SupportedAppProtocolReq::advertising([Protocol::Iso2]),
+    )))
+    .unwrap();
+    let wire = peer.take_transmit();
+
+    assert!(link.secc.handle_input(link.now, &wire).is_err());
+    assert!(link.secc.is_closed(), "the session ends rather than restarting");
+}
+
+/// A ceiling the documentation tells a constrained target to lower has to be
+/// reachable from the type that target configures.
+#[test]
+fn both_reassembly_ceilings_are_configurable_from_the_role_drivers() {
+    let mut secc = Secc::new(SeccConfig {
+        protocols: Protocols::only(Protocol::Iso2),
+        session_id: SESSION_ID,
+        max_pending_frames: 1,
+        ..Default::default()
+    });
+    let now = Instant::ZERO;
+    secc.opened(now);
+    secc.handle_input(now, &offering(&[Protocol::Iso2])).unwrap();
+    let _ = secc.take_transmit();
+
+    // Two frames where one is allowed, and the handshake is already answered.
+    let mut peer = iso15118::session::Connection::new();
+    peer.set_protocol(Protocol::Iso2);
+    for _ in 0..2 {
+        peer.send(&wrap(BodyChoice::SessionSetupReq(iso2::SessionSetupReq {
+            evcc_id: vec![0; 6],
+        })))
+        .unwrap();
+    }
+    assert!(matches!(
+        secc.handle_input(now, &peer.take_transmit()),
+        Err(secc::SeccError::Connection(iso15118::session::ConnectionError::TooManyFrames {
+            limit: 1
+        }))
+    ));
+}
+
+/// Table 109 has two halves, and only one of them is a deadline. The station's
+/// is a *performance* time — nothing enforces it, because missing it is not a
+/// fault this side can observe — so what the engine owes the application is the
+/// number, against the session clock.
+#[test]
+fn the_station_can_see_how_long_it_has_to_answer() {
+    use iso15118::session::timers::iso2 as t;
+
+    let mut link = charging();
+    link.evcc.request(link.now, wrap(BodyChoice::CurrentDemandReq(current_demand()))).unwrap();
+    link.pump();
+
+    // 25 ms for a DC charge loop, against the vehicle's 250 ms timeout. That
+    // ratio is the constraint on where the answer may come from.
+    assert_eq!(link.secc.response_due(), Some(link.now + t::SECC_MSG_PERFORMANCE_CURRENT_DEMAND),);
+    assert!(t::SECC_MSG_PERFORMANCE_CURRENT_DEMAND < t::MSG_TIMEOUT_CURRENT_DEMAND);
+
+    link.serve(|req| wrap(reply_to(req)));
+    assert_eq!(link.secc.response_due(), None, "nothing outstanding, nothing due");
+}
+
+/// The vehicle's half of the same pair, from the other side: \[V2G2-485\]
+/// starts `V2G_EVCC_Sequence_Performance_Time` when the response lands, and the
+/// station's `V2G_SECC_Sequence_Timeout` is twenty seconds behind it.
+#[test]
+fn the_vehicle_can_see_how_long_it_has_to_ask_again() {
+    use iso15118::session::timers::iso2 as t;
+
+    let mut link = charging();
+    assert_eq!(link.evcc.next_request_due(), Some(link.now + t::EVCC_SEQUENCE_PERFORMANCE_TIME),);
+    assert!(t::EVCC_SEQUENCE_PERFORMANCE_TIME < t::SECC_SEQUENCE_TIMEOUT);
+
+    // While a question is outstanding the answer is bounded by the message
+    // timer instead, which *is* enforced — so there is nothing to advise.
+    link.evcc.request(link.now, wrap(BodyChoice::CurrentDemandReq(current_demand()))).unwrap();
+    assert_eq!(link.evcc.next_request_due(), None);
+}
+
 /// The flow graph constrains requests, so nothing but this check stops a
 /// charger from answering one request with another request's response — or
 /// from volunteering responses to a vehicle that asked for nothing.
@@ -931,7 +1096,7 @@ fn the_vehicle_refuses_an_answer_to_a_question_it_did_not_ask() {
     let wire = charger.take_transmit();
 
     assert!(matches!(
-        link.evcc.handle_input(&wire),
+        link.evcc.handle_input(link.now, &wire),
         Err(evcc::EvccError::UnexpectedResponse { expected: Some("SessionSetupReq"), .. })
     ));
 }
@@ -1035,4 +1200,139 @@ fn charging() -> Link {
     }));
     link.exchange(BodyChoice::PowerDeliveryReq(power_delivery(ChargeProgress::Start)));
     link
+}
+
+/// \[V2G2-750\]: the station returns a session id *different from zero*.
+///
+/// [`SeccConfig::session_id`] has no usable default — the crate has no RNG, so
+/// the bytes are the caller's — and the placeholder it starts at is the one
+/// value the requirement forbids. Left unset it would go on the wire, the
+/// vehicle would have nothing to check later messages against, and a
+/// well-behaved one would end the session without ever saying why. So the
+/// station refuses to answer instead, on the side that can still fix it.
+#[test]
+fn a_station_that_was_never_given_a_session_id_refuses_to_assign_one() {
+    let mut link = Link::new();
+    // Replace the station with one whose id was never configured, then run the
+    // handshake so the flow exists.
+    link.secc = Secc::new(SeccConfig {
+        protocols: Protocols::only(Protocol::Iso2),
+        // `session_id` left at the `SessionId::NONE` placeholder.
+        ..Default::default()
+    });
+    link.secc.opened(link.now);
+    link.evcc.start(link.now).expect("start");
+    link.pump();
+    link.serve(|_| unreachable!("the handshake needs no application decision"));
+    link.pump();
+
+    link.evcc
+        .request(
+            link.now,
+            wrap(BodyChoice::SessionSetupReq(iso2::SessionSetupReq {
+                evcc_id: vec![1, 2, 3, 4, 5, 6],
+            })),
+        )
+        .expect("SessionSetupReq");
+    link.pump();
+
+    let Some(secc::Event::Request(req)) = link.secc.poll_event() else {
+        panic!("expected a SessionSetupReq")
+    };
+    let res = wrap(reply_to(&req));
+    assert_eq!(
+        link.secc.respond(link.now, res),
+        Err(secc::SeccError::NoSessionId),
+        "a station with no id to assign must not answer SessionSetupReq"
+    );
+    assert!(link.secc.transmit_is_empty(), "nothing unusable reaches the wire");
+
+    // ...and it stays answerable: adopting an id — which is also what rejoining
+    // a session this station paused does — lets the same response go out.
+    link.secc.join_session(SESSION_ID);
+    link.secc.respond(link.now, wrap(reply_to(&req))).expect("respond once an id exists");
+    assert!(!link.secc.transmit_is_empty());
+}
+
+/// \[V2G2-713\]: when the station's own loop budget runs out it *answers*
+/// `FAILED` rather than going quiet.
+///
+/// The station's `V2G_SECC_CableCheck_Performance_Time` is 38 s and the
+/// vehicle's `V2G_EVCC_CableCheck_Timeout` is 40 s (Table 111). The two-second
+/// gap is not slack — it is the room the answer fits in. A station armed with
+/// the vehicle's 40 s could only ever reach its deadline after the vehicle had
+/// already abandoned the session, which is the same as not having one.
+///
+/// The answer rides on the vehicle's *next* request, because that is when there
+/// is something to answer: a loop budget expires between exchanges, with the
+/// station idle and nothing outstanding.
+#[test]
+fn a_station_out_of_time_says_so_instead_of_going_quiet() {
+    let mut link = negotiated();
+    for req in setup_through_authorization() {
+        link.exchange(req);
+    }
+    link.exchange(BodyChoice::ChargeParameterDiscoveryReq(charge_parameter_discovery()));
+
+    let started = link.now;
+    let mut overdue = None;
+
+    // The station keeps answering `Ongoing`; the vehicle keeps asking. Three
+    // seconds a turn steps over the station's 38 s without reaching the
+    // vehicle's 40 s, which is the whole point of the gap between them.
+    for _ in 0..16 {
+        link.evcc.request(link.now, wrap(BodyChoice::CableCheckReq(cable_check()))).unwrap();
+        link.pump();
+
+        while let Some(event) = link.secc.poll_event() {
+            match event {
+                secc::Event::Request(req) => {
+                    link.secc.respond(link.now, wrap(reply_to(&req))).expect("respond");
+                }
+                secc::Event::Overdue { message, response_code, phase } => {
+                    overdue = Some((link.now - started, message, response_code, phase));
+                }
+                _ => {}
+            }
+        }
+        link.pump();
+        while link.evcc.poll_event().is_some() {}
+        if overdue.is_some() {
+            break;
+        }
+        link.advance(Millis::from_secs(3));
+        assert!(!link.evcc.is_closed(), "the vehicle must not give up first");
+    }
+
+    let (elapsed, message, response_code, phase) =
+        overdue.expect("the station's budget must run out");
+    assert_eq!(phase, "CableCheck");
+    assert_eq!(message.name(), "CableCheckReq", "the request to answer comes with the event");
+    assert_eq!(response_code, ResponseCode::FAILED as u8, "[V2G2-713] asks for plain FAILED");
+    assert!(
+        elapsed >= Millis::from_secs(38) && elapsed < Millis::from_secs(40),
+        "the station gives up at 38 s, inside the vehicle's 40 s: {elapsed}"
+    );
+
+    // The station answers that request, with FAILED, and the answer goes out.
+    let refusal = wrap(BodyChoice::CableCheckRes(iso2::CableCheckRes {
+        response_code: ResponseCode::FAILED,
+        dc_evse_status: DCEVSEStatus {
+            notification_max_delay: 0,
+            evse_notification: iso2::EVSENotification::None,
+            evse_isolation_status: Some(IsolationLevel::Invalid),
+            evse_status_code: DCEVSEStatusCode::EVSENotReady,
+        },
+        evse_processing: iso2::EVSEProcessing::Finished,
+    }));
+    link.secc.respond(link.now, refusal).expect("the FAILED answer goes out");
+    link.pump();
+
+    // ...and the vehicle hears it as a failure, with only a stop left to send.
+    let events: Vec<_> = core::iter::from_fn(|| link.evcc.poll_event()).collect();
+    assert!(events.iter().any(|e| matches!(e, evcc::Event::Failed)), "{events:?}");
+    assert!(
+        link.evcc.request(link.now, wrap(BodyChoice::CableCheckReq(cable_check()))).is_err(),
+        "after a failure only SessionStopReq is left"
+    );
 }

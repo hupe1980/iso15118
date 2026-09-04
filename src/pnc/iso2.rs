@@ -13,8 +13,8 @@ use crate::session::SessionId;
 
 use super::{
     CANONICAL_EXI, GenChallenge, Hash, PncError, Sign, Signed, Suite, Verify,
-    check_canonicalization, check_echo, check_reference, check_session, check_suite,
-    check_transforms, pair,
+    check_canonicalization, check_echo, check_forbidden, check_reference, check_session,
+    check_suite, check_transforms, pair,
 };
 
 /// The only suite ISO 15118-2 defines.
@@ -50,7 +50,7 @@ pub fn sign(
     hash: &impl Hash,
     signer: &impl Sign,
 ) -> Result<Signature, PncError> {
-    let signed_info = build_signed_info(elements, hash);
+    let signed_info = build_signed_info(elements, hash)?;
     let canonical = signed_info.to_xmldsig_fragment()?;
     let value = signer.sign(SUITE, &canonical)?;
     Ok(Signature { id: None, signed_info, signature_value: SignatureValue { id: None, value } })
@@ -61,9 +61,22 @@ pub fn sign(
 /// Exposed separately so a caller with an offline or remote signer can get the
 /// exact bytes to sign — [`SignedInfo::to_xmldsig_fragment`] — without this
 /// crate holding the key.
-#[must_use]
-pub fn build_signed_info(elements: &[Signed<'_>], hash: &impl Hash) -> SignedInfo {
-    SignedInfo {
+///
+/// Refuses more than [`MAX_SIGNED_ELEMENTS`] elements \[V2G2-909\]. Refusing
+/// on the way out as well as on the way in is the point: a station whose
+/// signatures no conforming vehicle accepts finds out here rather than in the
+/// field, and the requirement exists to bound the header a peer has to buffer.
+///
+/// [`MAX_SIGNED_ELEMENTS`]: super::MAX_SIGNED_ELEMENTS
+#[allow(clippy::missing_errors_doc, reason = "the one error is named above")]
+pub fn build_signed_info(
+    elements: &[Signed<'_>],
+    hash: &impl Hash,
+) -> Result<SignedInfo, PncError> {
+    if elements.len() > super::MAX_SIGNED_ELEMENTS {
+        return Err(PncError::TooManyReferences { references: elements.len() });
+    }
+    Ok(SignedInfo {
         id: None,
         canonicalization_method: CanonicalizationMethod { algorithm: CANONICAL_EXI.into() },
         signature_method: SignatureMethod {
@@ -83,7 +96,7 @@ pub fn build_signed_info(elements: &[Signed<'_>], hash: &impl Hash) -> SignedInf
                 digest_value: hash.digest(SUITE, e.fragment),
             })
             .collect(),
-    }
+    })
 }
 
 /// Checks a `ds:Signature` against the elements it is supposed to cover.
@@ -96,6 +109,14 @@ pub fn verify(
     verifier: &impl Verify,
 ) -> Result<(), PncError> {
     let info = &signature.signed_info;
+    // \[V2G2-771\]: three attributes the schema carries and the profile
+    // forbids. Checked first, because a signature that uses one is not a
+    // signature to spend a hash on.
+    check_forbidden(
+        info.id.as_deref(),
+        signature.signature_value.id.as_deref(),
+        info.reference.iter().map(|r| r.r#type.as_deref()),
+    )?;
     check_canonicalization(&info.canonicalization_method.algorithm)?;
     // -2 defines exactly one suite, so the "policy" is a one-element list.
     let suite = check_suite(

@@ -1,6 +1,6 @@
 +++
 title = "Verification"
-description = "How iso15118 is verified: 298 grammars and 121 messages differed against the EXI reference implementation, layouts pinned byte for byte, nine fuzz targets, and every spec citation checked against the text."
+description = "How iso15118 is verified: 298 grammars and 121 messages differed against the EXI reference implementation, layouts pinned byte for byte, ten fuzz targets, and every spec citation checked against the text."
 weight = 100
 +++
 
@@ -17,6 +17,8 @@ ones say anything about other implementations.
 | **Golden vectors** | Real ISO 15118-20 frames from an independent C++ implementation, walked event by event and re-encoded byte for byte — including a negative test showing strict-mode widths *cannot* decode the same bytes. |
 | **Differential grammars** | Every derived state and production compared against `exificient`, the EXI reference implementation, for all **298** element grammars. Golden vectors cover the paths they take; this covers the whole grammar. |
 | **Differential messages** | A schema-valid instance of **every** message type, encoded by the reference implementation as a document **and** as a fragment, decoded and re-encoded byte for byte by the generated codec. **121 × 2.** |
+| **Requirement register** | Every `[V2G2-nnn]` cited anywhere in the repository checked against the text of ISO 15118-2:2014 itself — **101** cited, against the standard's **852**. |
+| **Differential certificates** | The V2G chains `pnc::pki` validates are minted by **OpenSSL** (`scripts/make-test-pki.sh`) — a third implementation's DER, to the same ASN.1, with the Annex F fields where Annex F puts them, and a `ContractSignatureEncryptedPrivateKey` OpenSSL sealed. |
 
 ```text
 scripts/verify-grammars.sh   all 2 / 80 / 54 / 42 / 48 / 38 / 34 element
@@ -134,10 +136,38 @@ into whatever follows.
 
 Every `[V2G2-nnn]` in the source names the requirement that states the rule it is
 attached to, and every timing constant matches Table 109 and Table 111 of
-ISO 15118-2. Where a value is *not* quoted — the two ISO 15118-20 loop budgets —
-the constant says it is this crate's judgement and why. A constant that cites a
-requirement it does not come from cannot be questioned, which is worse than one
-that admits it is a guess.
+ISO 15118-2 — *both halves* of Table 109, the timeouts each side enforces and the
+performance times each side owes. Where a value is *not* quoted — the ISO 15118-20
+loop budgets — the constant says it is this crate's judgement and why. A constant
+that cites a requirement it does not come from cannot be questioned, which is
+worse than one that admits it is a guess.
+
+Half of that is mechanical now:
+
+```text
+scripts/verify-citations.sh  every [V2G2-nnn] cited in this repository names a
+                             requirement ISO 15118-2:2014 defines  (101 of 852)
+```
+
+ISO 15118-2:2014(E) is a paid document that a US Federal Highway Administration
+rulemaking docket nonetheless publishes in full, with ANSI's permission, for the
+NEVI programme. So the script fetches the text, extracts the 852 requirement
+labels it defines, and fails on any citation here that names none of them. It
+writes nothing into the repository: the copyright notice on every page is
+explicit.
+
+What that catches is the citation that names *something else* — a number one
+digit out is still a real requirement, about a different rule, and reads
+perfectly. What it cannot catch is whether the requirement says what the comment
+beside it claims; that is a person reading, and it is how the ordering graph came
+to match §8.8.4's "allowed next request" clauses line for line.
+
+Two citations are excluded by name, which is the honest kind of exclusion:
+`[V2G2-ED2-1664]` and `[V2G2-ED2-1667]` belong to the standard's second edition,
+which is neither this document nor freely readable. They are the only unverified
+protocol citations in the crate, and what rests on them is one behaviour — that a
+`FAILED` response leaves the session alive for a `SessionStopReq` rather than
+dropping the socket at once, which is what EVerest and Josev also do.
 
 The generator's `--why` report is part of the same claim: the only types it
 declines to express are the seven xmldsig ones ISO 15118 never uses, and every
@@ -148,7 +178,7 @@ field it declines is refused at decode rather than skipped — including the
 
 | Concern | Approach |
 |---|---|
-| **Fuzzing** | Nine `cargo-fuzz` targets: EXI primitives, every message decoder, fragment decoders, V2GTP, SDP, SLAC frames, SLAC matching, and the whole charging-station front door from raw TCP bytes with arbitrary read boundaries. Committed seed corpora get past the format gates random input never guesses. |
+| **Fuzzing** | Ten `cargo-fuzz` targets: EXI primitives, every message decoder, fragment decoders, V2GTP, SDP, SLAC frames, SLAC matching, X.509 certificates, and the whole charging-station front door from raw TCP bytes with arbitrary read boundaries. Committed seed corpora get past the format gates random input never guesses. The certificate target is the one with the most to prove — it is the only hand-written parser in the crate — and it asserts that every borrowed field lies inside the input, not merely that nothing panicked. |
 | **Session tests** | A whole DC charging session **per generation**, vehicle to station through byte vectors, with a mock clock — the ISO 15118-20 one crossing two V2GTP payload types and two schema sets in a single session. Sequence violations, failure responses, pauses, timer expiry and protocol mismatch each have a test. |
 | **Hostile-peer tests** | A pipelined burst, a response to a question nobody asked, a forged SLAC key handover, a bystander's sounding packets, a bystander restarting somebody else's matching run, a Plug & Charge signature replayed from another session. Each is a peer inside the framing and outside the protocol, which is where a fuzzer's random bytes rarely land. |
 | **Examples that run** | Two examples complete an AC session over a real socket, so the integration story cannot rot into prose. |
@@ -156,6 +186,7 @@ field it declines is refused at decode rather than skipped — including the
 | **Timing** | Mock-clock tests for the spec timers, with each constant saying where it comes from — a requirement number where there is one, and "this crate's policy" where the value is derived — including the loop budgets, where the test is that the repeats do *not* extend them. |
 | **Unsafe** | `#![forbid(unsafe_code)]` crate-wide, no exceptions. |
 | **Feature matrix** | `cargo hack check --feature-powerset --depth 2`, 129 combinations. |
+| **Terminal faults** | The session fuzz target asserts that any error `handle_input` reports has *already* closed the session — not that it could be closed, that it is. A detected fault the caller is free to ignore is not enforcement, and arbitrary bytes at arbitrary read boundaries is where the next path that reports without shutting would hide. |
 | **`no_std`** | CI builds for `thumbv7em-none-eabihf` with `std` off and everything else on. |
 | **MSRV** | Declared and CI-enforced over the whole workspace — library, tests, doctests and examples — because an MSRV only the library meets is not one a reader can build against. |
 
@@ -169,8 +200,11 @@ cargo +nightly fuzz run session fuzz/corpus/session fuzz/seeds/session
 scripts/generate.sh && git diff --exit-code src/generated   # codegen has not drifted
 scripts/verify-grammars.sh              # every grammar vs. the reference
 scripts/verify-messages.sh              # every message, as document and fragment
+scripts/verify-citations.sh             # every [V2G2-nnn] vs. the standard's text
 ```
 
-The last three need a JDK and the fetched schemas. `scripts/fetch-schemas.sh`
-downloads the XSDs, which ISO publishes freely; the spec *texts* are paid
-documents and nothing here depends on having them.
+Three of those need a JDK and the fetched schemas; `scripts/fetch-schemas.sh`
+downloads the XSDs, which ISO publishes freely. The last needs `pdftotext` and
+network access, and fetches ISO 15118-2's own text from the FHWA docket into a
+scratch directory. Nothing here depends on having any of them to build or use the
+crate — `src/generated/` is committed.

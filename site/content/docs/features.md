@@ -73,7 +73,7 @@ CPU, and every test, would otherwise have to write itself.
 | Flag | Effect |
 |---|---|
 | `serde` | `Serialize`/`Deserialize` on the message types and the session state — what -20 pause and resume across a power cycle needs. `Protocol` and `Protocols` serialise as their stable short names, so serde, `Display` and a hand-written `match` produce one spelling. |
-| `tracing` | Structured spans and events from the protocol engines. |
+| `tracing` | Structured *events* from the protocol engines — which message, in which phase, under which protocol, and which timer ran out. No spans: an engine that never blocks has no interval to open one over, and no payload values, because a `SessionID` identifies a charging session and a contract certificate identifies a person. Compiles to nothing when off. |
 
 ## Compiling only what you need
 

@@ -27,6 +27,7 @@ The documentation is written to be read in order, but each page stands alone.
 | Encode or decode V2G messages yourself | [The EXI profile](@/docs/exi.md) |
 | Bring the link up | [SLAC](@/docs/slac.md), then [discovery and framing](@/docs/discovery.md) |
 | Sign or verify a contract credential | [Plug & Charge](@/docs/plug-and-charge.md) |
+| Decide whether a key is one to trust | [Certificates](@/docs/pki.md) |
 | Ship it on a microcontroller | [Embedded and `no_std`](@/docs/embedded.md) |
 | Know whether to trust the wire format | [Verification](@/docs/verification.md) |
 
@@ -55,7 +56,12 @@ for themselves.
 
 The third is in the error types, and it is the one worth knowing before you write
 the loop. `handle_input` returns a `Result`, because a TCP stream that stops
-being V2GTP cannot be resynchronised and the session really is over.
+being V2GTP cannot be resynchronised and the session really is over — **and it is
+already over when the error reaches you**. The engine closes itself first:
+timers disarmed, buffers dropped, `Event::Closed(Close::Fatal)` queued. So the
+usual shape of a server loop — log the error, read again — gets a closed session
+rather than a live one, which is the point. A rule the caller may skip is not a
+rule.
 `handle_frame` returns **nothing at all**: a SLAC engine listens promiscuously on
 a shared powerline segment where every station's unauthenticated traffic arrives,
 so a malformed frame is ordinary weather — and reporting one would hand anything

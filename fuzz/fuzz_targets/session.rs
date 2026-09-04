@@ -84,13 +84,22 @@ fuzz_target!(|data: &[u8]| {
 
     for piece in body.chunks(chunk) {
         if secc.handle_input(now, piece).is_err() {
-            break;
+            // An error from `handle_input` is fatal *by construction*: the
+            // stream cannot be resynchronised, so the engine closes rather than
+            // leaving that to a caller who might log it and call again. This
+            // target is the only place that assertion is made against
+            // arbitrary bytes split at arbitrary boundaries, which is where a
+            // path that reports a fault without shutting would hide.
+            assert!(secc.is_closed(), "a reported stream fault must close the session");
+            secc.handle_input(now, body).ok();
+            assert!(secc.is_closed(), "and it must stay shut");
+            return;
         }
         let mut closed = false;
         while let Some(event) = secc.poll_event() {
             match event {
                 Event::Closed(_) => closed = true,
-                Event::Request(_) | Event::Refused { .. } => {
+                Event::Request(_) | Event::Refused { .. } | Event::Overdue { .. } => {
                     if let Some(res) = canned(secc.protocol()) {
                         let _ = secc.respond(now, res);
                     }

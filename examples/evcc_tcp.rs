@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match stream.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
-                if let Err(e) = evcc.handle_input(&buf[..n]) {
+                if let Err(e) = evcc.handle_input(now(), &buf[..n]) {
                     eprintln!("bad input: {e}");
                     break;
                 }
@@ -114,10 +114,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             && let Some(next) = plan.pop()
         {
             println!("  -> {}", next.name());
-            // No session id here either: before `SessionSetupRes` there is none
-            // to send, and afterwards `request` stamps the one the station
-            // assigned. A vehicle *resuming* a paused session is the exception,
-            // and it names that session's id in its `SessionSetupReq`.
+            // No session id here, in any message: before `SessionSetupRes`
+            // there is none to send, and afterwards `request` stamps the one
+            // the station assigned. Even resuming a paused session does not
+            // change that — the id to rejoin under goes in
+            // `EvccConfig::rejoin`, so that exactly one place in an application
+            // ever names a session id and the other thirty messages cannot get
+            // it wrong.
             evcc.request(now(), wrap(next))?;
             awaiting = true;
         }

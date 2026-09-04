@@ -25,6 +25,23 @@
 //! the one place where *sending* is time-driven rather than reply-driven —
 //! [`Ev::poll_timeout`] paces it.
 //!
+//! # What the measurement is worth, and what it is not
+//!
+//! Every check below binds a frame to the run it claims to belong to. None of
+//! them makes the *measurement* trustworthy, and that gap has a CVE against the
+//! standard: **CVE-2025-12357**, spoofed SLAC measurements staging a
+//! man-in-the-middle against any ISO 15118-2 charger. A station reporting an
+//! implausibly low attenuation is claiming to be the closest thing on the
+//! medium, and the quietest link is defined to win; everything a forged report
+//! needs is broadcast in the clear during sounding.
+//!
+//! What this module can do, it does: a forged report moves the choice earlier
+//! and never later, the key is taken only from the station the vehicle chose,
+//! and [`EvEvent::Measurement`] surfaces *every* station's report rather than
+//! only the winner — so an application that wants to refuse an ambiguous run
+//! has the numbers to do it. The standard's own answer is ISO 15118-20, where
+//! TLS is mandatory and the chain authenticates the station.
+//!
 //! # What stays outside
 //!
 //! The randomness. `RunId`, the sounding payloads and the NMK must all be
@@ -677,11 +694,24 @@ impl Ev {
     }
 
     /// Starts the run: broadcasts `CM_SLAC_PARM.REQ`.
+    ///
+    /// Also *restarts* it. ISO 15118-3 gives the vehicle `C_EV_match_retry`
+    /// attempts at a whole matching run, so this is called again after a
+    /// failure — and everything the previous attempt learned has to go with it.
+    /// A station that answered last time may be gone, and the quietest one it
+    /// measured is a measurement of a sounding burst that is over: carrying
+    /// either forward would let `choose` pick a station that has not answered
+    /// this run and send it a `CM_SLAC_MATCH.REQ` nobody is listening for.
     pub fn start(&mut self, now: Instant) {
+        self.best = None;
+        self.answered.clear();
+        self.remaining_sounds = 0;
+        self.remaining_starts = 0;
+        self.out.clear();
+        self.results_deadline = None;
         let req = SlacParmReq { run_id: self.config.run_id };
         self.queue(BROADCAST, Mmtype::SlacParmReq, |b| req.encode(b));
         self.state = EvState::Probing;
-        self.results_deadline = None;
         self.arm(now, Millis::from_millis(u64::from(timers::TT_MATCH_RESPONSE_MS)));
     }
 

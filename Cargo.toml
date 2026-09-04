@@ -3,7 +3,7 @@ members = ["codegen"]
 resolver = "3"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -25,10 +25,12 @@ readme = "README.md"
 #
 # `specs/` is here for a different reason: the ISO schemas are licensed and are
 # gitignored, so the directory holds nothing but a README explaining their
-# absence. `codegen/` and `fuzz/` need no entry — Cargo already skips a
-# subdirectory that has its own manifest.
+# absence. `concepts/` is gitignored too — internal architecture notes, not
+# something a consumer of the crate has any use for. `codegen/` and `fuzz/` need
+# no entry: Cargo already skips a subdirectory that has its own manifest.
 exclude = [
   "/.github",
+  "/concepts",
   "/deny.toml",
   "/scripts",
   "/site",
@@ -81,10 +83,10 @@ slac = []
 pnc = ["iso20-common"]
 
 # A concrete backend for those traits: `sha2` for the digests, `p256` and
-# `p521` for the curves. Off by default — an ECU with a secure element wants
+# `p521` for the curves, `aes`/`cbc` for the contract-key envelope. Off by default — an ECU with a secure element wants
 # the traits and not this — but it is what a charging station on a
 # general-purpose CPU, and every test, would otherwise have to write itself.
-pnc-rustcrypto = ["pnc", "dep:p256", "dep:p521", "dep:sha2"]
+pnc-rustcrypto = ["pnc", "dep:aes", "dep:cbc", "dep:p256", "dep:p521", "dep:sha2"]
 
 # --- integration -------------------------------------------------------------
 serde = ["dep:serde"]
@@ -104,11 +106,19 @@ tracing = { version = "0.1", default-features = false, optional = true }
 # RFC 6979 deterministic, so the backend needs no RNG either.
 p256 = { version = "0.14", default-features = false, features = [
   "ecdsa",
+  "ecdh",
 ], optional = true }
 p521 = { version = "0.14", default-features = false, features = [
   "ecdsa",
 ], optional = true }
 sha2 = { version = "0.11", default-features = false, optional = true }
+# The contract-key envelope of [V2G2-815]/[V2G2-817]: AES-128-CBC over exactly
+# two blocks, no padding — ISO 15118 says so, because a P-256 private key is
+# already a multiple of the block size.
+aes = { version = "0.9", default-features = false, optional = true }
+cbc = { version = "0.2", default-features = false, features = [
+  "block-padding",
+], optional = true }
 
 [dev-dependencies]
 proptest = "1"

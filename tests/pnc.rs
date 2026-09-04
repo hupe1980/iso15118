@@ -251,6 +251,68 @@ fn an_unexpected_transform_is_refused() {
 /// The signature travels inside the message header, so it has to survive a
 /// round trip through the codec unchanged — including the `Vec<u8>` digest and
 /// signature values, which are `hexBinary` on the wire.
+/// \[V2G2-909\] caps a signature at four signed elements, and the note beside
+/// it says why: it is what lets a peer bound the size of the signature header
+/// before it has parsed one. The xmldsig schema ISO 15118 imports says
+/// `maxOccurs="unbounded"`, so nothing but this refuses it.
+#[test]
+fn a_signature_may_not_cover_more_than_four_elements() {
+    const FRAGMENTS: [&[u8]; 5] = [&[1], &[2], &[3], &[4], &[5]];
+    let ids = ["ID1", "ID2", "ID3", "ID4", "ID5"];
+    let five: Vec<Signed<'_>> =
+        ids.iter().zip(FRAGMENTS).map(|(id, f)| Signed::new(id, f)).collect();
+
+    // Refused on the way out: a station whose signatures no conforming vehicle
+    // accepts should find out here.
+    assert_eq!(
+        pnc::iso2::sign(&five, &Sha, &Key),
+        Err(PncError::TooManyReferences { references: 5 }),
+    );
+
+    // ...and on the way in, before the counts are compared, so the bound is a
+    // property of the profile rather than of what this caller happened to
+    // supply.
+    let four: Vec<Signed<'_>> = five[..4].to_vec();
+    let mut signature = pnc::iso2::sign(&four, &Sha, &Key).expect("four is the limit, not five");
+    let extra = signature.signed_info.reference[0].clone();
+    signature.signed_info.reference.push(extra);
+    assert_eq!(
+        pnc::iso2::verify(&signature, &five, &Sha, &Key),
+        Err(PncError::TooManyReferences { references: 5 }),
+    );
+}
+
+/// \[V2G2-771\] lists the XML-signature fields a V2G message header must not
+/// use. Three of them are ordinary optional attributes the schema still
+/// carries, so nothing refuses them by accident — which is exactly why they
+/// need a clause of their own.
+///
+/// The argument is `HMACOutputLength`'s argument, and it is not "these are
+/// dangerous": it is that a signature using a field the profile excludes is not
+/// a signature this profile describes, and "we would have ignored it anyway" is
+/// how a verifier comes to accept what its own specification ruled out.
+#[test]
+fn the_fields_the_profile_forbids_are_refused_rather_than_ignored() {
+    type Break = fn(&mut Signature);
+    let cases: [(&str, Break); 3] = [
+        ("SignedInfo/@Id", |s| s.signed_info.id = Some("x".into())),
+        ("SignatureValue/@Id", |s| s.signature_value.id = Some("x".into())),
+        ("Reference/@Type", |s| {
+            s.signed_info.reference[0].r#type =
+                Some("http://www.w3.org/2000/09/xmldsig#Object".into());
+        }),
+    ];
+    for (field, break_it) in cases {
+        let mut signature = signed(&one());
+        break_it(&mut signature);
+        assert_eq!(
+            pnc::iso2::verify(&signature, &one(), &Sha, &Key),
+            Err(PncError::ForbiddenField { field }),
+            "{field} should be refused",
+        );
+    }
+}
+
 #[test]
 fn a_signature_survives_the_wire() {
     use iso15118::exi::ExiDocument;

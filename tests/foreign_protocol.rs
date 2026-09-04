@@ -121,10 +121,18 @@ fn a_foreign_payload_is_bounded_like_any_other() {
     assert_eq!(conn.pending_frames(), 0);
 }
 
-/// A generation the crate has no codec for is refused by `next_message` and
+/// A generation the crate has no codec for is **reported** by `next_message` and
 /// handed over by `next_frame` — which is the whole of the difference.
+///
+/// This is the case \[V2G2-800\] does *not* cover, and telling the two apart is
+/// the point. A payload type that does not belong to this session at all is
+/// ignored, because ignoring is what the requirement asks for and the frame is
+/// skippable. But `0x8001` under a DIN session **is** this session's own type:
+/// the message is part of the conversation, so dropping it silently would look
+/// like a peer that had gone quiet, and the operator would be debugging a
+/// timeout instead of a missing codec.
 #[test]
-fn the_typed_path_still_refuses_what_it_cannot_decode() {
+fn the_typed_path_reports_a_message_it_has_no_codec_for() {
     let mut conn = Connection::new();
     conn.set_protocol(Protocol::Din70121);
     conn.send_frame(PayloadType::ExiEncodedV2gMessage, FOREIGN_REQ).unwrap();
@@ -134,9 +142,13 @@ fn the_typed_path_still_refuses_what_it_cannot_decode() {
     typed.set_protocol(Protocol::Din70121);
     typed.receive(&wire).unwrap();
     assert!(
-        matches!(typed.next_message(), Err(ConnectionError::Message(_))),
-        "no DIN codec, and the crate says so rather than guessing"
+        matches!(
+            typed.next_message(),
+            Err(ConnectionError::Message(iso15118::message::MessageError::NoCodec { .. }))
+        ),
+        "no DIN codec, and the crate says so rather than guessing or going quiet"
     );
+    assert_eq!(typed.ignored_frames(), 0, "this one is reported, not skipped");
 
     let mut raw = Connection::new();
     raw.set_protocol(Protocol::Din70121);
@@ -153,4 +165,29 @@ fn the_handshake_round_trips_for_a_generation_with_no_message_set() {
     assert_eq!(SupportedAppProtocolReq::from_bytes(&bytes).unwrap(), req);
     assert_eq!(req.app_protocols[0].protocol(), Some(Protocol::Din70121));
     assert_eq!(req.app_protocols[0].version_number_major, 2);
+}
+
+/// The complement, and the reason the two cannot be one rule: a frame for a
+/// session this is not is stepped over, and the foreign message behind it still
+/// arrives.
+#[test]
+fn a_frame_for_somebody_else_does_not_disturb_the_foreign_set() {
+    let mut out = Connection::new();
+    out.send_frame(PayloadType::ManufacturerSpecific(0xB00B), b"another vendor").unwrap();
+    out.send_frame(PayloadType::ExiEncodedV2gMessage, FOREIGN_REQ).unwrap();
+    let wire = out.take_transmit();
+
+    let mut station = Connection::new();
+    station.set_protocol(Protocol::Din70121);
+    station.receive(&wire).unwrap();
+
+    // The raw seam sees everything, in order — it is the caller's stream.
+    assert_eq!(
+        station.next_frame(),
+        Some((PayloadType::ManufacturerSpecific(0xB00B), b"another vendor".to_vec()))
+    );
+    assert_eq!(
+        station.next_frame(),
+        Some((PayloadType::ExiEncodedV2gMessage, FOREIGN_REQ.to_vec()))
+    );
 }

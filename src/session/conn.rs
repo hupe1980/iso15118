@@ -14,6 +14,7 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use crate::message::{Message, MessageError};
+use crate::trace::trace_event;
 use crate::v2gtp::{self, PayloadType, V2gtpError};
 use crate::{MAX_EXI_PAYLOAD_LEN, Protocol};
 
@@ -64,6 +65,9 @@ pub struct Connection {
     /// has a ceiling of its own. See [`Connection::with_limits`].
     frames: VecDeque<(PayloadType, Vec<u8>)>,
     max_pending_frames: usize,
+    /// Frames skipped for a payload type this session does not process.
+    /// \[V2G2-800\]
+    ignored: u32,
     tx: VecDeque<u8>,
 }
 
@@ -108,6 +112,7 @@ impl Connection {
             rx: Vec::new(),
             frames: VecDeque::new(),
             max_pending_frames: max_pending_frames.max(1),
+            ignored: 0,
             tx: VecDeque::new(),
         }
     }
@@ -180,11 +185,66 @@ impl Connection {
 
     /// Takes the next complete message, if one has arrived.
     ///
-    /// `Ok(None)` means "not yet, read more". An error means the frame did not
-    /// hold a message this session can decode.
+    /// `Ok(None)` means "not yet, read more". An error means a frame this
+    /// session *should* have been able to decode did not decode, and it is
+    /// terminal: everything still buffered is dropped with it, because the peer
+    /// that produced the fault also chose where the frames behind it began.
+    ///
+    /// A frame whose **payload type** is not one this session processes is not
+    /// an error: \[V2G2-800\] has a V2GTP entity *ignore* such a message, and
+    /// ignoring is possible precisely because the header was well-formed — the
+    /// sync pattern matched and the length says where the next frame starts. So
+    /// those are skipped and counted ([`Connection::ignored_frames`]), and the
+    /// search continues with the frame behind them.
+    ///
+    /// That covers three things a conforming peer may legitimately put on the
+    /// wire: a manufacturer-specific extension (`0xA000..=0xFFFF`, which
+    /// Table 10 reserves for exactly that), a payload type from a generation
+    /// this session did not negotiate, and one from a schema set this build
+    /// does not have. Ending a charging session over any of them would be a
+    /// station that cannot be extended and a vehicle that cannot talk to one
+    /// that has been.
+    ///
+    /// The security property is unchanged, because ignoring is what it wanted:
+    /// a peer still cannot get a -20 message processed in a session that
+    /// negotiated -2. It simply does not also get to end the session by trying.
     pub fn next_message(&mut self) -> Result<Option<Message>, ConnectionError> {
-        let Some((payload_type, payload)) = self.next_frame() else { return Ok(None) };
-        Ok(Some(Message::decode(self.protocol, payload_type, &payload)?))
+        while let Some((payload_type, payload)) = self.next_frame() {
+            match Message::decode(self.protocol, payload_type, &payload) {
+                Ok(message) => return Ok(Some(message)),
+                Err(MessageError::NotAMessage(_) | MessageError::NotForThisSession { .. }) => {
+                    // Bounded: the queue this drains is itself bounded by
+                    // `max_pending_frames`, and an ignored frame never advances
+                    // the session, so the sequence timer still closes a peer
+                    // that sends nothing else.
+                    self.ignored = self.ignored.saturating_add(1);
+                    trace_event!(payload_type = payload_type.as_u16(), "frame ignored");
+                }
+                // A frame whose type this session *does* process and whose body
+                // will not decode is a different thing: the peer and this side
+                // disagree about a grammar they have both agreed to use. There
+                // is no reading of the bytes left to try, so what is behind it —
+                // framed by the same peer, at boundaries the same peer chose —
+                // goes with it rather than waiting to be decoded on the next
+                // call as though nothing had happened.
+                Err(e) => {
+                    self.reset_input();
+                    return Err(e.into());
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// How many frames have been ignored for their payload type.
+    ///
+    /// Worth surfacing rather than swallowing: a session that ignores a lot is
+    /// talking to a peer that believes in an extension this build has never
+    /// heard of, and that is a fact about a deployment rather than about a
+    /// message.
+    #[must_use]
+    pub const fn ignored_frames(&self) -> u32 {
+        self.ignored
     }
 
     /// Takes the next complete frame without decoding it.
@@ -274,11 +334,24 @@ impl Connection {
         self.frames.len()
     }
 
-    /// Drops all buffered input — what closing a session does.
+    /// Drops everything buffered in both directions.
     pub fn reset(&mut self) {
+        self.reset_input();
+        self.tx.clear();
+    }
+
+    /// Drops what has arrived and not yet been read, leaving the outgoing queue
+    /// alone.
+    ///
+    /// What a session does when the stream stops being one: the bytes behind a
+    /// framing or decode fault were framed by the peer that produced the fault,
+    /// and V2GTP has no delimiter to resynchronise on, so there is no honest way
+    /// to say where the next message would have begun. Anything already queued
+    /// *for* the wire was built before the fault and is still the caller's to
+    /// flush — a refusal the peer is owed, most of all.
+    pub fn reset_input(&mut self) {
         self.rx.clear();
         self.frames.clear();
-        self.tx.clear();
     }
 }
 
@@ -480,6 +553,77 @@ mod tests {
             c.receive(&one).unwrap();
             assert!(c.next_message().unwrap().is_some());
         }
+    }
+
+    /// \[V2G2-800\]: a manufacturer-specific frame is one to ignore, not one to
+    /// end a session over.
+    ///
+    /// `0xA000..=0xFFFF` is reserved by Table 10 for exactly this, so a peer
+    /// sending a vendor extension is conforming. A station that dropped the
+    /// session on one would be a station nobody could extend.
+    #[test]
+    fn a_manufacturer_specific_frame_is_skipped_and_the_next_one_still_arrives() {
+        let mut out = Connection::new();
+        out.send_frame(PayloadType::ManufacturerSpecific(0xA123), b"vendor").unwrap();
+        out.send(&handshake()).unwrap();
+        let wire = out.take_transmit();
+
+        let mut c = Connection::new();
+        c.receive(&wire).unwrap();
+        assert_eq!(
+            c.next_message().unwrap().map(|m| m.name()),
+            Some("supportedAppProtocolReq"),
+            "the extension is stepped over, not stumbled over"
+        );
+        assert_eq!(c.ignored_frames(), 1);
+        assert!(c.next_message().unwrap().is_none());
+    }
+
+    /// The same for a reserved code, which is not even legitimate — the header
+    /// was still well-formed, so the frame boundary is still trustworthy.
+    #[test]
+    fn a_reserved_payload_type_is_skipped_rather_than_desynchronising_the_stream() {
+        let mut out = Connection::new();
+        out.send_frame(PayloadType::Reserved(0x8007), b"?").unwrap();
+        out.send(&handshake()).unwrap();
+        let wire = out.take_transmit();
+
+        let mut c = Connection::new();
+        c.receive(&wire).unwrap();
+        assert!(c.next_message().unwrap().is_some());
+        assert_eq!(c.ignored_frames(), 1);
+    }
+
+    /// A payload type belonging to a generation this session did not negotiate
+    /// is ignored — which is the *same* security outcome as refusing it, minus
+    /// the peer's ability to end the session by trying.
+    #[test]
+    fn a_message_for_another_generation_is_ignored_not_processed() {
+        let mut out = Connection::new();
+        out.send_frame(PayloadType::Part20Main, b"not for a -2 session").unwrap();
+        let wire = out.take_transmit();
+
+        let mut c = Connection::new();
+        c.set_protocol(Protocol::Iso2);
+        c.receive(&wire).unwrap();
+        assert_eq!(c.next_message().unwrap(), None, "nothing decoded");
+        assert_eq!(c.ignored_frames(), 1, "and nothing fatal happened either");
+    }
+
+    /// ...but a payload type that *does* belong to this session and has no
+    /// codec is a different fault, and is reported. Ignoring it would look like
+    /// a peer that had gone quiet.
+    #[test]
+    fn a_missing_codec_for_this_sessions_own_payload_type_is_reported() {
+        let mut out = Connection::new();
+        out.send_frame(PayloadType::ExiEncodedV2gMessage, b"a DIN message").unwrap();
+        let wire = out.take_transmit();
+
+        let mut c = Connection::new();
+        c.set_protocol(Protocol::Din70121);
+        c.receive(&wire).unwrap();
+        assert!(matches!(c.next_message(), Err(ConnectionError::Message(_))));
+        assert_eq!(c.ignored_frames(), 0);
     }
 
     /// Payload type `0x8001` means the handshake before negotiation and a -2

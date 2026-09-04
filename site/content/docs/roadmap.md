@@ -1,6 +1,6 @@
 +++
 title = "What is not here"
-description = "The honest edges of the iso15118 crate: V2G PKI, transport bindings, DIN SPEC 70121, conformance testing — named rather than implied."
+description = "The honest edges of the iso15118 crate: certificate revocation, transport bindings, DIN SPEC 70121, conformance testing — named rather than implied."
 weight = 120
 
 [extra]
@@ -10,25 +10,37 @@ nav_title = "What is not here"
 A library that is vague about its edges is one you find the edges of in the field.
 These are named rather than implied.
 
-## V2G PKI
+## Certificate revocation
 
-**The largest remaining gap, and the one worth naming loudest.**
+**The remaining gap in the PKI, and the one worth naming loudest.**
 
-Not implemented: certificate chain validation (V2G root → CPO sub-CAs → SECC leaf;
-mobility-operator and contract chains; OEM provisioning), and the
-`CertificateInstallation` / `CertificateUpdate` flows including contract
-private-key decryption.
+`pnc::pki` validates a chain: every signature, every validity window,
+`BasicConstraints`, `pathLenConstraint`, `keyCertSign`, the depth limit
+\[V2G2-009\], and the Annex F profile of whichever leaf you say it is. What it
+does **not** do is check whether a certificate was withdrawn this morning. There
+is no OCSP and no CRL.
 
-The message types **are** generated and the signature layer **is** done. What is
-missing is X.509 path validation and the key-agreement envelopes.
+That is a limitation to plan around, and the standard is unusually candid about
+why it is hard rather than merely undone. Annex F's own note: "as access to OCSP
+services can not be guaranteed during charging, the usage of OCSP can only be
+recommended but not be mandatory" — and \[V2G2-868\] removes it from private
+environments entirely. A vehicle in a basement has no path to a responder.
 
-Why it matters: a signature that verifies against a key from an *unvalidated*
-certificate proves only that whoever sent the certificate also made the signature.
-The `pnc::rustcrypto` module says so in its own documentation rather than letting
-the ergonomics imply otherwise. See [Plug & Charge](@/docs/plug-and-charge.md).
+Which is where the answer belongs, and it is not in a protocol crate. A station's
+back end is already asking a clearing house whether to authorize this contract at
+all; `Validated::subject_common_name` is the `EMAID` to ask about, and that answer
+covers revocation along with everything else the operator knows. An OCSP client
+inside a sans-I/O crate would put a network round trip inside a charge loop with
+a 25 ms budget.
 
-The `GenChallenge` binding narrows *which session* a signature is about. It says
-nothing about *whose* key made it; that is this gap, and the two are independent.
+## A chain from a published test pool
+
+The certificates `pnc::pki` is tested against are minted by **OpenSSL**, and the
+envelope `pnc::envelope` opens is sealed by OpenSSL too. That is differential
+evidence — a third implementation's bytes, from the requirement text — and it is
+not interoperability. Hubject's and OPNC's test pools need registration, and a
+chain from one of those is worth more than any number of further self-built
+cases.
 
 ## Anything that would defeat a relay
 
@@ -118,9 +130,11 @@ actually differ.
 
 ## A conformance suite
 
-ISO 15118-4 test-case IDs mapped onto the sans-I/O cores. The cores make this
-cheap — no I/O means conformance tests are fast unit tests — but the test texts are
-paid documents.
+ISO 15118-4:2018 test-case IDs mapped onto the sans-I/O cores, and
+ISO 15118-21:2025 for the second generation — the two application-layer test
+plans, one per generation. (Not -9: that is the *wireless* physical-layer plan
+and belongs to -8.) The cores make this cheap — no I/O means conformance tests
+are fast unit tests — but the test texts are paid documents.
 
 ## Interop CI
 

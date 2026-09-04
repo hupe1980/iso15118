@@ -34,8 +34,8 @@ the caller's, and that is the point.
 > byte-for-byte against the EXI reference implementation, as documents *and* as
 > signature fragments. `examples/` completes an AC charging session over a real
 > socket. What is missing is [named rather than
-> implied](https://hupe1980.github.io/iso15118/docs/roadmap/) — the V2G PKI
-> above all.
+> implied](https://hupe1980.github.io/iso15118/docs/roadmap/) — certificate
+> revocation above all.
 
 ## 💡 Why
 
@@ -53,7 +53,7 @@ a bare-metal microcontroller.
    through your own decoder proves they agree with each other and nothing more.
 4. **A decoder you can point at the internet.** Every length bounded by *both* its
    schema facets before anything is allocated — `xs:length` is not
-   `xs:maxLength` — plus `#![forbid(unsafe_code)]` and nine fuzz targets. The
+   `xs:maxLength` — plus `#![forbid(unsafe_code)]` and ten fuzz targets. The
    layers above hold the same line: half-duplex enforced in both directions, a
    SLAC engine that treats a malformed frame as weather rather than an error, and
    a Plug & Charge signature that has to name the session it arrived in.
@@ -196,19 +196,23 @@ assert_eq!(SessionStopReq::from_bytes(&bytes)?, req);
 | Layer | State |
 |---|---|
 | **EXI** codec — schema-informed, bit-packed | primitives, string table, grammars, header, documents **and fragments**, every length facet enforced both ways |
-| **V2GTP** framing · **SDP** discovery | all payload types, hostile-length handling, bounded reassembly, TLS-downgrade rejection |
+| **V2GTP** framing · **SDP** discovery | all payload types, hostile-length handling, bounded reassembly, an unsupported payload type *ignored* rather than fatal \[V2G2-800\]; discovery for **both** sides — the vehicle's retry engine with TLS-downgrade and off-link rejection, and the station's answer as the table \[V2G2-625\]–\[V2G2-627\] determine |
 | **SLAC** (ISO 15118-3) | frame codec with every layout pinned byte for byte, timers, and the matching state machine for both roles |
 | **ISO 15118-2** message set | all 34 body messages, `ds:Signature` included |
 | **ISO 15118-20** message sets | `CommonMessages`, AC, DC, WPT, ACDP |
-| **Session layer** | clock, spec timers and loop budgets, ordering graphs for both generations, and the ISO 15118-2 rule that a charging profile must fit the schedule it was offered — with the `ResponseCode` the standard prescribes |
+| **Session layer** | Plug & Charge refused on an unsecured transport \[V2G2-634\]; clock, spec timers and loop budgets **per role** — the station's half of every pair is the shorter one, so it answers `FAILED` while the vehicle is still listening — ordering graphs for both generations, and the ISO 15118-2 rule that a charging profile must fit the schedule it was offered, with the `ResponseCode` the standard prescribes |
 | **EVCC / SECC drivers** | handshake, sequencing, session-id stamping and checking, half-duplex in both directions, pause and resume — with a whole DC session per generation as an end-to-end test |
+| **Reading the battery** | `Message::ev_energy_status()` — state of charge, capacity, energy request and departure out of *either* generation, in exact integer milliwatt-hours, without the caller naming an EXI type |
 | **Protocol identity** | `Protocol` / `Protocols` with stable short names, `Display`, `FromStr` and serde that all agree on one spelling |
 | **Plug & Charge signatures** | XMLDSig over EXI fragments, build and verify, algorithm restrictions enforced, and the two bindings that make a signature mean something: the `GenChallenge` for authorization and the echoed reading for metering |
+| **V2G PKI** | `pnc::pki` — an allocation-free DER/X.509 reader and RFC 5280 path validation under ISO 15118's own Annex F profiles: the depth limit \[V2G2-009\], `BasicConstraints` and `pathLenConstraint`, the key-usage bits each leaf row requires, and the `Domain Component` \[V2G2-925\] makes a validity condition |
+| **Contract key delivery** | `pnc::envelope` — the one place a secret crosses the wire: one-pass ECDH \[V2G2-818\], the concatenation KDF, AES-128-CBC \[V2G2-815\], and \[V2G2-823\]'s check that the delivered key belongs to the certificate it came with, with no call that skips it |
 
-⚠️ Not here: **V2G PKI** (X.509 path validation and the certificate flows),
-transport bindings, and the DIN SPEC 70121 *message set* — though the handshake,
-the framing and the timers below it are generation-agnostic and public, so a DIN
-codec of your own can ride them. See
+⚠️ Not here: **certificate revocation** (no OCSP, no CRL — the standard makes it
+a recommendation, and the answer belongs in the back end your station already
+talks to), transport bindings, and the DIN SPEC 70121 *message set* — though the
+handshake, the framing and the timers below it are generation-agnostic and
+public, so a DIN codec of your own can ride them. See
 [what is not here](https://hupe1980.github.io/iso15118/docs/roadmap/).
 
 ## 🔬 Verification
@@ -225,7 +229,10 @@ scripts/verify-messages.sh   all 121 documents round-trip against the reference
 
 **Differential, against `exificient`.** The scripts above prove the encoding, and
 catch what no round-trip can: a dropped substitution-group head, mixed content on
-the wrong side of `EE`, a string-table partition populated on a global hit.
+the wrong side of `EE`, a string-table partition populated on a global hit. The
+same principle covers the two structures that are not EXI: the certificate chains
+`pnc::pki` validates and the contract-key envelope `pnc::envelope` opens are both
+built by **OpenSSL**, from the requirement text.
 
 **Read against the standards**, and against what EVerest and Josev do — because
 the scripts prove the encoding and nothing above it. `xs:length` is not
@@ -242,7 +249,12 @@ choice, and every queue an unauthenticated peer can reach is bounded.
 
 **Citations checked against the text**, not against memory: every `[V2G2-nnn]`
 names the requirement that states the rule it is attached to, and every timing
-constant matches Table 109 and Table 111.
+constant matches Table 109 and Table 111 — *both halves* of Table 109, the
+timeouts each side enforces and the performance times each side owes.
+`scripts/verify-citations.sh` does the mechanical half, confirming that each of
+the 101 requirement numbers cited here exists among the standard's 852:
+ISO 15118-2:2014(E) is a paid document that a US FHWA rulemaking docket publishes
+in full, so this is checkable rather than asserted.
 
 SLAC is the one wire format with no reference implementation to differ against,
 so its thirteen message layouts are pinned byte for byte instead — checked field
@@ -261,11 +273,12 @@ cargo +nightly fuzz run session fuzz/corpus/session fuzz/seeds/session
 scripts/generate.sh && git diff --exit-code src/generated   # codegen has not drifted
 scripts/verify-grammars.sh              # every grammar vs. the reference
 scripts/verify-messages.sh              # every message, as document and fragment
+scripts/verify-citations.sh             # every [V2G2-nnn] vs. the standard's text
 ```
 
-The last three need a JDK and the ISO schemas, which `scripts/fetch-schemas.sh`
-downloads. Building or using the crate never needs them — `src/generated/` is
-committed.
+Three of those need a JDK and the ISO schemas, which `scripts/fetch-schemas.sh`
+downloads; the last needs `pdftotext` and network access. Building or using the
+crate never needs any of them — `src/generated/` is committed.
 
 ## 📚 Documentation
 

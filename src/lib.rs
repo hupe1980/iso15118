@@ -44,6 +44,25 @@
 //! The answering step differs because the protocol does. The vehicle *drives*:
 //! it chooses the next request, and the charger only ever answers.
 //!
+//! **An error from `handle_input` has already ended the session.** The engine
+//! closes itself — timers disarmed, buffers dropped, `Event::Closed` queued —
+//! before the error is returned, because a byte stream that stopped being a V2G
+//! session cannot be resynchronised: V2GTP has no delimiter to scan for, and
+//! after the handshake the negotiated grammar is the only reading of the bytes
+//! there is. So the error is for the log, not for a decision.
+//!
+//! # Whose key, and which session
+//!
+//! Plug & Charge is two independent questions, kept apart because answering one
+//! and implying the other is the dangerous shape. [`pnc`] answers "is this
+//! signature about *this* session" — the `GenChallenge` binding, in the same
+//! call as the signature, with no way to ask for only one. [`pnc::pki`] answers
+//! "is this key one to trust" — RFC 5280 path validation under ISO 15118's own
+//! Annex F certificate profiles.
+//!
+//! Neither answers whether a certificate was **revoked**: there is no OCSP here,
+//! for reasons [`pnc::pki`] sets out.
+//!
 //! # Protocol, not policy
 //!
 //! The engines own framing, decoding, the protocol handshake, session-id
@@ -53,13 +72,32 @@
 //! the application builds. Everything above that line is a decision a charge
 //! point operator makes; everything below it is a decision ISO made.
 //!
-//! Ordering includes what the standard says about *stopping*: a `FAILED_*`
-//! response ends the session and leaves only `SessionStopReq`, a vehicle may
-//! stop from any established phase, and `Pause` and -20's
-//! `ServiceRenegotiation` are not `Terminate`. It also includes *renegotiating*:
-//! revising the schedule mid-charge keeps the service, the authorization and the
-//! power flow, and does not send a DC session back through its isolation test.
-//! See [`session`].
+//! Ordering includes what the standard says about *stopping*, and the three
+//! values of `ChargingSession` do not say the same thing. A `FAILED_*` response
+//! ends the session and leaves only `SessionStopReq`; a vehicle may `Terminate`
+//! from any established phase, because an abort is exactly the case where it
+//! cannot do the tidy thing first; but `Pause` takes the transport connection
+//! down with it \[V2G2-739\] and so is refused while the cable is live, and
+//! -20's `ServiceRenegotiation` returns the flow to just after authorization
+//! and so needs a service already selected — accepted earlier it is not a
+//! shortcut but an authorization bypass.
+//!
+//! Ordering also includes *renegotiating*: revising the schedule mid-charge
+//! keeps the service, the authorization and the power flow, and does not send a
+//! DC session back through its isolation test. See [`session`].
+//!
+//! # Plug & Charge needs TLS, and the core will not take your word for it
+//!
+//! ISO 15118-2 forbids the Plug & Charge message sets on an unsecured session
+//! outright — \[V2G2-634\] to the station, \[V2G2-635\] to the vehicle, with
+//! \[V2G2-633\] leaving such a session external identification and nothing
+//! else. A sans-I/O core cannot observe the transport, so
+//! [`secc::SeccConfig::security`] and [`evcc::EvccConfig::security`] state it,
+//! and the ISO 15118-2 ordering graph refuses a contract selection without it.
+//!
+//! The default is [`session::Security::None`]: the safe default for a security
+//! decision is the restrictive one, so forgetting produces a refused contract
+//! rather than a certificate chain on a plaintext wire.
 //!
 //! # Half-duplex, and what that is worth
 //!

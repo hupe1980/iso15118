@@ -74,6 +74,28 @@ const SCHEMA_ID_RANGE: (i64, i64) = (0, 255);
 /// `priorityType` restricts to 1..=20.
 const PRIORITY_RANGE: (i64, i64) = (1, MAX_PRIORITY as i64);
 
+/// The schema id — and priority — the *n*th entry of an advertised set gets.
+///
+/// Both start at one: `priorityType` is restricted to `1..=20` and 1 is the
+/// vehicle's first choice, so numbering the ids the same way keeps one offset in
+/// the module instead of two. Capped rather than wrapped, though nothing can
+/// reach the cap: [`MAX_APP_PROTOCOLS`] is 20 and a [`Protocols`] set holds at
+/// most [`Protocol::COUNT`] entries.
+const fn schema_id_for_index(index: usize) -> u8 {
+    match index.checked_add(1) {
+        Some(n) if n <= u8::MAX as usize => {
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "the arm guard is exactly the bound that makes this exact"
+            )]
+            {
+                n as u8
+            }
+        }
+        _ => u8::MAX,
+    }
+}
+
 /// One entry of the vehicle's protocol list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -233,11 +255,52 @@ impl SupportedAppProtocolReq {
             .enumerate()
             .take(MAX_APP_PROTOCOLS)
             .map(|(i, p)| {
-                #[allow(clippy::cast_possible_truncation)]
-                AppProtocol::for_protocol(p, i as u8 + 1, i as u8 + 1)
+                let n = schema_id_for_index(i);
+                AppProtocol::for_protocol(p, n, n)
             })
             .collect();
         Self { app_protocols }
+    }
+
+    /// The protocol [`SupportedAppProtocolReq::advertising`] gave `schema_id`
+    /// to, for the same `protocols` set.
+    ///
+    /// The charger's answer echoes a schema *id*, not a namespace, so the
+    /// vehicle has to undo its own numbering to learn which protocol was
+    /// chosen. This is that inverse, and it lives here so the two directions
+    /// cannot disagree: an EVCC that reimplemented the offset would keep
+    /// working right up until the numbering changed, and would then map the
+    /// charger's answer onto a protocol it never chose.
+    ///
+    /// `None` for an id outside what the set covers — a charger answering with
+    /// one that was never offered.
+    ///
+    /// ```
+    /// use iso15118::{Protocol, Protocols};
+    /// use iso15118::app_protocol::SupportedAppProtocolReq;
+    ///
+    /// let offered = Protocols::ISO; // -20 then -2
+    /// let req = SupportedAppProtocolReq::advertising(offered);
+    ///
+    /// // The two directions agree, entry by entry.
+    /// for entry in &req.app_protocols {
+    ///     assert_eq!(
+    ///         SupportedAppProtocolReq::advertised_protocol(offered, entry.schema_id),
+    ///         entry.protocol(),
+    ///     );
+    /// }
+    /// assert_eq!(SupportedAppProtocolReq::advertised_protocol(offered, 0), None);
+    /// assert_eq!(SupportedAppProtocolReq::advertised_protocol(offered, 99), None);
+    /// ```
+    #[must_use]
+    pub fn advertised_protocol(protocols: impl Into<Protocols>, schema_id: u8) -> Option<Protocol> {
+        protocols
+            .into()
+            .iter()
+            .take(MAX_APP_PROTOCOLS)
+            .enumerate()
+            .find(|&(i, _)| schema_id_for_index(i) == schema_id)
+            .map(|(_, p)| p)
     }
 
     /// The protocol the entry with this schema id names.

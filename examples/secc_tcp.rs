@@ -116,6 +116,14 @@ fn serve(mut stream: TcpStream) -> std::io::Result<()> {
                     let refusal = refuse(&message, response_code);
                     secc.respond(now(), wrap(refusal)).expect("respond");
                 }
+                // This station ran out of time deciding, which is its own fault
+                // and not the vehicle's. [V2G2-713] still wants an answer, and
+                // the deadline is set so there is room for one.
+                Event::Overdue { message, response_code, phase } => {
+                    eprintln!("  !! out of time in {phase}");
+                    let refusal = refuse(&message, response_code);
+                    secc.respond(now(), wrap(refusal)).expect("respond");
+                }
                 Event::Closed(why) => {
                     println!("--- {why}");
                     if why == Close::Paused {

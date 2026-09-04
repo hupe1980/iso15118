@@ -18,7 +18,10 @@ In practice that means one of:
 - a new golden vector captured from another implementation;
 - a citation to the requirement in ISO 15118 or in EXI 1.0 — checked against the
   text, not written from memory. A citation nobody can check is worth less than
-  none.
+  none, and `scripts/verify-citations.sh` checks the half a machine can: that
+  every `[V2G2-nnn]` in the repository names a requirement ISO 15118-2 actually
+  defines. ISO 15118-2:2014(E) is readable in full from a US FHWA rulemaking
+  docket, so "I could not check it" is not available for that part.
 
 ## Before opening a pull request
 
@@ -42,6 +45,28 @@ scripts/verify-messages.sh
 Those three need a JDK and the ISO schemas. The schemas are licensed and are not
 in the repository; `scripts/fetch-schemas.sh` downloads them reproducibly.
 
+If you added or changed a `[V2G2-nnn]` citation:
+
+```sh
+scripts/verify-citations.sh    # needs pdftotext and network access
+```
+
+It fetches ISO 15118-2's own text and fails on any citation that names no
+requirement.
+
+If you touched `pnc::pki`:
+
+```sh
+scripts/make-test-pki.sh        # needs openssl; rewrites tests/fixtures/pki
+scripts/make-test-envelope.sh   # needs openssl; rewrites the envelope fixture
+```
+
+Only necessary when the *shape* of a fixture changes. The validity windows are
+absolute dates rather than `-days N`, so the chains do not rot and a test that
+passes today passes in 2049. Neither the PDF nor the extracted text is ever written into the
+repository — the copyright notice on every page is explicit — so the script keeps
+them in a scratch directory.
+
 If you touched a decoder, give the fuzzer a few minutes:
 
 ```sh
@@ -51,6 +76,13 @@ cargo +nightly fuzz run <target> fuzz/corpus/<target> fuzz/seeds/<target> -- -ma
 The fuzz crate is not in the workspace, so `cargo check` will not tell you a
 target has stopped compiling against an API change. `cd fuzz && cargo check
 --all-targets` will.
+
+`tests/concepts.rs` will look like it tests nothing: it guards the maintainers'
+internal architecture notes, which live in a gitignored `concepts/` directory and
+are not part of this repository as you receive it. It **skips** when that
+directory is absent, which is what CI and every contributor see. It is committed
+rather than kept alongside the notes so that an API rename cannot quietly stop it
+compiling.
 
 Anything a user would notice — an API change, a fixed defect, a new rule — gets an
 entry in `CHANGELOG.md` under the unreleased heading.

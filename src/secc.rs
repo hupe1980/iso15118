@@ -69,6 +69,22 @@
 //! The caller also arms its own timer for [`Secc::poll_timeout`] and calls
 //! [`Secc::handle_timeout`] when it fires. Nothing else is required.
 //!
+//! # Two ways a request is refused, and they are not the same fault
+//!
+//! [`Event::Refused`] is the vehicle's fault: it sent a request the flow does
+//! not allow, and `FAILED_SequenceError` says so. [`Event::Overdue`] is the
+//! *station's*: a phase it kept answering `..._Ongoing` ran past
+//! `V2G_SECC_Ongoing_Performance_Time`, and \[V2G2-713\] has it answer plain
+//! `FAILED` and stop. Both hand over a request to answer and end the session on
+//! the answer; they differ in what the response code tells the vehicle about
+//! whose problem this was.
+//!
+//! The station's budgets are deliberately shorter than the vehicle's for the
+//! same loop — 55 s against 60, 38 against 40 for the DC isolation test — and
+//! that gap is what makes the second event possible at all. A station carrying
+//! the vehicle's number would reach its deadline only after the vehicle had
+//! given up, which is the same as having none.
+//!
 //! # One check the engine cannot make for you
 //!
 //! ISO 15118-2 obliges a station to check the `ChargingProfile` in
@@ -89,8 +105,8 @@ use core::fmt;
 use crate::app_protocol::SupportedAppProtocolRes;
 use crate::message::Message;
 use crate::session::{
-    Connection, ConnectionError, Flow, FlowError, Instant, Millis, SequenceError, SessionId, Timer,
-    Timers,
+    Connection, ConnectionError, Flow, FlowError, Instant, Millis, Role, Security, SequenceError,
+    SessionId, Timer, Timers,
 };
 use crate::trace::{trace_close, trace_event};
 use crate::{MAX_EXI_PAYLOAD_LEN, Protocol, Protocols};
@@ -114,18 +130,57 @@ pub struct SeccConfig {
     ///
     /// It has to be unpredictable — it is what a paused session is resumed
     /// under — and this crate has no RNG, so the caller supplies it.
+    ///
+    /// There is no usable default: \[V2G2-750\] requires the station to return
+    /// an id *different from zero*, so the all-zero
+    /// [`SessionId::NONE`](crate::session::SessionId::NONE) that
+    /// [`SeccConfig::default`] leaves here is a placeholder and not a value.
+    /// Answering `SessionSetupReq` while it is still set fails with
+    /// [`SeccError::NoSessionId`] rather than putting it on the wire — a
+    /// station that assigns nothing leaves the session with no identity, and
+    /// every later message would be adopted instead of checked.
     pub session_id: SessionId,
+    /// What the transport underneath this session actually is.
+    ///
+    /// Not something the core can observe — the socket is the caller's — and it
+    /// decides one rule that matters: **Plug & Charge is not available without
+    /// TLS** \[V2G2-634\], \[V2G2-635\], so a contract selection over a
+    /// plaintext connection is refused with `FAILED_SequenceError` rather than
+    /// carrying a certificate chain and a signature in clear.
+    ///
+    /// Defaults to [`Security::None`], because the safe default for a security
+    /// decision is the restrictive one: a session that has not said it is
+    /// secured is treated as though it is not. A deployment doing Plug & Charge
+    /// sets this to [`Security::Tls`] — which is the same value SECC discovery
+    /// already produced, so it is a value being passed along rather than a new
+    /// judgement.
+    pub security: Security,
     /// Ceiling on one V2GTP payload.
     pub max_payload_len: usize,
+    /// How many complete-but-unanswered V2GTP frames to hold.
+    ///
+    /// The second half of the reassembly bound, and the half that is easy to
+    /// leave out: `max_payload_len` bounds *one* frame, and bounding only that
+    /// moves the problem, because a peer sending whole small frames without
+    /// waiting grows the decoded queue instead. V2G is strictly half-duplex, so
+    /// anything past one frame in hand is already outside the protocol.
+    ///
+    /// Defaults to [`MAX_PENDING_FRAMES`](crate::session::MAX_PENDING_FRAMES).
+    /// Lower it with `max_payload_len` on a target that cannot hold the crate's
+    /// ceilings; a value of 0 is read as 1, because a connection that can hold
+    /// no frame can receive nothing.
+    pub max_pending_frames: usize,
+
     /// How long to wait for the vehicle's next request before giving up.
     ///
     /// Defaults to `V2G_SECC_Sequence_Timeout`, 60 s in both generations.
     pub sequence_timeout: Millis,
     /// How long from the connection opening to a `SessionSetupReq`.
     ///
-    /// The vehicle's own budget from plug-in to `SessionSetupRes` is 20 s and
-    /// includes SLAC, SDP and TLS, so a station that waits much longer than
-    /// this is holding a socket for a vehicle that has already given up.
+    /// Defaults to the station's own parameter,
+    /// `V2G_SECC_CommunicationSetup_Performance_Time` — 18 s \[V2G2-716\], two
+    /// under the vehicle's 20 s timeout, so the station gives up while the
+    /// vehicle is still listening rather than the other way round.
     pub setup_timeout: Millis,
 }
 
@@ -134,9 +189,11 @@ impl Default for SeccConfig {
         Self {
             protocols: Protocols::ISO,
             session_id: SessionId::NONE,
+            security: Security::None,
             max_payload_len: MAX_EXI_PAYLOAD_LEN,
+            max_pending_frames: crate::session::MAX_PENDING_FRAMES,
             sequence_timeout: crate::session::timers::iso2::SECC_SEQUENCE_TIMEOUT,
-            setup_timeout: crate::session::timers::iso2::EVCC_COMMUNICATION_SETUP_TIMEOUT,
+            setup_timeout: crate::session::timers::iso2::SECC_COMMUNICATION_SETUP_PERFORMANCE_TIME,
         }
     }
 }
@@ -172,6 +229,41 @@ pub enum Event {
         response_code: u8,
         /// What was wrong.
         reason: Refusal,
+    },
+    /// The station's own budget for this phase ran out, and here is the
+    /// request that has to carry the bad news.
+    ///
+    /// A phase answered `..._Ongoing` is a loop, and
+    /// `V2G_SECC_Ongoing_Performance_Time` bounds how long the station may keep
+    /// answering that way — 55 s in ISO 15118-2, five seconds under the
+    /// vehicle's own timeout, and 38 s against 40 for the DC isolation test.
+    /// \[V2G2-713\] says what to do when it expires, and it is not to go quiet:
+    /// answer with `response_code` and stop the session. That gap is exactly
+    /// the room the answer fits in.
+    ///
+    /// It arrives on a *request* rather than the moment the timer fires,
+    /// because that is when the station has something to answer. A loop budget
+    /// almost always expires between exchanges: the vehicle asks about once a
+    /// second and the station answers within its performance time, so the
+    /// instant the budget runs out there is usually nothing outstanding. The
+    /// engine remembers, and hands over the next request to be refused.
+    ///
+    /// This replaces [`Event::Refused`] for that request, and the difference is
+    /// not cosmetic: the vehicle did nothing wrong, so `FAILED_SequenceError`
+    /// would be a lie about whose fault it was.
+    ///
+    /// Answer it with [`Secc::respond`]; the session ends as the answer is
+    /// queued.
+    Overdue {
+        /// The request, so the right response type can be built for it.
+        message: Box<Message>,
+        /// `FAILED` as its EXI enumeration index in the negotiated generation.
+        ///
+        /// The plain code, not a specific one: \[V2G2-713\] asks for `FAILED`,
+        /// and a station that could not decide has not established *why*.
+        response_code: u8,
+        /// The phase whose budget ran out.
+        phase: &'static str,
     },
     /// The session is over. Nothing further will be read or written.
     Closed(Close),
@@ -217,6 +309,19 @@ pub enum Close {
     Refused,
     /// The vehicle offered no protocol this station speaks.
     NoCommonProtocol,
+    /// The byte stream stopped being a V2G session, and there is nothing to
+    /// answer.
+    ///
+    /// A framing fault, a payload this session's own grammar will not decode, a
+    /// peer pipelining past the half-duplex rule, a response where only
+    /// requests are legal, or a second `supportedAppProtocol` handshake. None
+    /// of those can be resynchronised — V2GTP has no delimiter to scan for and
+    /// the negotiated grammar is the only reading of the bytes — so the session
+    /// ends where it stands.
+    ///
+    /// [`Secc::handle_input`] still returns the [`SeccError`] that says which,
+    /// for the log. The close is not conditional on the caller acting on it.
+    Fatal,
 }
 
 impl fmt::Display for Close {
@@ -227,6 +332,7 @@ impl fmt::Display for Close {
             Self::Timeout(t) => write!(f, "{} timer expired", t.name()),
             Self::Refused => f.write_str("the vehicle broke the message ordering rules"),
             Self::NoCommonProtocol => f.write_str("no protocol in common"),
+            Self::Fatal => f.write_str("the byte stream is not a V2G session"),
         }
     }
 }
@@ -256,6 +362,9 @@ pub struct Secc {
     /// The flow phase the last accepted request left the session in, so that
     /// entering a new one can start (or stop) that phase's loop budget.
     phase: Option<&'static str>,
+    /// The phase whose loop budget ran out, until the next request carries the
+    /// `FAILED` that \[V2G2-713\] owes the vehicle. See [`Event::Overdue`].
+    overdue: Option<&'static str>,
     closed: bool,
 }
 
@@ -266,7 +375,7 @@ impl Secc {
     /// setup timer starts.
     #[must_use]
     pub fn new(config: SeccConfig) -> Self {
-        let conn = Connection::with_limit(config.max_payload_len);
+        let conn = Connection::with_limits(config.max_payload_len, config.max_pending_frames);
         Self {
             config,
             conn,
@@ -276,6 +385,7 @@ impl Secc {
             established: false,
             outstanding: None,
             phase: None,
+            overdue: None,
             closed: false,
         }
     }
@@ -306,14 +416,32 @@ impl Secc {
     /// Feeds bytes read from the transport.
     ///
     /// Frames are reassembled, decoded, checked against the session id and the
-    /// ordering rules, and turned into events. Errors here are fatal to the
-    /// session: the stream is not something this side can go on parsing.
+    /// ordering rules, and turned into events.
+    ///
+    /// **An error here closes the session**, and that is the point rather than
+    /// a side effect. The stream is not something this side can go on parsing —
+    /// V2GTP has no delimiter to resynchronise to, and after the handshake the
+    /// negotiated grammar is the only reading of the bytes there is — so
+    /// carrying on would mean parsing frames whose boundaries the peer alone
+    /// decides. [`Event::Closed`]`(`[`Close::Fatal`]`)` is queued before this
+    /// returns, [`Secc::is_closed`] is true, the timers are disarmed and the
+    /// buffers are dropped, so an application that logs the error and calls
+    /// again gets the same session-is-over answer rather than a live one.
+    ///
+    /// That the enforcement is not the caller's is deliberate, and it is the
+    /// same rule [`Secc::respond`] keeps for a refusal: a correctly detected
+    /// fault that the application is free to ignore is
+    /// `EVerest`'s MEDIUM-14, not a diagnostic.
     pub fn handle_input(&mut self, now: Instant, data: &[u8]) -> Result<(), SeccError> {
         if self.closed {
             return Ok(());
         }
-        self.conn.receive(data)?;
-        self.pump(now)
+        let outcome =
+            self.conn.receive(data).map_err(SeccError::from).and_then(|()| self.pump(now));
+        if outcome.is_err() {
+            self.close_fatal();
+        }
+        outcome
     }
 
     /// Decodes and dispatches buffered frames until one needs answering.
@@ -336,6 +464,18 @@ impl Secc {
         self.timers.arm(Timer::Sequence, now, self.config.sequence_timeout);
 
         if let Message::AppProtocolReq(req) = &message {
+            // The handshake happens once: \[V2G2-536\] has the station wait
+            // for one `supportedAppProtocolReq` and \[V2G2-541\] leaves
+            // `SessionSetupReq` as the only request legal after it.
+            //
+            // Re-running this arm would replace `self.flow` with a fresh
+            // `Sequencer` at `Phase::Start`, discarding the payment option, the
+            // transfer mode and the failure latch — so a peer just answered
+            // `FAILED_*` would be back at the top of the graph. `Connection`
+            // makes it unreachable (D12); this makes it local (D26).
+            if self.flow.is_some() {
+                return Err(SeccError::HandshakeRepeated);
+            }
             self.timers.disarm(Timer::CommunicationSetup);
             // A generation whose message set this build does not have is not a
             // protocol in common, whatever the configuration says. Agreeing to
@@ -349,8 +489,9 @@ impl Secc {
             // never be considered.
             let mut speakable = self.config.protocols;
             speakable.retain(Flow::supports);
-            let agreed =
-                req.negotiate(speakable).and_then(|a| Flow::new(a.protocol).map(|flow| (a, flow)));
+            let agreed = req
+                .negotiate(speakable)
+                .and_then(|a| Flow::new(a.protocol, self.config.security).map(|flow| (a, flow)));
             let Some((agreed, flow)) = agreed else {
                 self.conn
                     .send(&Message::AppProtocolRes(Box::new(SupportedAppProtocolRes::reject())))?;
@@ -370,17 +511,22 @@ impl Secc {
         if !message.is_request() {
             return Err(SeccError::NotARequest(message.name()));
         }
-        let Some(flow) = self.flow.as_mut() else {
-            return Err(SeccError::BeforeHandshake(message.name()));
-        };
-
         // Every request after `SessionSetupReq` must carry the id this station
         // assigned. \[V2G2-460\] — the answer is `FAILED_UnknownSession`.
         // A request with *no* id is refused for the same reason: an
         // unidentified request in an established session is not this session's.
-        if self.established && message.session_id() != Some(self.config.session_id) {
+        //
+        // Checked before the flow is borrowed, and ahead of the handshake test:
+        // `established` can only be true once a flow has accepted a
+        // `SessionSetupReq`, so the order changes nothing except which borrow
+        // is live.
+        if self.established && !self.carries_the_session_id(&message) {
             let response_code = unknown_session_code(self.conn.protocol());
-            self.outstanding = Some(Outstanding { name: message.name(), refused: true });
+            self.outstanding = Some(Outstanding {
+                name: message.name(),
+                refused: true,
+                due: now.saturating_add(performance_time(&message)),
+            });
             self.events.push_back(Event::Refused {
                 message: Box::new(message),
                 response_code,
@@ -389,6 +535,10 @@ impl Secc {
             self.close_after_refusal();
             return Ok(());
         }
+
+        let Some(flow) = self.flow.as_mut() else {
+            return Err(SeccError::BeforeHandshake(message.name()));
+        };
 
         match flow.accept(&message) {
             Ok(()) => {
@@ -401,22 +551,60 @@ impl Secc {
                     "request"
                 );
                 self.enter_phase(now);
-                self.outstanding = Some(Outstanding { name: message.name(), refused: false });
+                self.outstanding = Some(Outstanding {
+                    name: message.name(),
+                    refused: false,
+                    due: now.saturating_add(performance_time(&message)),
+                });
                 self.events.push_back(Event::Request(Box::new(message)));
             }
             Err(FlowError::Sequence(e)) => {
-                trace_close!(message = e.got, phase = e.phase, "out of sequence");
-                self.outstanding = Some(Outstanding { name: message.name(), refused: true });
-                self.events.push_back(Event::Refused {
-                    message: Box::new(message),
-                    response_code: e.response_code,
-                    reason: Refusal::Sequence(e),
+                self.outstanding = Some(Outstanding {
+                    name: message.name(),
+                    refused: true,
+                    due: now.saturating_add(performance_time(&message)),
                 });
+                // A request refused because *this station* ran out of time is
+                // not out of sequence, and saying so would blame the vehicle
+                // for the station's own indecision.
+                if let Some(phase) = self.overdue.take() {
+                    self.events.push_back(Event::Overdue {
+                        message: Box::new(message),
+                        response_code: failed_code(self.conn.protocol()),
+                        phase,
+                    });
+                } else {
+                    trace_close!(message = e.got, phase = e.phase, "out of sequence");
+                    self.events.push_back(Event::Refused {
+                        message: Box::new(message),
+                        response_code: e.response_code,
+                        reason: Refusal::Sequence(e),
+                    });
+                }
                 self.close_after_refusal();
             }
             Err(FlowError::NotARequest) => return Err(SeccError::NotARequest(message.name())),
         }
         Ok(())
+    }
+
+    /// Whether `message` carries the id this station actually assigned.
+    ///
+    /// The all-zero id never matches, whatever is configured — and that is a
+    /// separate clause rather than a redundant one. \[V2G2-460\] is a
+    /// *comparison*, and comparing against a default is how CVE-2025-68140
+    /// happened in `EVerest`'s `EvseV2G`: with no session registered the stored
+    /// id was zero, so a request carrying zero compared equal and was admitted
+    /// to an established session.
+    ///
+    /// [`Secc::respond`] already refuses to assign the placeholder
+    /// \[V2G2-750\], so the two cannot both be zero here. But that argument
+    /// runs through three other pieces of this file, and an invariant that
+    /// holds because of what a different method does is one a later edit can
+    /// take away without touching this line. One comparison makes it local.
+    fn carries_the_session_id(&self, message: &Message) -> bool {
+        let assigned = self.config.session_id;
+        !assigned.is_none() && message.session_id() == Some(assigned)
     }
 
     /// The session id this station is checking every request against.
@@ -492,7 +680,23 @@ impl Secc {
                 got: response.name(),
             });
         }
-        response.set_session_id(self.config.session_id);
+        // \[V2G2-750\]: the id the station returns must differ from zero.
+        //
+        // Checked here rather than in `Secc::new` because `join_session` may
+        // still supply one while `SessionSetupReq` is being answered, and
+        // checked at all because the failure is otherwise silent on this side
+        // and fatal on the other: the vehicle would have nothing to check later
+        // messages against, and a well-behaved one ends the session without
+        // ever saying why.
+        //
+        // `set_session_id` reports whether the message has a header to stamp at
+        // all, which is the exact set of responses the requirement covers — the
+        // `supportedAppProtocol` handshake predates the session and has none.
+        // Nothing has been queued yet, so refusing here leaves the wire clean.
+        let stamped = response.set_session_id(self.config.session_id);
+        if stamped && self.config.session_id.is_none() {
+            return Err(SeccError::NoSessionId);
+        }
         // A `FAILED_*` code ends the session: ISO 15118 leaves the vehicle
         // nothing to send but `SessionStopReq`, and the flow is told so before
         // the next request is read. This is what stops a peer from carrying on
@@ -519,8 +723,14 @@ impl Secc {
             }
         }
         // The vehicle's next request may already be framed and waiting; now
-        // that this one is answered it can be read.
-        self.pump(now)
+        // that this one is answered it can be read — and a fault in what was
+        // already framed ends the session here for the same reason it does in
+        // `handle_input`.
+        let outcome = self.pump(now);
+        if outcome.is_err() {
+            self.close_fatal();
+        }
+        outcome
     }
 
     /// True while a request has been surfaced and not yet answered.
@@ -538,6 +748,27 @@ impl Secc {
         }
     }
 
+    /// When the outstanding request's answer is due — its arrival instant plus
+    /// `V2G_SECC_Msg_Performance_Time`.
+    ///
+    /// The station's half of ISO 15118-2 Table 109, and **advice rather than a
+    /// deadline**: nothing here enforces it and no timer is armed from it.
+    /// Missing a performance time is not a fault this side can observe — what
+    /// happens is the *vehicle's* `V2G_EVCC_Msg_Timeout` running out half a
+    /// second later, with nothing in this station's log to say why.
+    ///
+    /// The values are citations, and the tight one is not close:
+    /// `CurrentDemandReq` allows **25 ms**, which constrains where the answer
+    /// may come from rather than how fast the code is. `None` when nothing is
+    /// outstanding.
+    #[must_use]
+    pub const fn response_due(&self) -> Option<Instant> {
+        match self.outstanding {
+            Some(Outstanding { due, .. }) => Some(due),
+            None => None,
+        }
+    }
+
     /// Starts, keeps or stops the loop budget of the phase the flow is now in.
     ///
     /// A phase like `Authorized` is not one exchange but a loop the station may
@@ -545,6 +776,12 @@ impl Secc {
     /// driver tapping a card. The budget bounds the station's own indecision,
     /// runs from the *first* request of the phase, and is not restarted by the
     /// repeats: restarting it would make it unbounded.
+    ///
+    /// It is the station's half of the pair — `V2G_SECC_*_Performance_Time`,
+    /// five seconds under the vehicle's timeout for the general loop and two
+    /// under it for the DC safety phases. Arming the vehicle's number here
+    /// would give the station a deadline it could only reach after the vehicle
+    /// had already abandoned the session. See [`Role`].
     fn enter_phase(&mut self, now: Instant) {
         let Some(flow) = self.flow.as_ref() else { return };
         let phase = flow.phase_name();
@@ -552,7 +789,7 @@ impl Secc {
             return;
         }
         self.phase = Some(phase);
-        match flow.loop_timeout() {
+        match flow.loop_timeout(Role::Secc) {
             Some(budget) => self.timers.arm(Timer::Ongoing, now, budget),
             None => self.timers.disarm(Timer::Ongoing),
         }
@@ -570,8 +807,32 @@ impl Secc {
     }
 
     /// Advances the clock, expiring any timer that has come due.
+    ///
+    /// Every timer but one ends the session. The exception is the loop budget:
+    /// \[V2G2-713\] has the station *answer* `FAILED` when it runs out, so that
+    /// expiry surfaces as [`Event::Overdue`] and the session stays answerable
+    /// for exactly that one response. See [`Event::Overdue`].
     pub fn handle_timeout(&mut self, now: Instant) {
         while let Some(timer) = self.timers.expired(now) {
+            // Every timer but the loop budget ends the session where it stands.
+            // That one is a deadline the station can *answer*, so it is
+            // remembered rather than acted on: the vehicle's next request in
+            // this phase becomes [`Event::Overdue`] and carries the `FAILED`.
+            // Should the vehicle instead go quiet, the sequence timer closes
+            // the session in the ordinary way.
+            if timer == Timer::Ongoing && !self.closed {
+                let phase = self.flow.as_ref().map_or("unknown", Flow::phase_name);
+                trace_close!(phase = phase, "loop budget expired; the next request gets FAILED");
+                self.overdue = Some(phase);
+                // Recorded now rather than when the answer goes out, so the
+                // flow refuses everything but `SessionStopReq` from here — the
+                // same rule a `FAILED` response earns when the application
+                // chooses one.
+                if let Some(flow) = self.flow.as_mut() {
+                    flow.failed();
+                }
+                continue;
+            }
             self.close(Close::Timeout(timer));
         }
     }
@@ -598,6 +859,26 @@ impl Secc {
         self.events.push_back(Event::Closed(why));
     }
 
+    /// Ends the session because the stream stopped being one.
+    ///
+    /// Unlike [`Secc::close_after_refusal`] there is nothing left to answer, so
+    /// the outstanding request is dropped and the buffers go with it: whatever
+    /// the peer framed behind the fault was framed by the same peer, and this
+    /// side has no way to tell where the next real message would have started.
+    /// Anything already queued for the wire is left alone — it was built before
+    /// the fault and the caller may still flush it.
+    fn close_fatal(&mut self) {
+        if self.closed {
+            return;
+        }
+        self.closed = true;
+        self.timers.disarm_all();
+        self.conn.reset_input();
+        self.outstanding = None;
+        trace_close!("the byte stream is not a V2G session");
+        self.events.push_back(Event::Closed(Close::Fatal));
+    }
+
     /// Ends the session, but leaves the transmit queue alone so the refusal the
     /// application is about to build still reaches the vehicle.
     fn close_after_refusal(&mut self) {
@@ -619,6 +900,31 @@ struct Outstanding {
     /// [`Event::Request`], in which case the response type is not checked
     /// against it — see [`Secc::respond`].
     refused: bool,
+    /// When the answer is due — the arrival instant plus this request's
+    /// `V2G_SECC_Msg_Performance_Time`. Advice, never enforced: see
+    /// [`Secc::response_due`].
+    due: Instant,
+}
+
+/// The station's own budget for answering `request` — the other half of
+/// Table 109.
+///
+/// Each generation's sequencer owns its table; see
+/// [`iso2::Request::performance_time`] and [`iso20::Request::performance_time`].
+///
+/// [`iso2::Request::performance_time`]: crate::session::iso2::Request::performance_time
+/// [`iso20::Request::performance_time`]: crate::session::iso20::Request::performance_time
+fn performance_time(request: &Message) -> Millis {
+    #[cfg(feature = "iso2")]
+    if let Some(r) = crate::session::iso2::Request::of(request) {
+        return r.performance_time();
+    }
+    #[cfg(feature = "iso20-common")]
+    if let Some(r) = crate::session::iso20::Request::of(request) {
+        return r.performance_time();
+    }
+    let _ = request;
+    crate::session::timers::iso2::SECC_MSG_PERFORMANCE_DEFAULT
 }
 
 /// `FAILED_UnknownSession` as its EXI enumeration index in each generation.
@@ -633,8 +939,29 @@ const fn unknown_session_code(protocol: Option<Protocol>) -> u8 {
         #[cfg(feature = "iso20-common")]
         Some(Protocol::Iso20) => crate::iso20::common::ResponseCode::FAILEDUnknownSession as u8,
         // Without a negotiated protocol there is no response code space to
-        // name; the caller will not get here, because nothing is `established`.
-        _ => 0,
+        // name, and the caller cannot get here: nothing is `established` until
+        // a flow has accepted a `SessionSetupReq`, and there is no flow without
+        // a protocol. `u8::MAX` rather than `0` all the same, because `0` is
+        // `OK` in both schemas — an unreachable branch that fails *open* is one
+        // edit away from being a reachable one that says the request was fine.
+        _ => u8::MAX,
+    }
+}
+
+/// Plain `FAILED` as its EXI enumeration index in each generation.
+///
+/// As with [`unknown_session_code`], the two schemas order their response codes
+/// differently, so this is not the same number in both.
+const fn failed_code(protocol: Option<Protocol>) -> u8 {
+    match protocol {
+        #[cfg(feature = "iso2")]
+        Some(Protocol::Iso2) => crate::iso2::ResponseCode::FAILED as u8,
+        #[cfg(feature = "iso20-common")]
+        Some(Protocol::Iso20) => crate::iso20::common::ResponseCode::FAILED as u8,
+        // Unreachable in practice: a loop budget is only ever armed for a phase
+        // of a negotiated flow. `u8::MAX` for the reason
+        // [`unknown_session_code`] gives — `0` is `OK`.
+        _ => u8::MAX,
     }
 }
 
@@ -650,8 +977,23 @@ pub enum SeccError {
     NotAResponse(&'static str),
     /// A session message arrived before the protocol handshake.
     BeforeHandshake(&'static str),
+    /// A second `supportedAppProtocolReq` arrived in a session that had already
+    /// negotiated one.
+    ///
+    /// \[V2G2-541\] leaves `SessionSetupReq` as the only legal request after
+    /// the handshake, and accepting a second one would restart the ordering
+    /// graph — failure latch included. Fatal: the session closes.
+    HandshakeRepeated,
     /// The application answered when no request was waiting for one.
     NothingToAnswer(&'static str),
+    /// No session id was configured, so there is none to assign.
+    ///
+    /// [`SeccConfig::session_id`] was left at the all-zero placeholder, and
+    /// \[V2G2-750\] requires the station to return an id different from zero.
+    /// Supply eight unpredictable bytes in [`SeccConfig`], or adopt the
+    /// vehicle's own with [`Secc::join_session`] when it is rejoining a session
+    /// this station paused.
+    NoSessionId,
     /// The application answered the outstanding request with the wrong
     /// response type.
     WrongResponse {
@@ -677,9 +1019,16 @@ impl fmt::Display for SeccError {
             Self::BeforeHandshake(name) => {
                 write!(f, "{name} arrived before supportedAppProtocol")
             }
+            Self::HandshakeRepeated => {
+                f.write_str("a second supportedAppProtocolReq arrived after the handshake")
+            }
             Self::NothingToAnswer(name) => {
                 write!(f, "{name} was sent with no request outstanding")
             }
+            Self::NoSessionId => f.write_str(
+                "SeccConfig::session_id is the all-zero placeholder; a station must assign \
+                 an unpredictable non-zero session id",
+            ),
             Self::WrongResponse { expected, got } => {
                 write!(f, "{got} does not answer {expected}")
             }

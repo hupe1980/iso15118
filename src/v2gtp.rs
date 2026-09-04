@@ -58,8 +58,24 @@ pub enum PayloadType {
     SdpWirelessRequest,
     /// `0x9003` — SDP response over a wireless link (ISO 15118-20).
     SdpWirelessResponse,
-    /// `0xA000..=0xFFFF` — reserved for manufacturer use.
+    /// `0xA000..=0xFFFF` — reserved for manufacturer use (Table 10).
+    ///
+    /// A legitimate code that this entity has no meaning for. \[V2G2-800\] says
+    /// to ignore such a message, not to reject it, and
+    /// [`Connection`](crate::session::Connection) does — a vendor extension on
+    /// the wire must not end a charging session.
     ManufacturerSpecific(u16),
+    /// A code Table 10 marks reserved: `0x0000..=0x8000`, `0x8007..=0x8FFF`
+    /// and `0x9004..=0x9FFF`.
+    ///
+    /// Not a legitimate code, and still not a framing error. \[V2G2-092\] and
+    /// \[V2G2-094\] have a receiver check the payload *type* and then the
+    /// payload *length*, and \[V2G2-800\] has it ignore the message — so the
+    /// header is intact, the length is trustworthy, and the frame boundary is
+    /// exactly where the peer said it was. Failing here instead would end the
+    /// session over a frame the standard says to skip, and would throw away a
+    /// resynchronisation point that is known-good.
+    Reserved(u16),
 }
 
 impl PayloadType {
@@ -77,13 +93,20 @@ impl PayloadType {
             Self::SdpResponse => 0x9001,
             Self::SdpWirelessRequest => 0x9002,
             Self::SdpWirelessResponse => 0x9003,
-            Self::ManufacturerSpecific(v) => v,
+            Self::ManufacturerSpecific(v) | Self::Reserved(v) => v,
         }
     }
 
-    /// Parses a payload type code, rejecting the reserved ranges.
-    pub const fn from_u16(value: u16) -> Result<Self, V2gtpError> {
-        Ok(match value {
+    /// Classifies a payload type code. Every `u16` is one.
+    ///
+    /// Infallible on purpose. A code outside Table 10's assignments is not a
+    /// malformed *header* — the sync pattern matched and the length field is
+    /// where it belongs — so refusing to parse it would discard the one thing
+    /// that makes the message skippable. \[V2G2-800\] asks for the message to
+    /// be ignored, and ignoring it needs its length.
+    #[must_use]
+    pub const fn from_u16(value: u16) -> Self {
+        match value {
             0x8001 => Self::ExiEncodedV2gMessage,
             0x8002 => Self::Part20Main,
             0x8003 => Self::Part20Ac,
@@ -95,8 +118,59 @@ impl PayloadType {
             0x9002 => Self::SdpWirelessRequest,
             0x9003 => Self::SdpWirelessResponse,
             0xA000..=0xFFFF => Self::ManufacturerSpecific(value),
-            _ => return Err(V2gtpError::UnknownPayloadType(value)),
-        })
+            other => Self::Reserved(other),
+        }
+    }
+
+    /// True for a code this entity has no processing for — manufacturer-specific
+    /// or reserved.
+    ///
+    /// The set \[V2G2-800\] says to ignore.
+    #[must_use]
+    pub const fn is_ignorable(self) -> bool {
+        matches!(self, Self::ManufacturerSpecific(_) | Self::Reserved(_))
+    }
+
+    /// Whether a session speaking `protocol` carries its messages under this
+    /// payload type.
+    ///
+    /// The question \[V2G2-800\] turns on, and it is **not** "can this build
+    /// decode it". `0x8001` belongs to a DIN SPEC 70121 session whether or not
+    /// this crate has that message set; `0x8002` does not belong to an
+    /// ISO 15118-2 session however many features are enabled. The first is a
+    /// missing codec, which the caller can supply through
+    /// [`Connection::next_frame`](crate::session::Connection::next_frame); the
+    /// second is a message for somebody else, which is ignored.
+    ///
+    /// `None` is a session that has not negotiated yet, where only the
+    /// `supportedAppProtocol` handshake belongs.
+    #[must_use]
+    #[allow(
+        clippy::match_same_arms,
+        reason = "one arm per generation's payload types; merging them by their \
+                  shared `true` would hide which types belong to which"
+    )]
+    pub const fn belongs_to(self, protocol: Option<crate::Protocol>) -> bool {
+        use crate::Protocol as P;
+        match (self, protocol) {
+            // `0x8001` is the handshake before negotiation, and afterwards the
+            // one type the two first-generation protocols share.
+            (Self::ExiEncodedV2gMessage, None | Some(P::Iso2 | P::Din70121)) => true,
+            // ISO 15118-20 gives each schema set its own type, and uses none of
+            // them before it has been negotiated.
+            (
+                Self::Part20Main
+                | Self::Part20Ac
+                | Self::Part20Dc
+                | Self::Part20Acdp
+                | Self::Part20Wpt,
+                Some(P::Iso20),
+            ) => true,
+            // Everything else, including every SDP type: SDP is a datagram
+            // exchange that happens before a session exists, so no session
+            // carries one.
+            _ => false,
+        }
     }
 
     /// True for the payload types that carry an EXI-encoded V2G message, as
@@ -177,7 +251,7 @@ impl Header {
             return Err(V2gtpError::VersionMismatch { version: head[0], inverse: head[1] });
         }
 
-        let payload_type = PayloadType::from_u16(u16::from_be_bytes([head[2], head[3]]))?;
+        let payload_type = PayloadType::from_u16(u16::from_be_bytes([head[2], head[3]]));
         let payload_len = u32::from_be_bytes([head[4], head[5], head[6], head[7]]);
 
         Ok(Self { payload_type, payload_len })
@@ -250,8 +324,6 @@ pub enum V2gtpError {
         /// The inverse-version byte as received.
         inverse: u8,
     },
-    /// The payload type is in a reserved range.
-    UnknownPayloadType(u16),
     /// The declared payload exceeds the caller's limit.
     PayloadTooLarge {
         /// Length the header declared.
@@ -270,7 +342,6 @@ impl fmt::Display for V2gtpError {
             Self::VersionMismatch { version, inverse } => {
                 write!(f, "V2GTP version {version:#04x} does not match its inverse {inverse:#04x}")
             }
-            Self::UnknownPayloadType(t) => write!(f, "unknown V2GTP payload type {t:#06x}"),
             Self::PayloadTooLarge { declared, limit } => {
                 write!(f, "V2GTP payload of {declared} bytes exceeds the {limit} byte limit")
             }
@@ -308,7 +379,7 @@ mod tests {
         ] {
             let h = Header::new(ty, 42);
             assert_eq!(Header::decode(&h.to_bytes()).unwrap(), h);
-            assert_eq!(PayloadType::from_u16(ty.as_u16()).unwrap(), ty);
+            assert_eq!(PayloadType::from_u16(ty.as_u16()), ty);
         }
     }
 
@@ -321,11 +392,37 @@ mod tests {
         );
     }
 
+    /// \[V2G2-800\]: a reserved payload type is a message to *ignore*, not a
+    /// header to reject. Classifying it keeps the length field, which is the
+    /// only thing that makes ignoring it possible.
     #[test]
-    fn reserved_payload_types_are_rejected() {
-        assert_eq!(PayloadType::from_u16(0x0000), Err(V2gtpError::UnknownPayloadType(0x0000)));
-        assert_eq!(PayloadType::from_u16(0x8007), Err(V2gtpError::UnknownPayloadType(0x8007)));
-        assert_eq!(PayloadType::from_u16(0x9004), Err(V2gtpError::UnknownPayloadType(0x9004)));
+    fn reserved_payload_types_classify_rather_than_fail() {
+        for value in [0x0000, 0x8000, 0x8007, 0x8FFF, 0x9004, 0x9FFF] {
+            let ty = PayloadType::from_u16(value);
+            assert_eq!(ty, PayloadType::Reserved(value));
+            assert!(ty.is_ignorable());
+            assert!(!ty.is_exi());
+            assert_eq!(ty.as_u16(), value, "the code round-trips so a log can name it");
+        }
+        for value in [0xA000, 0xA123, 0xFFFF] {
+            let ty = PayloadType::from_u16(value);
+            assert_eq!(ty, PayloadType::ManufacturerSpecific(value));
+            assert!(ty.is_ignorable());
+        }
+        assert!(!PayloadType::from_u16(0x8001).is_ignorable());
+        assert!(!PayloadType::from_u16(0x9000).is_ignorable());
+    }
+
+    /// A reserved frame is still a *frame*: the header is intact, so the next
+    /// one starts exactly where its length says.
+    #[test]
+    fn a_reserved_frame_does_not_lose_the_frame_boundary() {
+        let mut buf = [0u8; 64];
+        let n = write_frame(PayloadType::Reserved(0x8007), &[1, 2, 3], &mut buf).unwrap();
+        let (header, payload, rest) = split_frame(&buf[..n], 1024).unwrap();
+        assert_eq!(header.payload_type, PayloadType::Reserved(0x8007));
+        assert_eq!(payload, &[1, 2, 3]);
+        assert!(rest.is_empty());
     }
 
     #[test]

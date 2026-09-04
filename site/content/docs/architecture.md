@@ -50,6 +50,44 @@ restarted by the repeats. Both drivers arm it, because the two sides bound
 different things: the vehicle bounds how long it waits, the station bounds its
 own indecision.
 
+### ...and every deadline is two numbers, not one
+
+Those two things are bounded by *different values*, and the difference is the
+point of having both. ISO 15118-2 Table 109 gives the same loop
+`V2G_EVCC_Ongoing_Timeout` = 60 s for the vehicle and
+`V2G_SECC_Ongoing_Performance_Time` = 55 s for the station, and \[V2G2-713\] says
+what the station is to do when its own runs out: answer `FAILED` and stop the
+session. The gap is the room in which that answer fits. Table 111 does the same
+for the rest — 18 s against 20 s for communication setup, 38 against 40 for the
+DC isolation test, 5 against 7 for the pre-charge.
+
+A core that used one number for both roles would give the station a deadline it
+can only reach *after* the vehicle has already abandoned the session: a timer
+that can never fire in time to say anything, which is the same as not having one.
+So `session::Role` is a parameter of every budget, and the drivers pass their own:
+
+```rust
+flow.loop_timeout(Role::Secc)   // the station's half — always the shorter
+flow.loop_timeout(Role::Evcc)   // the vehicle's
+```
+
+The ordering within each pair is asserted at compile time, because inverting one
+would not fail any other test — it would just quietly make the station's timer
+unreachable.
+
+And once the station's timer *can* fire in time, it has something to do with the
+room: \[V2G2-713\] says a station that runs out of deciding time answers plain
+`FAILED` and stops the session, rather than dropping the socket and leaving the
+vehicle to report a timeout five seconds later. `Secc` surfaces that as
+`Event::Overdue`, carrying the request to answer — and it arrives on the
+vehicle's *next* request rather than the instant the timer fires, because a loop
+budget expires between exchanges, with the station idle and nothing outstanding.
+
+It is deliberately not `Event::Refused`. That one means the vehicle sent
+something the flow does not allow and earns `FAILED_SequenceError`. This one is
+the station's own indecision, and blaming the vehicle for it in the response code
+would send a field engineer to the wrong end of the cable.
+
 ### Half-duplex, because the protocol is
 
 Neither side may send again before the other has answered. The engines enforce

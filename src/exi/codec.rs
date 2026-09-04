@@ -84,6 +84,23 @@ impl Lengths {
     }
 }
 
+/// Event-code width for a restricted integer whose bounds are `span` apart.
+///
+/// `span + 1` is the number of values in the range, and that addition is the
+/// one place this arithmetic can leave `u64`: `i64::MIN..=i64::MAX` is a span of
+/// exactly `u64::MAX`. No V2G schema declares such a range — EXI only codes an
+/// integer this way when its range is small, and the widest in any of these
+/// schemas is `12..=1024` — but a `Lengths`-style facet pair is data, and the
+/// wrap would silently produce a *zero*-bit field rather than a wrong-width one.
+/// Saturating at the full width is both the arithmetically correct answer and
+/// the one that cannot be mistaken for "no bits at all".
+const fn restricted_width(span: u64) -> u32 {
+    match span.checked_add(1) {
+        Some(values) => prim::bit_width(values),
+        None => u64::BITS,
+    }
+}
+
 /// Hard ceiling on element nesting.
 ///
 /// The deepest ISO 15118 schema nests well under a dozen levels; a stream that
@@ -127,8 +144,13 @@ impl<'a> Encoder<'a> {
     }
 
     /// Enters a nested element, enforcing [`MAX_DEPTH`].
+    ///
+    /// Saturating rather than wrapping, which matters only for a caller that
+    /// ignores the error and pushes again: sixty-five thousand of those would
+    /// otherwise wrap the counter back to zero and hand the ceiling away. A
+    /// bound that an ignored error can lift is not one.
     pub fn enter(&mut self) -> ExiResult<()> {
-        self.depth += 1;
+        self.depth = self.depth.saturating_add(1);
         if self.depth > MAX_DEPTH {
             return Err(ExiError::DepthLimitExceeded);
         }
@@ -178,7 +200,7 @@ impl<'a> Encoder<'a> {
             .map_err(|_| ExiError::ValueOutOfRange)?;
         let index = u64::try_from(i128::from(value) - i128::from(min))
             .map_err(|_| ExiError::ValueOutOfRange)?;
-        self.nbit(index, prim::bit_width(span + 1))
+        self.nbit(index, restricted_width(span))
     }
 
     /// Writes binary content, rejecting anything outside the schema's length
@@ -303,8 +325,13 @@ impl<'a> Decoder<'a> {
     }
 
     /// Enters a nested element, enforcing [`MAX_DEPTH`].
+    ///
+    /// Saturating rather than wrapping, which matters only for a caller that
+    /// ignores the error and pushes again: sixty-five thousand of those would
+    /// otherwise wrap the counter back to zero and hand the ceiling away. A
+    /// bound that an ignored error can lift is not one.
     pub fn enter(&mut self) -> ExiResult<()> {
-        self.depth += 1;
+        self.depth = self.depth.saturating_add(1);
         if self.depth > MAX_DEPTH {
             return Err(ExiError::DepthLimitExceeded);
         }
@@ -346,7 +373,7 @@ impl<'a> Decoder<'a> {
         debug_assert!(min <= max, "empty range {min}..={max}");
         let span = u64::try_from(i128::from(max) - i128::from(min))
             .map_err(|_| ExiError::ValueOutOfRange)?;
-        let index = self.nbit(prim::bit_width(span + 1))?;
+        let index = self.nbit(restricted_width(span))?;
         if index > span {
             return Err(ExiError::ValueOutOfRange);
         }
@@ -714,6 +741,21 @@ mod tests {
         }
     }
 
+    /// `i64::MIN..=i64::MAX` is a span of `u64::MAX`, so the "+1 for the count
+    /// of values" that every other range needs is the one that wraps. Wrapping
+    /// would code the value in *zero* bits — silently dropping it — rather than
+    /// in the sixty-four it needs.
+    #[test]
+    fn a_full_width_range_does_not_wrap_to_zero_bits() {
+        let mut buf = [0u8; 32];
+        let mut e = Encoder::new(&mut buf);
+        e.restricted(0, i64::MIN, i64::MAX).unwrap();
+        assert_eq!(e.bit_len(), 64, "2^64 values need 64 bits, not none");
+        let len = e.finish().unwrap();
+        let mut d = Decoder::new(&buf[..len]);
+        assert_eq!(d.restricted(i64::MIN, i64::MAX).unwrap(), 0);
+    }
+
     #[test]
     fn a_single_valued_range_costs_no_bits() {
         let mut buf = [0u8; 16];
@@ -732,5 +774,19 @@ mod tests {
             e.enter().unwrap();
         }
         assert_eq!(e.enter(), Err(ExiError::DepthLimitExceeded));
+    }
+
+    /// A bound an ignored error can lift is not a bound. The counter saturates,
+    /// so a caller that keeps pushing past the ceiling stays past it rather
+    /// than wrapping back to zero sixty-five thousand pushes later.
+    #[test]
+    fn the_depth_ceiling_survives_a_caller_that_ignores_it() {
+        let mut d = Decoder::new(&[]);
+        for _ in 0..MAX_DEPTH {
+            d.enter().unwrap();
+        }
+        for _ in 0..70_000 {
+            assert_eq!(d.enter(), Err(ExiError::DepthLimitExceeded));
+        }
     }
 }

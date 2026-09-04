@@ -348,9 +348,22 @@ impl Default for AttenProfile {
 
 impl AttenProfile {
     /// The meaningful part of the measurement.
+    ///
+    /// Clamped to the 58 groups that exist, rather than indexed by
+    /// `num_groups` directly. The two fields are public — as they are on every
+    /// wire record in this module — so nothing stops a caller building a
+    /// profile with a count larger than the array, and `Evse::observe` takes a
+    /// caller-built one. Indexing on it would panic there, which on an ECU is a
+    /// reset, on a value the codec never saw: `decode` and `encode` both refuse
+    /// a count above [`AAG_LEN`] \([`SlacError::TooManyGroups`]\), so the only
+    /// way to reach it is by hand or through `serde`.
+    ///
+    /// Clamping rather than refusing because this is an accessor: there is no
+    /// caller to return an error to, and a mean over the groups that do exist
+    /// is the honest answer to a question about a malformed value.
     #[must_use]
     pub fn groups(&self) -> &[u8] {
-        &self.aag[..self.num_groups as usize]
+        &self.aag[..(self.num_groups as usize).min(AAG_LEN)]
     }
 
     /// Mean attenuation across the reported groups, in dB.
@@ -373,6 +386,28 @@ impl AttenProfile {
             return Err(SlacError::TooManyGroups(num_groups));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod atten_profile_tests {
+    use super::{AAG_LEN, AttenProfile};
+
+    /// `num_groups` is a public field with an invariant only the codec
+    /// enforces, and `Evse::observe` takes a caller-built profile — so the
+    /// accessors have to be total on a value the codec never saw.
+    #[test]
+    fn an_impossible_group_count_does_not_panic() {
+        let profile = AttenProfile { num_groups: 200, aag: [30; AAG_LEN] };
+        assert_eq!(profile.groups().len(), AAG_LEN, "clamped to the groups that exist");
+        assert_eq!(profile.mean_attenuation(), Some(30));
+    }
+
+    #[test]
+    fn no_groups_is_no_measurement_rather_than_zero_decibels() {
+        let profile = AttenProfile::default();
+        assert!(profile.groups().is_empty());
+        assert_eq!(profile.mean_attenuation(), None, "silence is not a loud link");
     }
 }
 

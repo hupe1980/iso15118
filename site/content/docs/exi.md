@@ -103,12 +103,12 @@ the three encrypted-contract-private-key envelopes. Two more have a floor —
 `eMAID` and `EVSEID`.
 
 <div class="note">
-<span class="note-title">What it caught on the first run</span>
-This crate's own README had been showing readers an ISO 15118-20
-<code>SessionStopReq</code> with a four-byte <code>SessionID</code> since it was
-written. ISO 15118-2 permits a short one (<code>maxLength = 8</code>);
-ISO 15118-20 does not (<code>length = 8</code>). The example is a compiled
-doctest, and it stopped compiling the moment the facet was enforced.
+<span class="note-title">Why the third form is not the second</span>
+ISO 15118-2 permits a short <code>SessionID</code> (<code>maxLength = 8</code>);
+ISO 15118-20 does not (<code>length = 8</code>). A codec carrying only the
+maximum accepts a four-byte one and re-encodes a message no -20 peer will take —
+which is the shape of every example in this crate that is a compiled doctest, and
+why they are.
 </div>
 
 ### The second level is a rejection, not a fallback

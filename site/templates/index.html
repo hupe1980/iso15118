@@ -196,6 +196,8 @@
               <td>Handshake, sequencing, session-id checks, half-duplex enforcement, pause and resume</td></tr>
           <tr><td><strong>Plug &amp; Charge signatures</strong></td>
               <td>XMLDSig over EXI fragments, build and verify, algorithm restrictions enforced</td></tr>
+          <tr><td><strong>V2G PKI</strong></td>
+              <td>DER/X.509 reader, RFC 5280 path validation, the Annex F certificate profiles, and the encrypted contract-key envelope</td></tr>
         </tbody>
       </table>
     </div>
@@ -216,12 +218,13 @@
 
     <div class="cards">
       <article class="card">
-        <h3>V2G PKI</h3>
+        <h3>Certificate revocation</h3>
         <p>
-          X.509 chain validation and the certificate-installation flows are not
-          written. The message types are generated and signatures work; path
-          validation and the key-agreement envelopes are the gap, and it is the
-          one worth naming loudest.
+          Chains validate — signatures, validity windows, path length, key usage,
+          the Annex F profiles — but nothing here asks whether a certificate was
+          withdrawn. No OCSP, no CRL. The standard makes OCSP a recommendation
+          because a charging vehicle cannot be assumed to reach a responder, and
+          the answer belongs in the back end your station already talks to.
         </p>
       </article>
       <article class="card">

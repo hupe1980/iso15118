@@ -28,19 +28,25 @@
 //! # Ok::<_, pnc::PncError>(())
 //! ```
 //!
-//! # What this does not do
+//! # Certificates
 //!
-//! Certificate handling. A `VerifyingKey` here is a public key, not a trusted
-//! one: nothing in this crate parses X.509, walks a V2G chain, or checks a
-//! revocation status. Verifying a signature with a key you took out of an
-//! unvalidated certificate proves only that whoever sent the certificate also
-//! made the signature — see the crate-level notes on V2G PKI.
+//! [`Backend`] is this module's [`VerifyWith`](super::pki::VerifyWith)
+//! implementation, which is what [`pnc::pki`](super::pki) needs to walk a
+//! chain: a key arrives inside each certificate rather than being configured,
+//! so the verification takes the point rather than a key object.
+//!
+//! What none of it does is **revocation**. A `VerifyingKey` here is a public
+//! key; `pnc::pki` will tell you it is certified up to a root you chose; and
+//! neither says whether that certificate was withdrawn this morning. See
+//! [`pnc::pki`](super::pki) for where that answer belongs.
 
 use alloc::vec::Vec;
 
 use p256::ecdsa::signature::{Signer as _, Verifier as _};
 use sha2::Digest as _;
 
+use super::envelope::{Aes128Cbc, IV_LEN, KeyAgreement};
+use super::pki::VerifyWith;
 use super::{Hash, PncError, Sign, Suite, Verify};
 
 /// SHA-256 and SHA-512, from `sha2`.
@@ -192,6 +198,144 @@ impl Verify for VerifyingKey {
                 k.verify(data, &sig).map_err(|_| PncError::BadSignature)
             }
         }
+    }
+}
+
+/// The stateless half of this backend: verification against a key that arrived
+/// in a certificate.
+///
+/// A unit struct, because there is nothing to configure. [`VerifyingKey`]
+/// implements [`Verify`] for a key this side *holds*; this implements
+/// [`VerifyWith`] for a key that comes out of the DER being checked, which is
+/// every key in a chain above the trust anchor the caller configured.
+///
+/// ```no_run
+/// use iso15118::pnc::pki::{Profile, chain};
+/// use iso15118::pnc::rustcrypto::Backend;
+/// # fn f(leaf: &[u8], sub: &[u8], root: &[u8], now: i64) -> Result<(), chain::ChainError> {
+/// let path = chain::validate(&[leaf, sub], &[root], Profile::ContractCertificate, now, &Backend)?;
+/// # let _ = path;
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Backend;
+
+impl VerifyWith for Backend {
+    fn verify_with(
+        &self,
+        suite: Suite,
+        public_key: &[u8],
+        data: &[u8],
+        signature: &[u8],
+    ) -> Result<(), PncError> {
+        let key = match suite {
+            Suite::EcdsaSha256 => VerifyingKey::p256_sec1(public_key)?,
+            Suite::EcdsaSha512 => VerifyingKey::p521_sec1(public_key)?,
+        };
+        key.verify(suite, data, signature)
+    }
+}
+
+/// A secp256r1 private scalar used for **key agreement** rather than for
+/// signing.
+///
+/// A separate type from [`SigningKey`] on purpose, and for the reason
+/// \[V2G2-822\] gives: the certificates whose keys do ECDH are exactly the
+/// ones carrying the `keyAgreement` usage flag, and no others. One type that
+/// did both would let a caller agree with a key whose certificate says it may
+/// only sign — which is a mistake the type system can simply not have.
+///
+/// The vehicle's side holds the *static* key: the one in its OEM Provisioning
+/// Certificate for an installation \[V2G2-820\], or in its existing Contract
+/// Certificate for an update \[V2G2-821\]. The sender's side holds an
+/// **ephemeral** key it generated for this exchange, which needs randomness
+/// this crate does not have.
+#[derive(Debug, Clone)]
+pub struct AgreementKey(p256::SecretKey);
+
+impl AgreementKey {
+    /// Wraps a 32-byte private scalar, big-endian.
+    ///
+    /// # Errors
+    ///
+    /// When the bytes are not a scalar in `1..n`.
+    pub fn new(scalar: &[u8]) -> Result<Self, PncError> {
+        p256::SecretKey::from_slice(scalar)
+            .map(Self)
+            .map_err(|_| PncError::Backend("not a valid P-256 private scalar"))
+    }
+
+    /// The matching public point, uncompressed — a `DHpublickey`
+    /// \[V2G2-819\].
+    #[must_use]
+    pub fn public_key(&self) -> Vec<u8> {
+        use p256::elliptic_curve::sec1::ToSec1Point as _;
+        self.0.public_key().to_sec1_point(false).as_bytes().to_vec()
+    }
+}
+
+impl KeyAgreement for AgreementKey {
+    fn agree(&self, peer_public_key: &[u8]) -> Result<Vec<u8>, PncError> {
+        use p256::elliptic_curve::sec1::FromSec1Point as _;
+
+        let point = p256::Sec1Point::from_bytes(peer_public_key)
+            .map_err(|_| PncError::Backend("not a valid P-256 public point"))?;
+        let affine = Option::<p256::AffinePoint>::from(p256::AffinePoint::from_sec1_point(&point))
+            .ok_or(PncError::Backend("the public point is not on the curve"))?;
+        // `diffie_hellman` performs the cofactor-multiplied variant NIST calls
+        // C(1, 1, ECC CDH) — which is what \[V2G2-818\] names — and returns
+        // the shared point's x-coordinate. The x-coordinate *is* Z; the
+        // derivation on top of it is `envelope::session_key`, and a backend
+        // that hashed here would produce a key nothing else agrees with.
+        let shared = p256::ecdh::diffie_hellman(self.0.to_nonzero_scalar(), affine);
+        Ok(shared.raw_secret_bytes().to_vec())
+    }
+
+    fn public_key_of(&self, scalar: &[u8]) -> Result<Vec<u8>, PncError> {
+        // \[V2G2-823\]'s first half — "strictly smaller than the order of the
+        // base point", and non-zero — is exactly what `from_slice` enforces.
+        Ok(Self::new(scalar)?.public_key())
+    }
+}
+
+/// AES-128-CBC over whole blocks, with no padding.
+///
+/// ISO 15118 needs one shape of this and no other: two blocks each way, a
+/// private key already a multiple of the block size, and therefore no padding
+/// scheme for two implementations to disagree about \[V2G2-815\] NOTE 7. A
+/// length that is not a whole number of blocks is refused rather than padded,
+/// because padding something the standard says is not padded is how a plaintext
+/// grows a block nobody expected.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Aes128;
+
+impl Aes128Cbc for Aes128 {
+    fn decrypt(&self, key: &[u8; 16], iv: &[u8; IV_LEN], data: &[u8]) -> Result<Vec<u8>, PncError> {
+        use cbc::cipher::{BlockModeDecrypt as _, KeyIvInit as _};
+
+        if data.is_empty() || !data.len().is_multiple_of(16) {
+            return Err(PncError::Backend("the ciphertext is not a whole number of AES blocks"));
+        }
+        let mut out = data.to_vec();
+        cbc::Decryptor::<aes::Aes128>::new(key.into(), iv.into())
+            .decrypt_padded::<cbc::cipher::block_padding::NoPadding>(&mut out)
+            .map_err(|_| PncError::Backend("AES-CBC decryption failed"))?;
+        Ok(out)
+    }
+
+    fn encrypt(&self, key: &[u8; 16], iv: &[u8; IV_LEN], data: &[u8]) -> Result<Vec<u8>, PncError> {
+        use cbc::cipher::{BlockModeEncrypt as _, KeyIvInit as _};
+
+        if data.is_empty() || !data.len().is_multiple_of(16) {
+            return Err(PncError::Backend("the plaintext is not a whole number of AES blocks"));
+        }
+        let mut out = data.to_vec();
+        let len = out.len();
+        cbc::Encryptor::<aes::Aes128>::new(key.into(), iv.into())
+            .encrypt_padded::<cbc::cipher::block_padding::NoPadding>(&mut out, len)
+            .map_err(|_| PncError::Backend("AES-CBC encryption failed"))?;
+        Ok(out)
     }
 }
 

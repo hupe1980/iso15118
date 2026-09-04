@@ -76,10 +76,21 @@
 //! halves in one call and offer no way to ask for only the first. See
 //! [`GenChallenge`].
 //!
-//! It still does not establish that the *key* is one to trust — that is
-//! certificate-chain validation, which this crate does not do — nor that the
-//! vehicle is plugged into this station rather than a relay, which the standard
-//! does not let anyone establish.
+//! It still does not establish that the *key* is one to trust. That is
+//! certificate-chain validation, and it is [`pki`] — a separate question with a
+//! separate answer, because the two are independent: the challenge binding says
+//! *which session* a signature is about, and the chain says *whose key* made
+//! it. A crate that did one and implied the other would be the more dangerous
+//! kind of half-done.
+//!
+//! And [`envelope`] is the third question, which only comes up once: when a
+//! contract certificate is *delivered*, its private key comes with it, encrypted
+//! under an ECDH secret. That is the one place in ISO 15118 where a secret
+//! crosses the wire.
+//!
+//! What none of them establishes is that the vehicle is plugged into this
+//! station rather than into a relay, which the standard does not let anyone
+//! establish.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -97,6 +108,9 @@ pub mod iso2;
 #[cfg(feature = "iso20-common")]
 #[cfg_attr(docsrs, doc(cfg(feature = "iso20-common")))]
 pub mod iso20;
+
+pub mod envelope;
+pub mod pki;
 
 #[cfg(feature = "pnc-rustcrypto")]
 #[cfg_attr(docsrs, doc(cfg(feature = "pnc-rustcrypto")))]
@@ -225,6 +239,21 @@ pub fn digests_equal(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
+/// Most elements one V2G signature may cover.
+///
+/// \[V2G2-909\], and it is a bound with a stated purpose: "This allows to
+/// determine an upper bound for the size of the signature header". The schema
+/// does **not** say so — `ds:Reference` is `maxOccurs="unbounded"` in the
+/// xmldsig schema ISO 15118 imports unchanged — so it is a protocol rule, which
+/// is exactly the kind this crate holds rather than leaving to each caller.
+///
+/// ISO 15118-20 imports the same unbounded schema and this project does not
+/// have its text, so the same limit is applied there as **this crate's policy**
+/// carried over from -2, on the reasoning that a header bound is a header bound.
+/// A caller who has the -20 text and finds a different number has one constant
+/// to change.
+pub const MAX_SIGNED_ELEMENTS: usize = 4;
+
 /// The `Reference/@URI` for an element id.
 #[must_use]
 pub fn reference_uri(id: &str) -> String {
@@ -296,6 +325,39 @@ pub(crate) fn check_suite(
     Ok(suite)
 }
 
+/// The three attributes \[V2G2-771\] forbids that the schema still carries.
+///
+/// The rest of that list is refused elsewhere and for a different reason:
+/// `HMACOutputLength` in [`check_suite`], and `KeyInfo` and `Object` by the
+/// codec, which does not model them at all. These three are ordinary optional
+/// `xs:ID` and `xs:anyURI` attributes, so nothing refuses them by accident —
+/// which is precisely why they need a clause. The argument is `HMACOutputLength`'s
+/// argument: a signature that uses a field the profile forbids is not a
+/// signature this profile describes, and "we would have ignored it anyway" is
+/// how a verifier comes to accept things its own specification excluded.
+///
+/// They are checked on the way *in* only. Building one is not possible —
+/// `sign` leaves all three `None` — so there is nothing to refuse on the way
+/// out.
+pub(crate) fn check_forbidden<'a>(
+    signed_info_id: Option<&str>,
+    signature_value_id: Option<&str>,
+    reference_types: impl IntoIterator<Item = Option<&'a str>>,
+) -> Result<(), PncError> {
+    if signed_info_id.is_some() {
+        return Err(PncError::ForbiddenField { field: "SignedInfo/@Id" });
+    }
+    if signature_value_id.is_some() {
+        return Err(PncError::ForbiddenField { field: "SignatureValue/@Id" });
+    }
+    for r#type in reference_types {
+        if r#type.is_some() {
+            return Err(PncError::ForbiddenField { field: "Reference/@Type" });
+        }
+    }
+    Ok(())
+}
+
 /// Checks one `Reference` against the element it claims to cover.
 ///
 /// The digest algorithm has to be the suite's own: pairing a 512-bit signature
@@ -355,6 +417,15 @@ pub(crate) fn pair<'a, R>(
     uri_of: impl Fn(&'a R) -> Option<&'a str>,
     elements: &'a [Signed<'a>],
 ) -> Result<Vec<(&'a R, &'a Signed<'a>)>, PncError> {
+    // \[V2G2-909\], checked before the pairing rather than after: a signature
+    // naming a thousand references is not one this profile describes, and the
+    // count is the cheapest thing about it to look at. The equality below would
+    // refuse it too — but only because *this* caller happened to supply four
+    // elements, which makes the bound a property of the call site rather than
+    // of the profile.
+    if references.len() > MAX_SIGNED_ELEMENTS {
+        return Err(PncError::TooManyReferences { references: references.len() });
+    }
     if references.len() != elements.len() {
         return Err(PncError::ReferenceMismatch {
             references: references.len(),
@@ -405,6 +476,25 @@ pub enum PncError {
     },
     /// A `Transforms` list is not exactly one canonical-EXI transform.
     BadTransforms,
+    /// The signature names more elements than \[V2G2-909\] allows.
+    TooManyReferences {
+        /// References the signature carries.
+        references: usize,
+    },
+    /// The signature uses a field \[V2G2-771\] forbids in a V2G message
+    /// header.
+    ///
+    /// `SignedInfo/@Id`, `Reference/@Type` and `SignatureValue/@Id` are on that
+    /// list, alongside `HMACOutputLength`, `Object` and `KeyInfo`. The last two
+    /// are refused by the codec because this crate does not model them at all;
+    /// these three are attributes the schema does carry, so refusing them is a
+    /// decision rather than an accident — and it is the same decision
+    /// `HMACOutputLength` gets. A signature that uses a field the profile
+    /// forbids is not a signature this profile describes.
+    ForbiddenField {
+        /// Which field, by its path in the signature.
+        field: &'static str,
+    },
     /// A digest did not match the element it claims to cover.
     DigestMismatch {
         /// The element id whose digest was wrong.
@@ -412,6 +502,15 @@ pub enum PncError {
     },
     /// The signature over `SignedInfo` did not verify.
     BadSignature,
+    /// A `ContractSignatureEncryptedPrivateKey` or a `DHpublickey` is not the
+    /// length ISO 15118 fixes for it. See [`envelope`].
+    BadEnvelope {
+        /// The length that arrived.
+        len: usize,
+    },
+    /// A delivered contract private key does not generate the public key of the
+    /// certificate it came with. \[V2G2-823\]
+    KeyMismatch,
     /// A `GenChallenge` was not [`GenChallenge::LEN`] bytes.
     BadChallengeLength {
         /// The length that arrived.
@@ -479,6 +578,20 @@ impl fmt::Display for PncError {
             ),
             Self::BadTransforms => {
                 f.write_str("Transforms must be exactly one canonical-EXI transform")
+            }
+            Self::BadEnvelope { len } => {
+                write!(f, "{len} is not a length ISO 15118 gives that field")
+            }
+            Self::KeyMismatch => f.write_str(
+                "the delivered private key does not belong to the certificate it came with",
+            ),
+            Self::TooManyReferences { references } => write!(
+                f,
+                "the signature covers {references} elements; ISO 15118 allows at most \
+                 {MAX_SIGNED_ELEMENTS}"
+            ),
+            Self::ForbiddenField { field } => {
+                write!(f, "{field} is not permitted in a V2G signature")
             }
             Self::DigestMismatch { id } => write!(f, "the digest of {id} does not match"),
             Self::BadSignature => f.write_str("the signature over SignedInfo does not verify"),

@@ -48,8 +48,10 @@ that walk derived event-code arithmetic.
 Notably it does **not** emit state tables. A content model's whole grammar becomes
 five short integer slices — productions before each item, the event-code width at
 each position, the width after a repeat, and the occurrence bounds — which a
-shared interpreter drives. The equivalent unrolled DFA for one `maxOccurs="2048"`
-particle is 2049 states, and ISO 15118-20 has several; here each costs one `u32`.
+shared interpreter drives. An unrolled DFA has one state per permitted
+occurrence: these schemas hold one `maxOccurs="2048"` particle, seven at 1024 and
+sixteen at `unbounded` — and the last of those has no finite table at all. Here
+each costs one `u32` whatever its bound.
 
 That is what makes the generated code fit on a microcontroller, and it is why the
 crate can afford to ship all five schema sets behind feature flags.
