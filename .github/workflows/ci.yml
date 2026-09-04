@@ -157,6 +157,7 @@ jobs:
           - slac
           - slac_matching
           - session
+          - certificate
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -168,7 +169,7 @@ jobs:
       # still has to be selected first, because the cache key is the rustc
       # version.
       #
-      # `shared-key` puts all nine matrix legs on one cache instead of nine:
+      # `shared-key` puts all ten matrix legs on one cache instead of ten:
       # they install the same binary and build the same dependencies.
       - uses: Swatinem/rust-cache@v2
         with:

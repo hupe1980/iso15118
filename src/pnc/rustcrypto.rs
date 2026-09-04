@@ -30,10 +30,10 @@
 //!
 //! # Certificates
 //!
-//! [`Backend`] is this module's [`VerifyWith`](super::pki::VerifyWith)
-//! implementation, which is what [`pnc::pki`](super::pki) needs to walk a
-//! chain: a key arrives inside each certificate rather than being configured,
-//! so the verification takes the point rather than a key object.
+//! [`Backend`] is this module's [`VerifyWith`] implementation, which is what
+//! [`pnc::pki`](super::pki) needs to walk a chain: a key arrives inside each
+//! certificate rather than being configured, so the verification takes the
+//! point rather than a key object.
 //!
 //! What none of it does is **revocation**. A `VerifyingKey` here is a public
 //! key; `pnc::pki` will tell you it is certified up to a root you chose; and
