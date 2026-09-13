@@ -139,13 +139,12 @@ pub enum ValueCoding {
     /// value MUST be represented using a compact identifier if possible"*. This
     /// crate can produce it byte-for-byte, which is how the grammar and the
     /// table logic are checked against the reference implementation, and it is
-    /// the second form [`verify`] tries for a peer that canonicalises properly.
+    /// the second form signature verification tries, for a peer that
+    /// canonicalises properly.
     ///
-    /// It is **not** the default, and the reason is the whole of
-    /// [`ValueCoding::Literal`]'s documentation: the specification and the
-    /// installed base disagree, and only one of them charges cars.
-    ///
-    /// [`verify`]: crate::pnc::verify
+    /// It is **not** the default: the specification and the installed base
+    /// disagree here, and only one of them charges cars — see
+    /// [`ValueCoding::Literal`].
     Referenced,
 }
 
