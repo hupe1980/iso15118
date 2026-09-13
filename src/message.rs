@@ -376,6 +376,7 @@ impl Message {
     /// [`Event::Refused`]: crate::secc::Event::Refused
     /// [`Event::Overdue`]: crate::secc::Event::Overdue
     #[must_use]
+    #[allow(unused_variables, reason = "every arm that uses `code` is behind a feature")]
     pub fn refusal(&self, code: u8) -> Option<Self> {
         match self {
             Self::AppProtocolReq(_) | Self::AppProtocolRes(_) => None,
