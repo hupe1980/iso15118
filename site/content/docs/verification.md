@@ -1,14 +1,17 @@
 +++
 title = "Verification"
-description = "How iso15118 is verified: 298 grammars and 121 messages differed against the EXI reference implementation, layouts pinned byte for byte, ten fuzz targets, and every spec citation checked against the text."
+description = "How iso15118 is verified: 3538 real captured messages replayed byte for byte, 298 grammars and 121 messages differed against the EXI reference implementation, layouts pinned, ten fuzz targets, and every spec citation checked against the text."
 weight = 100
 +++
 
 Round-tripping your own encoder through your own decoder proves that they agree
 with each other. It proves nothing about whether a charger will understand you.
 
-This crate is checked in layers, in increasing strength. Only the differential
-ones say anything about other implementations.
+This crate is checked in layers, in increasing strength. Only the last three say
+anything about other implementations, and they ask different questions: a
+reference implementation says whether the codec is *right*; a captured session
+says whether the field can *read* it. See
+[the value string table](@/docs/exi.md#the-value-string-table).
 
 | Layer | What it proves |
 |---|---|
@@ -17,8 +20,9 @@ ones say anything about other implementations.
 | **Golden vectors** | Real ISO 15118-20 frames from an independent C++ implementation, walked event by event and re-encoded byte for byte — including a negative test showing strict-mode widths *cannot* decode the same bytes. |
 | **Differential grammars** | Every derived state and production compared against `exificient`, the EXI reference implementation, for all **298** element grammars. Golden vectors cover the paths they take; this covers the whole grammar. |
 | **Differential messages** | A schema-valid instance of **every** message type, encoded by the reference implementation as a document **and** as a fragment, decoded and re-encoded byte for byte by the generated codec. **121 × 2.** |
-| **Requirement register** | Every `[V2G2-nnn]` cited anywhere in the repository checked against the text of ISO 15118-2:2014 itself — **101** cited, against the standard's **852**. |
-| **Differential certificates** | The V2G chains `pnc::pki` validates are minted by **OpenSSL** (`scripts/make-test-pki.sh`) — a third implementation's DER, to the same ASN.1, with the Annex F fields where Annex F puts them, and a `ContractSignatureEncryptedPrivateKey` OpenSSL sealed. |
+| **Requirement register** | Every `[V2G2-nnn]` cited anywhere in the repository checked against the text of ISO 15118-2:2014 itself — **106** cited, against the standard's **852**. |
+| **Differential certificates** | The V2G chains `pnc::pki` validates are minted by **OpenSSL** (`scripts/make-test-pki.sh`) — a third implementation's DER, to the same ASN.1, with the Annex F fields where Annex F puts them, and a `ContractSignatureEncryptedPrivateKey` OpenSSL sealed. All ten OEM provisioning leaves of **Hubject's published test PKI** validate to its real V2G Root. |
+| **Captured sessions** | **3 538** messages from real charging sessions — dSPACE DS5366 hardware against **Josev** and **RiseV2G** — decoded and re-encoded **byte for byte, all of them**: ISO 15118-2 AC and DC, a pause, a renegotiation, a sales-tariff schedule, a multi-EVSE SLAC run, an ISO 15118-20 AC bidirectional session, a DIN 70121 session declined by name, and four Plug & Charge sessions over TLS whose signatures verify. |
 
 ```text
 scripts/verify-grammars.sh   all 2 / 80 / 54 / 42 / 48 / 38 / 34 element
@@ -55,7 +59,10 @@ them and the reference implementation does not:
   not one event code;
 - **string-table partitions** — a value found in the *global* partition must not be
   added to the local one. Getting this wrong desynchronises the moment one string
-  appears under two element names, which is most real messages.
+  appears under two element names, which is most real messages. This crate reads
+  table references but does not write them — the field cannot read them — so the
+  reference check runs in the mode that does; see
+  [the EXI page](@/docs/exi.md#the-value-string-table).
 
 Facets are the other half, and they are enforced in both directions: `xs:length`
 is not `xs:maxLength`, and six V2G types have an exact length that is precisely

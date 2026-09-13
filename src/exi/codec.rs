@@ -7,7 +7,7 @@
 
 use alloc::string::String;
 
-use super::string_table::{ExiOptions, Hit, ValueCtx, ValueTable};
+use super::string_table::{Hit, ValueCtx, ValueTable};
 use super::{BitReader, BitWriter, ExiError, ExiResult, Header, header, primitives as prim};
 
 /// The length facets a schema puts on a string or binary value.
@@ -108,26 +108,75 @@ const fn restricted_width(span: u64) -> u32 {
 /// generated decoders off the edge of the stack.
 pub const MAX_DEPTH: u16 = 64;
 
+/// How an encoder codes a string value that it has already written once.
+///
+/// EXI keeps every string value in a two-level table and lets a later
+/// occurrence be written as a short reference into it instead of as characters
+/// (`[EXI §7.3.3]`). Both forms decode to the same string, so this changes
+/// nothing about *what* a message says — only about who can read it.
+///
+/// Decoding is unaffected: a [`Decoder`] always accepts both forms, because a
+/// peer may legitimately send either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ValueCoding {
+    /// Never write a reference. Every value is written out in full.
+    ///
+    /// **The default, because it is the only form the field can read.**
+    /// `libcbv2g` — the codec `EVerest` ships, and so the one production charge
+    /// points run — implements no value table at all: its decoder subtracts the
+    /// literal's offset of two and returns `EXI_ERROR__STRINGVALUES_NOT_SUPPORTED`
+    /// for anything shorter. A message carrying a reference is not merely large
+    /// for that peer, it is **undecodable**. `RiseV2G` writes literals too, which
+    /// is why the canonical-EXI URI appears twice in full in every signature it
+    /// makes.
+    ///
+    /// The cost is bytes, and only for a value that actually repeats.
+    #[default]
+    Literal,
+    /// Write a reference wherever EXI allows one.
+    ///
+    /// What `exificient` produces and what Canonical EXI requires — *"a string
+    /// value MUST be represented using a compact identifier if possible"*. This
+    /// crate can produce it byte-for-byte, which is how the grammar and the
+    /// table logic are checked against the reference implementation, and it is
+    /// the second form [`verify`] tries for a peer that canonicalises properly.
+    ///
+    /// It is **not** the default, and the reason is the whole of
+    /// [`ValueCoding::Literal`]'s documentation: the specification and the
+    /// installed base disagree, and only one of them charges cars.
+    ///
+    /// [`verify`]: crate::pnc::verify
+    Referenced,
+}
+
 /// Writes a schema-informed EXI body into a caller-owned buffer.
 #[derive(Debug)]
 pub struct Encoder<'a> {
     bits: BitWriter<'a>,
     values: ValueTable,
-    opts: ExiOptions,
+    coding: ValueCoding,
     depth: u16,
 }
 
 impl<'a> Encoder<'a> {
-    /// Creates an encoder over `buf` using the ISO 15118 EXI options.
+    /// Creates an encoder over `buf` that writes every value in full.
+    ///
+    /// See [`ValueCoding::Literal`] for why that is the default.
     #[must_use]
     pub fn new(buf: &'a mut [u8]) -> Self {
-        Self::with_options(buf, ExiOptions::ISO15118)
+        Self::with_value_coding(buf, ValueCoding::Literal)
     }
 
-    /// Creates an encoder with explicit EXI options.
+    /// Creates an encoder with an explicit [`ValueCoding`].
     #[must_use]
-    pub fn with_options(buf: &'a mut [u8], opts: ExiOptions) -> Self {
-        Self { bits: BitWriter::new(buf), values: ValueTable::new(), opts, depth: 0 }
+    pub fn with_value_coding(buf: &'a mut [u8], coding: ValueCoding) -> Self {
+        Self { bits: BitWriter::new(buf), values: ValueTable::new(), coding, depth: 0 }
+    }
+
+    /// The value coding this encoder was built with.
+    #[must_use]
+    pub const fn value_coding(&self) -> ValueCoding {
+        self.coding
     }
 
     /// Writes the EXI header. Call once, before any event.
@@ -225,15 +274,31 @@ impl<'a> Encoder<'a> {
         prim::write_datetime(&mut self.bits, v)
     }
 
-    /// Writes a string value through the string table.
+    /// Writes a string value.
     ///
     /// `ctx` selects the local partition — it must identify the element or
     /// attribute the value belongs to, and must match what the decoder uses.
+    /// Whether a repeat is written as a reference into that partition is
+    /// [`ValueCoding`]'s decision, and the default is not to.
+    ///
+    /// # Interoperability: keep values ASCII
+    ///
+    /// EXI codes a character as a Unicode code point, which is what this writes.
+    /// `libcbv2g` — `EVerest`'s codec — writes and reads one **octet** per
+    /// character and rejects anything above 127 with
+    /// `EXI_ERROR__UNSUPPORTED_CHARACTER_VALUE`. So for ASCII the two agree
+    /// exactly and above it they do not agree at all: `"Ladesäule"` as a
+    /// `ServiceName` is valid ISO 15118 and undecodable to a production charge
+    /// point.
+    ///
+    /// Nothing here refuses it — the schema permits it, it is the caller's
+    /// data, and silently transliterating a tariff description would be the
+    /// worse failure. The choice belongs where the string is chosen.
     pub fn string(&mut self, ctx: ValueCtx, value: &str, lengths: Lengths) -> ExiResult<()> {
         let n = prim::char_len(value);
         lengths.check(n)?;
 
-        if self.opts.table_enabled() {
+        if self.coding == ValueCoding::Referenced {
             match self.values.find(ctx, value) {
                 Hit::Local(idx) => {
                     let width = self.values.local_index_width(ctx);
@@ -260,7 +325,10 @@ impl<'a> Encoder<'a> {
         // local- and global-hit markers.
         self.uint(n as u64 + 2)?;
         prim::write_chars(&mut self.bits, value)?;
-        if self.opts.table_enabled() && self.opts.admits(n) {
+        // Only under `Referenced`: nothing reads the partitions in the other
+        // mode, and on a `thumbv7em` target a table kept for no reader is an
+        // allocation per string value for nothing.
+        if self.coding == ValueCoding::Referenced {
             self.values.insert(ctx, value);
         }
         Ok(())
@@ -283,26 +351,19 @@ impl<'a> Encoder<'a> {
 pub struct Decoder<'a> {
     bits: BitReader<'a>,
     values: ValueTable,
-    opts: ExiOptions,
     depth: u16,
 }
 
 impl<'a> Decoder<'a> {
-    /// Creates a decoder over `buf` using the ISO 15118 EXI options.
+    /// Creates a decoder over `buf`.
+    ///
+    /// There is no coding to choose on the way in: a decoder accepts a value
+    /// written in full **and** a reference into the string table, because a
+    /// conforming peer may send either and refusing one would be refusing
+    /// `exificient`. [`ValueCoding`] is an encoder-side decision only.
     #[must_use]
     pub const fn new(buf: &'a [u8]) -> Self {
-        Self {
-            bits: BitReader::new(buf),
-            values: ValueTable::new(),
-            opts: ExiOptions::ISO15118,
-            depth: 0,
-        }
-    }
-
-    /// Creates a decoder with explicit EXI options.
-    #[must_use]
-    pub fn with_options(buf: &'a [u8], opts: ExiOptions) -> Self {
-        Self { bits: BitReader::new(buf), values: ValueTable::new(), opts, depth: 0 }
+        Self { bits: BitReader::new(buf), values: ValueTable::new(), depth: 0 }
     }
 
     /// Reads and validates the EXI header.
@@ -418,28 +479,25 @@ impl<'a> Decoder<'a> {
     fn string_inner(&mut self, ctx: ValueCtx, lengths: Lengths) -> ExiResult<String> {
         let marker = self.uint()?;
         match marker {
-            0 if self.opts.table_enabled() => {
+            0 => {
                 let width = self.values.local_index_width(ctx);
                 let idx = self.nbit(width)?;
                 self.values.local(ctx, idx).map(String::from).ok_or(ExiError::BadStringTableIndex)
             }
-            1 if self.opts.table_enabled() => {
+            1 => {
                 let width = self.values.global_index_width();
                 let idx = self.nbit(width)?;
                 // Mirrors the encoder: a global hit does not populate the local
                 // partition.
                 self.values.global(idx).map(String::from).ok_or(ExiError::BadStringTableIndex)
             }
-            0 | 1 => Err(ExiError::BadStringTableIndex),
             n => {
                 let len = usize::try_from(n - 2).map_err(|_| ExiError::ValueTooLong)?;
                 if len > lengths.max_len() {
                     return Err(ExiError::ValueTooLong);
                 }
                 let s = prim::read_chars(&mut self.bits, len)?;
-                if self.opts.table_enabled() && self.opts.admits(len) {
-                    self.values.insert(ctx, &s);
-                }
+                self.values.insert(ctx, &s);
                 Ok(s)
             }
         }
@@ -472,15 +530,32 @@ impl<'a> Decoder<'a> {
 
 /// A message that forms a complete EXI document: header, one root element, end.
 pub trait ExiDocument: Sized {
-    /// Writes header, body and padding into `buf`; returns the byte length.
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize>;
+    /// Writes header, body and padding into `buf` under `coding`; returns the
+    /// byte length.
+    ///
+    /// The generated implementation of this is the only encoder entry point
+    /// each type carries; everything else here is a wrapper that picks a
+    /// [`ValueCoding`].
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize>;
 
     /// Parses a complete EXI document, rejecting trailing bytes.
     fn from_bytes(bytes: &[u8]) -> ExiResult<Self>;
 
-    /// Encodes into a fresh vector.
+    /// Writes header, body and padding into `buf`, every value in full.
+    ///
+    /// The interoperable coding — see [`ValueCoding::Literal`].
+    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.to_slice_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes into a fresh vector, every value in full.
     fn to_vec(&self) -> ExiResult<alloc::vec::Vec<u8>> {
         encode_growing(|buf| self.to_slice(buf))
+    }
+
+    /// Encodes into a fresh vector under an explicit [`ValueCoding`].
+    fn to_vec_with(&self, coding: ValueCoding) -> ExiResult<alloc::vec::Vec<u8>> {
+        encode_growing(|buf| self.to_slice_with(buf, coding))
     }
 }
 
@@ -519,9 +594,11 @@ mod tests {
     const CTX_A: ValueCtx = ValueCtx(1);
     const CTX_B: ValueCtx = ValueCtx(2);
 
+    /// Exercises the referenced coding, which is the one with table state to
+    /// get wrong. The literal coding has none.
     fn roundtrip_strings(values: &[(ValueCtx, &str)]) {
         let mut buf = [0u8; 1024];
-        let mut e = Encoder::new(&mut buf);
+        let mut e = Encoder::with_value_coding(&mut buf, ValueCoding::Referenced);
         e.write_header(Header::ISO15118).unwrap();
         for &(ctx, s) in values {
             e.string(ctx, s, Lengths::max(4096)).unwrap();
@@ -556,7 +633,7 @@ mod tests {
     #[test]
     fn a_global_hit_leaves_the_local_partition_empty() {
         let mut buf = [0u8; 256];
-        let mut e = Encoder::new(&mut buf);
+        let mut e = Encoder::with_value_coding(&mut buf, ValueCoding::Referenced);
         e.string(CTX_A, "Sample", Lengths::max(64)).unwrap(); // literal, populates both
         let before = e.bit_len();
         e.string(CTX_B, "Sample", Lengths::max(64)).unwrap(); // global hit
@@ -567,15 +644,15 @@ mod tests {
     }
 
     #[test]
-    fn the_table_actually_saves_bits() {
+    fn the_referenced_coding_actually_saves_bits() {
         let long = "urn:iso:std:iso:15118:-20:CommonMessages";
         let mut single_buf = [0u8; 512];
-        let mut e = Encoder::new(&mut single_buf);
+        let mut e = Encoder::with_value_coding(&mut single_buf, ValueCoding::Referenced);
         e.string(CTX_A, long, Lengths::max(4096)).unwrap();
         let one = e.bit_len();
 
         let mut repeat_buf = [0u8; 512];
-        let mut e = Encoder::new(&mut repeat_buf);
+        let mut e = Encoder::with_value_coding(&mut repeat_buf, ValueCoding::Referenced);
         e.string(CTX_A, long, Lengths::max(4096)).unwrap();
         e.string(CTX_A, long, Lengths::max(4096)).unwrap();
         let two = e.bit_len();
@@ -583,16 +660,41 @@ mod tests {
         assert!(two < one + 16, "a repeat should cost a handful of bits, not {} ", two - one);
     }
 
+    /// The default coding writes a repeat out in full, because the codec
+    /// `EVerest` ships cannot read a reference at all — it returns
+    /// `EXI_ERROR__STRINGVALUES_NOT_SUPPORTED`. Asserted on the *bits*: a
+    /// weaker test on the decoded value would pass for the coding that does
+    /// not interoperate, which is exactly the bug this guards.
     #[test]
-    fn a_disabled_table_codes_every_value_literally() {
-        let opts = ExiOptions { value_partition_capacity: Some(0), value_max_length: None };
+    fn the_default_coding_never_writes_a_reference() {
         let mut buf = [0u8; 512];
-        let mut e = Encoder::with_options(&mut buf, opts);
+        let mut e = Encoder::new(&mut buf);
+        e.string(CTX_A, "abc", Lengths::max(64)).unwrap();
+        let one = e.bit_len();
+        e.string(CTX_A, "abc", Lengths::max(64)).unwrap();
+        let two = e.bit_len();
+        let len = e.finish().unwrap();
+
+        assert_eq!(two - one, one, "the repeat must cost exactly what the first one did");
+
+        // …and a decoder reads it back without ever consulting the table.
+        let mut d = Decoder::new(&buf[..len]);
+        assert_eq!(d.string(CTX_A, Lengths::max(64)).unwrap(), "abc");
+        assert_eq!(d.string(CTX_A, Lengths::max(64)).unwrap(), "abc");
+        d.finish().unwrap();
+    }
+
+    /// And a decoder still accepts the referenced form, because `exificient`
+    /// and any Canonical EXI signer emit it.
+    #[test]
+    fn a_decoder_accepts_what_the_encoder_declines_to_write() {
+        let mut buf = [0u8; 512];
+        let mut e = Encoder::with_value_coding(&mut buf, ValueCoding::Referenced);
         e.string(CTX_A, "abc", Lengths::max(64)).unwrap();
         e.string(CTX_A, "abc", Lengths::max(64)).unwrap();
         let len = e.finish().unwrap();
 
-        let mut d = Decoder::with_options(&buf[..len], opts);
+        let mut d = Decoder::new(&buf[..len]);
         assert_eq!(d.string(CTX_A, Lengths::max(64)).unwrap(), "abc");
         assert_eq!(d.string(CTX_A, Lengths::max(64)).unwrap(), "abc");
         d.finish().unwrap();

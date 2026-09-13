@@ -26,13 +26,24 @@
 
 use std::path::{Path, PathBuf};
 
-use iso15118::exi::{ExiDocument, ExiResult};
+use iso15118::exi::{ExiDocument, ExiResult, ValueCoding};
 
 /// Decodes one schema set's bytes and re-encodes them.
 type Reencode = fn(&[u8]) -> ExiResult<Vec<u8>>;
 
+/// Re-encoded under [`ValueCoding::Referenced`], which is what `exificient`
+/// writes and what Canonical EXI requires.
+///
+/// This is deliberately **not** the crate's default coding. The default writes
+/// every value out in full, because `libcbv2g` — the codec `EVerest` ships —
+/// implements no string table and returns `EXI_ERROR__STRINGVALUES_NOT_SUPPORTED`
+/// rather than decode a reference. Byte-identity with the reference
+/// implementation is a claim about the *grammar*: the event codes, the widths,
+/// the table arithmetic. Choosing which of two valid spellings to put on the
+/// wire is a separate decision, made in `ValueCoding`'s documentation and
+/// tested against real captures rather than against a reference tool.
 fn reencode<D: ExiDocument>(bytes: &[u8]) -> ExiResult<Vec<u8>> {
-    D::from_bytes(bytes)?.to_vec()
+    D::from_bytes(bytes)?.to_vec_with(ValueCoding::Referenced)
 }
 
 /// The same, through the fragment grammar rather than the document grammar.
@@ -52,7 +63,8 @@ macro_rules! sets {
         fn $frag() -> Vec<(&'static str, Reencode)> {
             macro_rules! f {
                 ($t:ty) => {
-                    (|b: &[u8]| <$t>::from_fragment(b)?.to_fragment()) as Reencode
+                    (|b: &[u8]| <$t>::from_fragment(b)?.to_fragment_with(ValueCoding::Referenced))
+                        as Reencode
                 };
             }
             vec![

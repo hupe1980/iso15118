@@ -6,7 +6,69 @@ breaking one, and it is bumped whenever the public API changes.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 versioning follows [Cargo's pre-1.0 semver](https://doc.rust-lang.org/cargo/reference/semver.html).
 
-## [0.4.0] — unreleased
+## [0.5.0] — unreleased
+
+**Interoperability with the field.** The codec wrote repeated string values as
+EXI string-table references, which `exificient` and Canonical EXI both require
+and no deployed implementation can read — `libcbv2g`, the codec EVerest ships,
+has no value table and returns `EXI_ERROR__STRINGVALUES_NOT_SUPPORTED`. Every
+Plug & Charge signature this crate produced was therefore unverifiable by a real
+peer, and four real captured RiseV2G authorizations were rejected. They now
+verify, and 3 538 captured messages from three independent implementations
+re-encode byte for byte.
+
+A station can also now always answer a refusal. Every request in both
+generations has a response that carries the prescribed `ResponseCode` and
+encodes, which is the defect behind CVE-2026-54170 in a peer implementation.
+
+### Added
+
+- `exi::ValueCoding` — whether the encoder may write a repeated string value as
+  a string-table reference. `Literal` is the default and is what the field can
+  read; `Referenced` is what `exificient` and Canonical EXI produce.
+- `ExiDocument::to_slice_with` and `to_vec_with`; `encode_fragment_with`,
+  `to_fragment_with` and the `xmldsig` equivalents on every generated type.
+- `minimal()` on every generated type — the smallest value the schema permits.
+- `refusal(code)` on every message choice and `Document`, and `Message::refusal`:
+  the response that refuses a request, with every other field at the schema's
+  minimum so that it always encodes.
+- `session::iso20::EnergyTransfer` — the selected flow *and* whether it is
+  bidirectional, which the service id carries and `Service` deliberately does
+  not. `Sequencer::energy_transfer` and `Sequencer::is_bidirectional` read it.
+- `pnc::iso2::verify_with` and `pnc::iso20::verify_with` — verification pinned
+  to one `ValueCoding` rather than trying both.
+
+### Changed
+
+- **The encoder no longer writes string-table references.** Decoders still
+  accept them, because a conforming peer may send them.
+- `pnc::{iso2,iso20}::canonical_signed_info` is now `signed_info_bytes(signature,
+  coding)`. The old name claimed a canonicalisation the field does not use.
+- `pnc::{iso2,iso20}::verify` tries the field's coding and then Canonical EXI's.
+  Both attempts check the same decoded `SignedInfo`; only the serialisation
+  differs.
+- `ExiDocument` requires `to_slice_with`; `to_slice`, `to_vec` and `to_vec_with`
+  are provided.
+- `session::iso20::Request::ServiceSelection` carries an `EnergyTransfer`, as do
+  `Secc::resume`, `Evcc::resume` and `session::Flow::resume`.
+
+### Removed
+
+- `exi::ExiOptions`, and `Encoder::with_options` / `Decoder::with_options`. Its
+  `valueMaxLength` and `valuePartitionCapacity` modelled an EXI options document
+  ISO 15118 never sends, so neither had a reachable second value.
+
+### Fixed
+
+- Plug & Charge signatures interoperate: four captured RiseV2G authorizations
+  verify, where none did.
+- `v2gtp::write_frame` adds the header length with `checked_add`, matching
+  `split_frame`. Unreachable in practice, and the same arithmetic as
+  CVE-2026-54169 in a peer implementation.
+- `pnc::pki::Profile::ContractCertificate` no longer says the contract-key
+  envelope is unimplemented; `pnc::envelope` implements it.
+
+## [0.4.0] — 2026-09-04
 
 **The V2G PKI.** Certificate chains validate against ISO 15118's own Annex F
 profiles and the encrypted contract private key can be taken out of its
@@ -445,7 +507,8 @@ charging-profile rule is implemented.
 
 Earlier releases predate this file.
 
-[0.4.0]: https://github.com/hupe1980/iso15118/compare/v0.3.0...HEAD
+[0.5.0]: https://github.com/hupe1980/iso15118/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/hupe1980/iso15118/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hupe1980/iso15118/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hupe1980/iso15118/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hupe1980/iso15118/releases/tag/v0.1.0

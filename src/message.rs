@@ -358,6 +358,70 @@ impl Message {
     pub fn is_request(&self) -> bool {
         self.name().ends_with("Req")
     }
+    /// The response that refuses this request, carrying `code`.
+    ///
+    /// Every other field is the schema's minimum, so this **always encodes**.
+    /// That is the point: a station answering [`Event::Refused`] has to send
+    /// the matching response type, and at that moment it usually has nothing
+    /// to put in one. Building it by hand with an empty required list does not
+    /// encode, and the station goes silent exactly where the standard told it
+    /// to explain.
+    ///
+    /// `code` is the `ResponseCode` as its EXI enumeration index, which is what
+    /// [`Event::Refused`] and [`Event::Overdue`] carry.
+    ///
+    /// `None` when this is a response, a handshake message, or a code the
+    /// negotiated generation does not define.
+    ///
+    /// [`Event::Refused`]: crate::secc::Event::Refused
+    /// [`Event::Overdue`]: crate::secc::Event::Overdue
+    #[must_use]
+    pub fn refusal(&self, code: u8) -> Option<Self> {
+        match self {
+            Self::AppProtocolReq(_) | Self::AppProtocolRes(_) => None,
+            #[cfg(feature = "iso2")]
+            Self::Iso2(m) => {
+                let crate::iso2::Document::V2GMessage(v) = &**m else { return None };
+                let code = crate::iso2::ResponseCode::from_index(u64::from(code)).ok()?;
+                let body = v.body.choice.as_ref()?.refusal(code)?;
+                Some(Self::Iso2(alloc::boxed::Box::new(crate::iso2::Document::V2GMessage(
+                    crate::iso2::V2GMessage {
+                        header: crate::iso2::MessageHeader {
+                            session_id: v.header.session_id.clone(),
+                            notification: None,
+                            signature: None,
+                        },
+                        body: crate::iso2::Body { choice: Some(body) },
+                    },
+                ))))
+            }
+            #[cfg(feature = "iso20-common")]
+            Self::Iso20(m) => {
+                let code = crate::iso20::common::ResponseCode::from_index(u64::from(code)).ok()?;
+                Some(Self::Iso20(alloc::boxed::Box::new(m.refusal(code)?)))
+            }
+            #[cfg(feature = "iso20-ac")]
+            Self::Iso20Ac(m) => {
+                let code = crate::iso20::common::ResponseCode::from_index(u64::from(code)).ok()?;
+                Some(Self::Iso20Ac(alloc::boxed::Box::new(m.refusal(code)?)))
+            }
+            #[cfg(feature = "iso20-dc")]
+            Self::Iso20Dc(m) => {
+                let code = crate::iso20::common::ResponseCode::from_index(u64::from(code)).ok()?;
+                Some(Self::Iso20Dc(alloc::boxed::Box::new(m.refusal(code)?)))
+            }
+            #[cfg(feature = "iso20-wpt")]
+            Self::Iso20Wpt(m) => {
+                let code = crate::iso20::common::ResponseCode::from_index(u64::from(code)).ok()?;
+                Some(Self::Iso20Wpt(alloc::boxed::Box::new(m.refusal(code)?)))
+            }
+            #[cfg(feature = "iso20-acdp")]
+            Self::Iso20Acdp(m) => {
+                let code = crate::iso20::common::ResponseCode::from_index(u64::from(code)).ok()?;
+                Some(Self::Iso20Acdp(alloc::boxed::Box::new(m.refusal(code)?)))
+            }
+        }
+    }
 
     /// The session id in the message header, where the message has one.
     ///

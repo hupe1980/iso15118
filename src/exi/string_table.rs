@@ -24,45 +24,6 @@ use super::primitives::bit_width;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ValueCtx(pub u32);
 
-/// Tuning knobs from the EXI options document.
-///
-/// ISO 15118 transmits no options document, so the defaults apply — which is
-/// exactly what [`Default`] produces here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ExiOptions {
-    /// Values longer than this (in characters) are coded literally and never
-    /// enter the table. `None` is the EXI default, `unbounded`.
-    pub value_max_length: Option<usize>,
-    /// Maximum number of entries in the value partitions. `None` is the EXI
-    /// default, `unbounded`; `Some(0)` disables the table entirely.
-    ///
-    /// Other finite capacities require the spec's round-robin eviction, which
-    /// this codec does not implement — no ISO 15118 profile asks for one, and a
-    /// silently wrong eviction order would corrupt every later index.
-    pub value_partition_capacity: Option<usize>,
-}
-
-impl ExiOptions {
-    /// The options ISO 15118 uses: schema-informed, bit-packed, no options
-    /// document, everything at its default.
-    pub const ISO15118: Self = Self { value_max_length: None, value_partition_capacity: None };
-
-    /// True when values may be stored in (and matched against) the table.
-    #[must_use]
-    pub const fn table_enabled(&self) -> bool {
-        !matches!(self.value_partition_capacity, Some(0))
-    }
-
-    /// True when a value of `char_len` characters is eligible for the table.
-    #[must_use]
-    pub const fn admits(&self, char_len: usize) -> bool {
-        match self.value_max_length {
-            Some(max) => char_len <= max,
-            None => true,
-        }
-    }
-}
-
 /// Where a string was found when the encoder looked it up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Hit {
@@ -238,18 +199,5 @@ mod tests {
         t.insert(A, "x");
         assert_eq!(t.local(A, 1), None);
         assert_eq!(t.global(9), None);
-    }
-
-    #[test]
-    fn iso15118_options_enable_an_unbounded_table() {
-        let o = ExiOptions::ISO15118;
-        assert!(o.table_enabled());
-        assert!(o.admits(usize::MAX));
-    }
-
-    #[test]
-    fn zero_capacity_disables_the_table() {
-        let o = ExiOptions { value_partition_capacity: Some(0), ..ExiOptions::default() };
-        assert!(!o.table_enabled());
     }
 }

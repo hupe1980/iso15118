@@ -28,7 +28,8 @@
     clippy::single_match_else,
     clippy::large_enum_variant,
     clippy::result_large_err,
-    clippy::unreadable_literal
+    clippy::unreadable_literal,
+    clippy::needless_update
 )]
 
 use alloc::string::String;
@@ -36,7 +37,7 @@ use alloc::vec::Vec;
 
 use crate::exi::seq::{SIMPLE_WIDTH, SeqReader, SeqWriter, Shape, Step};
 use crate::exi::{
-    DateTime, Decimal, Decoder, Encoder, ExiError, ExiResult, Float, Lengths, ValueCtx,
+    DateTime, Decimal, Decoder, Encoder, ExiError, ExiResult, Float, Lengths, ValueCoding, ValueCtx,
 };
 
 /// Name of the schema set this module was generated from.
@@ -50,6 +51,21 @@ pub struct ACDPConnectReq {
     pub header: super::common::MessageHeader,
     /// `EVElectricalChargingDeviceStatus` element, 1..1.
     pub ev_electrical_charging_device_status: ElectricalChargingDeviceStatus,
+}
+
+impl ACDPConnectReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            ev_electrical_charging_device_status: ElectricalChargingDeviceStatus::ALL[0],
+        }
+    }
 }
 
 impl ACDPConnectReq {
@@ -142,6 +158,24 @@ pub struct ACDPConnectRes {
     pub evse_electrical_charging_device_status: ElectricalChargingDeviceStatus,
     /// `EVSEMechanicalChargingDeviceStatus` element, 1..1.
     pub evse_mechanical_charging_device_status: MechanicalChargingDeviceStatus,
+}
+
+impl ACDPConnectRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            evse_processing: super::common::Processing::ALL[0],
+            evse_electrical_charging_device_status: ElectricalChargingDeviceStatus::ALL[0],
+            evse_mechanical_charging_device_status: MechanicalChargingDeviceStatus::ALL[0],
+        }
+    }
 }
 
 impl ACDPConnectRes {
@@ -288,6 +322,21 @@ pub struct ACDPSystemStatusReq {
 }
 
 impl ACDPSystemStatusReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            ev_technical_status: EVTechnicalStatus::minimal(),
+        }
+    }
+}
+
+impl ACDPSystemStatusReq {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -383,6 +432,30 @@ pub struct ACDPSystemStatusRes {
     pub ev_in_charge_position: bool,
     /// `EVAssociationStatus` element, 1..1.
     pub ev_association_status: bool,
+}
+
+impl ACDPSystemStatusRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            evse_mechanical_charging_device_status: MechanicalChargingDeviceStatus::ALL[0],
+            evse_ready_to_charge: false,
+            evse_isolation_status: IsolationStatus::ALL[0],
+            evse_disabled: false,
+            evse_utility_interrupt_event: false,
+            evse_emergency_shutdown: false,
+            evse_malfunction: false,
+            ev_in_charge_position: false,
+            ev_association_status: false,
+        }
+    }
 }
 
 impl ACDPSystemStatusRes {
@@ -629,6 +702,22 @@ pub struct ACDPVehiclePositioningReq {
 }
 
 impl ACDPVehiclePositioningReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            ev_mobility_status: false,
+            ev_positioning_support: false,
+        }
+    }
+}
+
+impl ACDPVehiclePositioningReq {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2, 3],
@@ -741,6 +830,28 @@ pub struct ACDPVehiclePositioningRes {
     pub contact_window_yc: i16,
     /// `EVInChargePosition` element, 1..1.
     pub ev_in_charge_position: bool,
+}
+
+impl ACDPVehiclePositioningRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            evse_processing: super::common::Processing::ALL[0],
+            evse_positioning_support: false,
+            ev_relative_x_deviation: 0,
+            ev_relative_y_deviation: 0,
+            contact_window_xc: 0,
+            contact_window_yc: 0,
+            ev_in_charge_position: false,
+        }
+    }
 }
 
 impl ACDPVehiclePositioningRes {
@@ -960,6 +1071,27 @@ pub struct EVTechnicalStatus {
     pub ev_error_code: Option<ErrorCode>,
     /// `EVTimeout` element, 0..1.
     pub ev_timeout: Option<bool>,
+}
+
+impl EVTechnicalStatus {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            ev_ready_to_charge: false,
+            ev_immobilization_request: false,
+            ev_immobilized: None,
+            ev_wlan_strength: None,
+            ev_cp_status: None,
+            ev_soc: None,
+            ev_error_code: None,
+            ev_timeout: None,
+        }
+    }
 }
 
 impl EVTechnicalStatus {
@@ -1482,8 +1614,8 @@ impl ACDPSystemStatusReq {
 }
 
 impl crate::exi::ExiDocument for ACDPSystemStatusReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -1506,8 +1638,8 @@ impl ACDPSystemStatusRes {
 }
 
 impl crate::exi::ExiDocument for ACDPSystemStatusRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -1530,8 +1662,8 @@ impl ACDPVehiclePositioningReq {
 }
 
 impl crate::exi::ExiDocument for ACDPVehiclePositioningReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -1554,8 +1686,8 @@ impl ACDPVehiclePositioningRes {
 }
 
 impl crate::exi::ExiDocument for ACDPVehiclePositioningRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -1631,8 +1763,8 @@ impl Document {
 }
 
 impl crate::exi::ExiDocument for Document {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(self.code(), DOCUMENT_WIDTH)?;
         match self {
@@ -1724,6 +1856,42 @@ impl Document {
 }
 
 impl Document {
+    /// The response that refuses this request, carrying
+    /// `code`.
+    ///
+    /// Every other field is the schema's minimum, so
+    /// this always encodes. A station answering a
+    /// sequence error has to send the matching response
+    /// type, and usually has nothing to put in one.
+    ///
+    /// `None` when this is already a response.
+    #[must_use]
+    pub fn refusal(&self, code: super::common::ResponseCode) -> Option<Self> {
+        Some(match self {
+            Self::ACDPConnectReq(_) => Self::ACDPConnectRes(ACDPConnectRes {
+                response_code: code,
+                ..ACDPConnectRes::minimal()
+            }),
+            Self::ACDPDisconnectReq(_) => Self::ACDPDisconnectRes(ACDPConnectRes {
+                response_code: code,
+                ..ACDPConnectRes::minimal()
+            }),
+            Self::ACDPSystemStatusReq(_) => Self::ACDPSystemStatusRes(ACDPSystemStatusRes {
+                response_code: code,
+                ..ACDPSystemStatusRes::minimal()
+            }),
+            Self::ACDPVehiclePositioningReq(_) => {
+                Self::ACDPVehiclePositioningRes(ACDPVehiclePositioningRes {
+                    response_code: code,
+                    ..ACDPVehiclePositioningRes::minimal()
+                })
+            }
+            _ => return None,
+        })
+    }
+}
+
+impl Document {
     /// The *fragment* event code of this message.
     ///
     /// See [`FRAGMENT_WIDTH`] for why this differs from
@@ -1743,8 +1911,8 @@ impl Document {
     }
 
     /// Encodes this message as a standalone EXI fragment.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(self.fragment_code(), FRAGMENT_WIDTH)?;
         match self {
@@ -1761,9 +1929,20 @@ impl Document {
         e.finish()
     }
 
+    /// Encodes this message as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
     /// Encodes this message as an EXI fragment into a vector.
     pub fn to_fragment(&self) -> ExiResult<Vec<u8>> {
         crate::exi::encode_growing(|buf| self.encode_fragment(buf))
+    }
+
+    /// The same, under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Parses a message from a standalone EXI fragment.
@@ -1797,13 +1976,28 @@ impl ACDPSystemStatusReq {
     /// A fragment is `SD SE(ACDP_SystemStatusReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -1833,13 +2027,28 @@ impl ACDPSystemStatusRes {
     /// A fragment is `SD SE(ACDP_SystemStatusRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -1869,13 +2078,28 @@ impl ACDPVehiclePositioningReq {
     /// A fragment is `SD SE(ACDP_VehiclePositioningReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -1905,13 +2129,28 @@ impl ACDPVehiclePositioningRes {
     /// A fragment is `SD SE(ACDP_VehiclePositioningRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -1941,13 +2180,28 @@ impl EVTechnicalStatus {
     /// A fragment is `SD SE(EVTechnicalStatus) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.

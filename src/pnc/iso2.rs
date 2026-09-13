@@ -3,6 +3,7 @@
 //! -2 signs with ECDSA over secp256r1 and SHA-256 only, so there is no suite to
 //! negotiate and none to be talked down to.
 
+use crate::exi::ValueCoding;
 use alloc::vec::Vec;
 
 use crate::iso2::{
@@ -102,11 +103,31 @@ pub fn build_signed_info(
 /// Checks a `ds:Signature` against the elements it is supposed to cover.
 ///
 /// See the [module documentation](super) for what this refuses and why.
+///
+/// The `SignedInfo` bytes are tried under [`ValueCoding::Literal`] — what the
+/// field signs — and then under [`ValueCoding::Referenced`], which is what
+/// Canonical EXI asks for. The fragments in `elements` are the caller's and are
+/// not re-encoded here; [`verify_authorization`] and the metering checks build
+/// theirs per coding, so they cover both ends.
 pub fn verify(
     signature: &Signature,
     elements: &[Signed<'_>],
     hash: &impl Hash,
     verifier: &impl Verify,
+) -> Result<(), PncError> {
+    super::either_coding(|coding| verify_with(signature, elements, hash, verifier, coding))
+}
+
+/// [`verify`], pinned to one [`ValueCoding`] for the `SignedInfo` bytes.
+///
+/// For a caller that knows which spelling its peer signs and would rather have
+/// a single unambiguous answer than a fallback.
+pub fn verify_with(
+    signature: &Signature,
+    elements: &[Signed<'_>],
+    hash: &impl Hash,
+    verifier: &impl Verify,
+    coding: ValueCoding,
 ) -> Result<(), PncError> {
     let info = &signature.signed_info;
     // \[V2G2-771\]: three attributes the schema carries and the profile
@@ -136,7 +157,7 @@ pub fn verify(
         )?;
     }
 
-    let canonical = info.to_xmldsig_fragment()?;
+    let canonical = info.to_xmldsig_fragment_with(coding)?;
     verifier.verify(suite, &canonical, &signature.signature_value.value)
 }
 
@@ -149,8 +170,11 @@ fn transform_algorithms(transforms: Option<&Transforms>) -> Option<impl Iterator
 ///
 /// Useful when re-checking a signature by hand, or when handing the bytes to a
 /// remote signing service.
-pub fn canonical_signed_info(signature: &Signature) -> Result<Vec<u8>, PncError> {
-    Ok(signature.signed_info.to_xmldsig_fragment()?)
+///
+/// [`ValueCoding::Literal`] is what the field signs; [`ValueCoding::Referenced`]
+/// is what Canonical EXI asks for. See [`ValueCoding`].
+pub fn signed_info_bytes(signature: &Signature, coding: ValueCoding) -> Result<Vec<u8>, PncError> {
+    Ok(signature.signed_info.to_xmldsig_fragment_with(coding)?)
 }
 
 // ---------------------------------------------------------------------------
@@ -230,8 +254,13 @@ pub fn verify_authorization(
         return Err(PncError::ChallengeMismatch);
     }
     let id = request.id.as_deref().ok_or(PncError::MissingId)?;
-    let fragment = authorization_fragment(request)?;
-    verify(signature, &[Signed::new(id, &fragment)], hash, verifier)
+    // Both the covered fragment and `SignedInfo` are rebuilt per coding: a
+    // signer uses one encoder for both, so trying them together is what
+    // matches a real peer.
+    super::either_coding(|coding| {
+        let fragment = request.to_fragment_with(coding)?;
+        verify_with(signature, &[Signed::new(id, &fragment)], hash, verifier, coding)
+    })
 }
 
 /// The `AuthorizationReq` as the EXI fragment its signature is computed over.
@@ -292,6 +321,8 @@ pub fn verify_metering_receipt(
     check_session(&receipt.session_id, session)?;
     check_echo(&receipt.meter_info, issued, "MeterInfo")?;
     let id = receipt.id.as_deref().ok_or(PncError::MissingId)?;
-    let fragment = receipt.to_fragment()?;
-    verify(signature, &[Signed::new(id, &fragment)], hash, verifier)
+    super::either_coding(|coding| {
+        let fragment = receipt.to_fragment_with(coding)?;
+        verify_with(signature, &[Signed::new(id, &fragment)], hash, verifier, coding)
+    })
 }

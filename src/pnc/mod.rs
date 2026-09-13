@@ -96,7 +96,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::exi::ExiError;
+use crate::exi::{ExiError, ValueCoding};
 
 mod challenge;
 pub use challenge::GenChallenge;
@@ -220,6 +220,37 @@ pub trait Sign {
 pub trait Verify {
     /// Verifies `signature` over `data`.
     fn verify(&self, suite: Suite, data: &[u8], signature: &[u8]) -> Result<(), PncError>;
+}
+
+/// Runs a signature check under the coding the field writes, and — only if the
+/// bytes did not match — once more under the one Canonical EXI requires.
+///
+/// ISO 15118 names `canonical-exi` as the transform, and Canonical EXI says a
+/// repeated string value *"MUST be represented using a compact identifier"*.
+/// Almost nothing in the field does that: `libcbv2g` — `EVerest`'s codec — has no
+/// string table and cannot even *read* a compact identifier, and `RiseV2G` writes
+/// the canonical-EXI URI out in full both times it appears in a `SignedInfo`.
+/// So the form nearly every real signature is computed over is the one the
+/// specification does not ask for.
+///
+/// Verifying under both is not leniency about *content*. Everything that
+/// decides what a signature means — the algorithms, the transforms, the
+/// forbidden attributes, which elements are covered — is checked on the decoded
+/// `SignedInfo`, once, before any of this. The two attempts differ only in how
+/// the identical structure is serialised before hashing, and an attacker who
+/// cannot forge ECDSA over one spelling cannot forge it over the other.
+///
+/// The first error is the one reported: it is the field's coding, so it is the
+/// one a diagnosis should start from.
+pub(crate) fn either_coding<T>(
+    mut attempt: impl FnMut(ValueCoding) -> Result<T, PncError>,
+) -> Result<T, PncError> {
+    match attempt(ValueCoding::Literal) {
+        Err(first) if matches!(first, PncError::BadSignature | PncError::DigestMismatch { .. }) => {
+            attempt(ValueCoding::Referenced).map_err(|_| first)
+        }
+        other => other,
+    }
 }
 
 /// Compares two digests without revealing where they first differ.

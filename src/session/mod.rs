@@ -348,14 +348,20 @@ impl Flow {
     /// Returns `false` for an ISO 15118-2 flow, which has no negotiated state
     /// to skip: a resumed -2 session repeats service discovery and
     /// authorization, and only the session id carries over.
+    ///
+    /// The argument is the whole [`EnergyTransfer`], not just the flow, because
+    /// a paused session resumes with the service it selected — and whether that
+    /// service was bidirectional is part of what survived the pause.
+    ///
+    /// [`EnergyTransfer`]: iso20::EnergyTransfer
     #[cfg(feature = "iso20-common")]
     #[cfg_attr(docsrs, doc(cfg(feature = "iso20-common")))]
-    pub fn resume(&mut self, service: iso20::Service) -> bool {
+    pub fn resume(&mut self, energy_transfer: iso20::EnergyTransfer) -> bool {
         match self {
             #[cfg(feature = "iso2")]
             Self::Iso2(_) => false,
             Self::Iso20(s) => {
-                s.resume(service);
+                s.resume(energy_transfer);
                 true
             }
         }
@@ -600,7 +606,7 @@ mod tests {
 
         // The -20 flow too, where a paused session keeps the most state.
         let mut flow = Flow::new(crate::Protocol::Iso20, Security::Tls).unwrap();
-        flow.resume(iso20::Service::Dc);
+        flow.resume(iso20::EnergyTransfer::unidirectional(iso20::Service::Dc));
         let restored: Flow = serde_json::from_str(&serde_json::to_string(&flow).unwrap()).unwrap();
         let Flow::Iso20(after) = &restored else { unreachable!() };
         assert_eq!(after.service(), Some(iso20::Service::Dc));

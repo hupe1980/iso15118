@@ -28,7 +28,8 @@
     clippy::single_match_else,
     clippy::large_enum_variant,
     clippy::result_large_err,
-    clippy::unreadable_literal
+    clippy::unreadable_literal,
+    clippy::needless_update
 )]
 
 use alloc::string::String;
@@ -36,7 +37,7 @@ use alloc::vec::Vec;
 
 use crate::exi::seq::{SIMPLE_WIDTH, SeqReader, SeqWriter, Shape, Step};
 use crate::exi::{
-    DateTime, Decimal, Decoder, Encoder, ExiError, ExiResult, Float, Lengths, ValueCtx,
+    DateTime, Decimal, Decoder, Encoder, ExiError, ExiResult, Float, Lengths, ValueCoding, ValueCtx,
 };
 
 /// Name of the schema set this module was generated from.
@@ -72,6 +73,32 @@ pub struct AbsolutePriceSchedule {
     pub overstay_rules: Option<OverstayRuleList>,
     /// `AdditionalSelectedServices` element, 0..1.
     pub additional_selected_services: Option<AdditionalServiceList>,
+}
+
+impl AbsolutePriceSchedule {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            id: None,
+            time_anchor: 0,
+            price_schedule_id: 0,
+            price_schedule_description: None,
+            currency: "0".repeat(Lengths::max(3).min_len()),
+            language: "0".repeat(Lengths::max(3).min_len()),
+            price_algorithm: "0".repeat(Lengths::max(255).min_len()),
+            minimum_cost: None,
+            maximum_cost: None,
+            tax_rules: None,
+            price_rule_stacks: PriceRuleStackList::minimal(),
+            overstay_rules: None,
+            additional_selected_services: None,
+        }
+    }
 }
 
 impl AbsolutePriceSchedule {
@@ -313,6 +340,18 @@ pub struct AdditionalServiceList {
 }
 
 impl AdditionalServiceList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { additional_service: alloc::vec![AdditionalService::minimal(); 1] }
+    }
+}
+
+impl AdditionalServiceList {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[2], min: &[1], max: &[5] };
@@ -385,6 +424,21 @@ pub struct AdditionalService {
     pub service_name: String,
     /// `ServiceFee` element, 1..1.
     pub service_fee: super::common::RationalNumber,
+}
+
+impl AdditionalService {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            service_name: "0".repeat(Lengths::max(80).min_len()),
+            service_fee: super::common::RationalNumber::minimal(),
+        }
+    }
 }
 
 impl AdditionalService {
@@ -480,6 +534,15 @@ impl AuthorizationReqChoice {
             Self::PnCAReqAuthorizationMode(_) => "PnC_AReqAuthorizationMode",
         }
     }
+
+    /// The smallest value of this choice the schema permits.
+    ///
+    /// The schema's first alternative, minimally built: a choice
+    /// has no absent spelling, so a refusal has to pick one.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self::EIMAReqAuthorizationMode(EIMAReqAuthorizationMode::minimal())
+    }
 }
 
 /// `AuthorizationReqType`.
@@ -492,6 +555,22 @@ pub struct AuthorizationReq {
     pub selected_authorization_service: Authorization,
     /// `choice of 2` element, 1..1.
     pub choice: AuthorizationReqChoice,
+}
+
+impl AuthorizationReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            selected_authorization_service: Authorization::ALL[0],
+            choice: AuthorizationReqChoice::minimal(),
+        }
+    }
 }
 
 impl AuthorizationReq {
@@ -612,6 +691,22 @@ pub struct AuthorizationRes {
 }
 
 impl AuthorizationRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            evse_processing: super::common::Processing::ALL[0],
+        }
+    }
+}
+
+impl AuthorizationRes {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2, 3],
@@ -715,6 +810,18 @@ pub struct AuthorizationSetupReq {
 }
 
 impl AuthorizationSetupReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { header: super::common::MessageHeader::minimal() }
+    }
+}
+
+impl AuthorizationSetupReq {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[0], min: &[1], max: &[1] };
@@ -783,6 +890,15 @@ impl AuthorizationSetupResChoice {
             Self::PnCASResAuthorizationMode(_) => "PnC_ASResAuthorizationMode",
         }
     }
+
+    /// The smallest value of this choice the schema permits.
+    ///
+    /// The schema's first alternative, minimally built: a choice
+    /// has no absent spelling, so a refusal has to pick one.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self::EIMASResAuthorizationMode(EIMASResAuthorizationMode::minimal())
+    }
 }
 
 /// `AuthorizationSetupResType`.
@@ -799,6 +915,24 @@ pub struct AuthorizationSetupRes {
     pub certificate_installation_service: bool,
     /// `choice of 2` element, 1..1.
     pub choice: AuthorizationSetupResChoice,
+}
+
+impl AuthorizationSetupRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            authorization_services: alloc::vec![Authorization::ALL[0]; 1],
+            certificate_installation_service: false,
+            choice: AuthorizationSetupResChoice::minimal(),
+        }
+    }
 }
 
 impl AuthorizationSetupRes {
@@ -966,6 +1100,18 @@ pub struct CertificateChain {
 }
 
 impl CertificateChain {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { certificate: alloc::vec![0u8; Lengths::max(1600).min_len()], sub_certificates: None }
+    }
+}
+
+impl CertificateChain {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -1049,6 +1195,24 @@ pub struct CertificateInstallationReq {
     pub maximum_contract_certificate_chains: u8,
     /// `PrioritizedEMAIDs` element, 0..1.
     pub prioritized_emai_ds: Option<EMAIDList>,
+}
+
+impl CertificateInstallationReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            oem_provisioning_certificate_chain: SignedCertificateChain::minimal(),
+            list_of_root_certificate_i_ds: super::common::ListOfRootCertificateIDs::minimal(),
+            maximum_contract_certificate_chains: 0,
+            prioritized_emai_ds: None,
+        }
+    }
 }
 
 impl CertificateInstallationReq {
@@ -1180,6 +1344,25 @@ pub struct CertificateInstallationRes {
     pub signed_installation_data: SignedInstallationData,
     /// `RemainingContractCertificateChains` element, 1..1.
     pub remaining_contract_certificate_chains: u8,
+}
+
+impl CertificateInstallationRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            evse_processing: super::common::Processing::ALL[0],
+            cp_s_certificate_chain: CertificateChain::minimal(),
+            signed_installation_data: SignedInstallationData::minimal(),
+            remaining_contract_certificate_chains: 0,
+        }
+    }
 }
 
 impl CertificateInstallationRes {
@@ -1340,6 +1523,15 @@ impl ChargingScheduleChoice {
             Self::PriceLevelSchedule(_) => "PriceLevelSchedule",
         }
     }
+
+    /// The smallest value of this choice the schema permits.
+    ///
+    /// The schema's first alternative, minimally built: a choice
+    /// has no absent spelling, so a refusal has to pick one.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self::AbsolutePriceSchedule(AbsolutePriceSchedule::minimal())
+    }
 }
 
 /// `ChargingScheduleType`.
@@ -1350,6 +1542,18 @@ pub struct ChargingSchedule {
     pub power_schedule: PowerSchedule,
     /// `choice of 2` element, 0..1.
     pub choice: Option<ChargingScheduleChoice>,
+}
+
+impl ChargingSchedule {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { power_schedule: PowerSchedule::minimal(), choice: None }
+    }
 }
 
 impl ChargingSchedule {
@@ -1447,6 +1651,21 @@ pub struct ContractCertificateChain {
 }
 
 impl ContractCertificateChain {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            certificate: alloc::vec![0u8; Lengths::max(1600).min_len()],
+            sub_certificates: SubCertificates::minimal(),
+        }
+    }
+}
+
+impl ContractCertificateChain {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -1526,6 +1745,18 @@ impl ContractCertificateChain {
 pub struct DynamicEVPPTControlMode;
 
 impl DynamicEVPPTControlMode {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self
+    }
+}
+
+impl DynamicEVPPTControlMode {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0], width: &[1], repeat_width: &[], min: &[], max: &[] };
@@ -1583,6 +1814,27 @@ pub struct DynamicSEReqControlMode {
     pub ev_maximum_v2_x_energy_request: Option<super::common::RationalNumber>,
     /// `EVMinimumV2XEnergyRequest` element, 0..1.
     pub ev_minimum_v2_x_energy_request: Option<super::common::RationalNumber>,
+}
+
+impl DynamicSEReqControlMode {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            departure_time: 0,
+            minimum_soc: None,
+            target_soc: None,
+            ev_target_energy_request: super::common::RationalNumber::minimal(),
+            ev_maximum_energy_request: super::common::RationalNumber::minimal(),
+            ev_minimum_energy_request: super::common::RationalNumber::minimal(),
+            ev_maximum_v2_x_energy_request: None,
+            ev_minimum_v2_x_energy_request: None,
+        }
+    }
 }
 
 impl DynamicSEReqControlMode {
@@ -1762,6 +2014,15 @@ impl DynamicSEResControlModeChoice {
             Self::PriceLevelSchedule(_) => "PriceLevelSchedule",
         }
     }
+
+    /// The smallest value of this choice the schema permits.
+    ///
+    /// The schema's first alternative, minimally built: a choice
+    /// has no absent spelling, so a refusal has to pick one.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self::AbsolutePriceSchedule(AbsolutePriceSchedule::minimal())
+    }
 }
 
 /// `Dynamic_SEResControlModeType`.
@@ -1776,6 +2037,18 @@ pub struct DynamicSEResControlMode {
     pub target_soc: Option<u8>,
     /// `choice of 2` element, 0..1.
     pub choice: Option<DynamicSEResControlModeChoice>,
+}
+
+impl DynamicSEResControlMode {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { departure_time: None, minimum_soc: None, target_soc: None, choice: None }
+    }
 }
 
 impl DynamicSEResControlMode {
@@ -1903,6 +2176,18 @@ impl DynamicSEResControlMode {
 pub struct DynamicSMDTControlMode;
 
 impl DynamicSMDTControlMode {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self
+    }
+}
+
+impl DynamicSMDTControlMode {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0], width: &[1], repeat_width: &[], min: &[], max: &[] };
@@ -1944,6 +2229,18 @@ impl DynamicSMDTControlMode {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EIMAReqAuthorizationMode;
+
+impl EIMAReqAuthorizationMode {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self
+    }
+}
 
 impl EIMAReqAuthorizationMode {
     /// Event-code arithmetic of this type's content model.
@@ -1989,6 +2286,18 @@ impl EIMAReqAuthorizationMode {
 pub struct EIMASResAuthorizationMode;
 
 impl EIMASResAuthorizationMode {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self
+    }
+}
+
+impl EIMASResAuthorizationMode {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0], width: &[1], repeat_width: &[], min: &[], max: &[] };
@@ -2032,6 +2341,18 @@ impl EIMASResAuthorizationMode {
 pub struct EMAIDList {
     /// `EMAID` element, 1..8.
     pub emaid: Vec<String>,
+}
+
+impl EMAIDList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { emaid: alloc::vec!["0".repeat(Lengths::max(255).min_len()); 1] }
+    }
 }
 
 impl EMAIDList {
@@ -2115,6 +2436,23 @@ pub struct EVAbsolutePriceSchedule {
     pub price_algorithm: String,
     /// `EVPriceRuleStacks` element, 1..1.
     pub ev_price_rule_stacks: EVPriceRuleStackList,
+}
+
+impl EVAbsolutePriceSchedule {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            time_anchor: 0,
+            currency: "0".repeat(Lengths::max(3).min_len()),
+            price_algorithm: "0".repeat(Lengths::max(255).min_len()),
+            ev_price_rule_stacks: EVPriceRuleStackList::minimal(),
+        }
+    }
 }
 
 impl EVAbsolutePriceSchedule {
@@ -2236,6 +2574,21 @@ pub struct EVEnergyOffer {
 }
 
 impl EVEnergyOffer {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            ev_power_schedule: EVPowerSchedule::minimal(),
+            ev_absolute_price_schedule: EVAbsolutePriceSchedule::minimal(),
+        }
+    }
+}
+
+impl EVEnergyOffer {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -2311,6 +2664,18 @@ impl EVEnergyOffer {
 pub struct EVPowerProfileEntryList {
     /// `EVPowerProfileEntry` element, 1..2048.
     pub ev_power_profile_entry: Vec<PowerScheduleEntry>,
+}
+
+impl EVPowerProfileEntryList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { ev_power_profile_entry: alloc::vec![PowerScheduleEntry::minimal(); 1] }
+    }
 }
 
 impl EVPowerProfileEntryList {
@@ -2397,6 +2762,15 @@ impl EVPowerProfileChoice {
             Self::ScheduledEVPPTControlMode(_) => "Scheduled_EVPPTControlMode",
         }
     }
+
+    /// The smallest value of this choice the schema permits.
+    ///
+    /// The schema's first alternative, minimally built: a choice
+    /// has no absent spelling, so a refusal has to pick one.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self::DynamicEVPPTControlMode(DynamicEVPPTControlMode::minimal())
+    }
 }
 
 /// `EVPowerProfileType`.
@@ -2409,6 +2783,22 @@ pub struct EVPowerProfile {
     pub choice: EVPowerProfileChoice,
     /// `EVPowerProfileEntries` element, 1..1.
     pub ev_power_profile_entries: EVPowerProfileEntryList,
+}
+
+impl EVPowerProfile {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            time_anchor: 0,
+            choice: EVPowerProfileChoice::minimal(),
+            ev_power_profile_entries: EVPowerProfileEntryList::minimal(),
+        }
+    }
 }
 
 impl EVPowerProfile {
@@ -2525,6 +2915,18 @@ pub struct EVPowerScheduleEntryList {
 }
 
 impl EVPowerScheduleEntryList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { ev_power_schedule_entry: alloc::vec![EVPowerScheduleEntry::minimal(); 1] }
+    }
+}
+
+impl EVPowerScheduleEntryList {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[2], min: &[1], max: &[1024] };
@@ -2597,6 +2999,18 @@ pub struct EVPowerScheduleEntry {
     pub duration: u32,
     /// `Power` element, 1..1.
     pub power: super::common::RationalNumber,
+}
+
+impl EVPowerScheduleEntry {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { duration: 0, power: super::common::RationalNumber::minimal() }
+    }
 }
 
 impl EVPowerScheduleEntry {
@@ -2684,6 +3098,18 @@ pub struct EVPowerSchedule {
 }
 
 impl EVPowerSchedule {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { time_anchor: 0, ev_power_schedule_entries: EVPowerScheduleEntryList::minimal() }
+    }
+}
+
+impl EVPowerSchedule {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -2766,6 +3192,18 @@ pub struct EVPriceRuleStackList {
 }
 
 impl EVPriceRuleStackList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { ev_price_rule_stack: alloc::vec![EVPriceRuleStack::minimal(); 1] }
+    }
+}
+
+impl EVPriceRuleStackList {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[2], min: &[1], max: &[1024] };
@@ -2838,6 +3276,18 @@ pub struct EVPriceRuleStack {
     pub duration: u32,
     /// `EVPriceRule` element, 1..8.
     pub ev_price_rule: Vec<EVPriceRule>,
+}
+
+impl EVPriceRuleStack {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { duration: 0, ev_price_rule: alloc::vec![EVPriceRule::minimal(); 1] }
+    }
 }
 
 impl EVPriceRuleStack {
@@ -2938,6 +3388,21 @@ pub struct EVPriceRule {
 }
 
 impl EVPriceRule {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            energy_fee: super::common::RationalNumber::minimal(),
+            power_range_start: super::common::RationalNumber::minimal(),
+        }
+    }
+}
+
+impl EVPriceRule {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -3018,6 +3483,21 @@ pub struct MeteringConfirmationReq {
 }
 
 impl MeteringConfirmationReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            signed_metering_data: SignedMeteringData::minimal(),
+        }
+    }
+}
+
+impl MeteringConfirmationReq {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -3095,6 +3575,21 @@ pub struct MeteringConfirmationRes {
     pub header: super::common::MessageHeader,
     /// `ResponseCode` element, 1..1.
     pub response_code: super::common::ResponseCode,
+}
+
+impl MeteringConfirmationRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+        }
+    }
 }
 
 impl MeteringConfirmationRes {
@@ -3183,6 +3678,22 @@ pub struct OverstayRuleList {
     pub overstay_power_threshold: Option<super::common::RationalNumber>,
     /// `OverstayRule` element, 1..5.
     pub overstay_rule: Vec<OverstayRule>,
+}
+
+impl OverstayRuleList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            overstay_time_threshold: None,
+            overstay_power_threshold: None,
+            overstay_rule: alloc::vec![OverstayRule::minimal(); 1],
+        }
+    }
 }
 
 impl OverstayRuleList {
@@ -3295,6 +3806,23 @@ pub struct OverstayRule {
     pub overstay_fee: super::common::RationalNumber,
     /// `OverstayFeePeriod` element, 1..1.
     pub overstay_fee_period: u32,
+}
+
+impl OverstayRule {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            overstay_rule_description: None,
+            start_time: 0,
+            overstay_fee: super::common::RationalNumber::minimal(),
+            overstay_fee_period: 0,
+        }
+    }
 }
 
 impl OverstayRule {
@@ -3415,6 +3943,18 @@ pub struct ParameterSet {
 }
 
 impl ParameterSet {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { parameter_set_id: 0, parameter: alloc::vec![Parameter::minimal(); 1] }
+    }
+}
+
+impl ParameterSet {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -3532,6 +4072,15 @@ impl ParameterChoice {
             Self::FiniteString(_) => "finiteString",
         }
     }
+
+    /// The smallest value of this choice the schema permits.
+    ///
+    /// The schema's first alternative, minimally built: a choice
+    /// has no absent spelling, so a refusal has to pick one.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self::BoolValue(false)
+    }
 }
 
 /// `ParameterType`.
@@ -3542,6 +4091,18 @@ pub struct Parameter {
     pub name: String,
     /// `choice of 6` element, 1..1.
     pub choice: ParameterChoice,
+}
+
+impl Parameter {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { name: "0".repeat(Lengths::max(80).min_len()), choice: ParameterChoice::minimal() }
+    }
 }
 
 impl Parameter {
@@ -3700,6 +4261,22 @@ pub struct PnCAReqAuthorizationMode {
 }
 
 impl PnCAReqAuthorizationMode {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            id: "0".repeat(Lengths::max(65536).min_len()),
+            gen_challenge: alloc::vec![0u8; Lengths::exact(16).min_len()],
+            contract_certificate_chain: ContractCertificateChain::minimal(),
+        }
+    }
+}
+
+impl PnCAReqAuthorizationMode {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2, 3],
@@ -3797,6 +4374,21 @@ pub struct PnCASResAuthorizationMode {
 }
 
 impl PnCASResAuthorizationMode {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            gen_challenge: alloc::vec![0u8; Lengths::exact(16).min_len()],
+            supported_providers: None,
+        }
+    }
+}
+
+impl PnCASResAuthorizationMode {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -3880,6 +4472,24 @@ pub struct PowerDeliveryReq {
     pub ev_power_profile: Option<EVPowerProfile>,
     /// `BPT_ChannelSelection` element, 0..1.
     pub bpt_channel_selection: Option<ChannelSelection>,
+}
+
+impl PowerDeliveryReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            ev_processing: super::common::Processing::ALL[0],
+            charge_progress: ChargeProgress::ALL[0],
+            ev_power_profile: None,
+            bpt_channel_selection: None,
+        }
+    }
 }
 
 impl PowerDeliveryReq {
@@ -4016,6 +4626,22 @@ pub struct PowerDeliveryRes {
 }
 
 impl PowerDeliveryRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            evse_status: None,
+        }
+    }
+}
+
+impl PowerDeliveryRes {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2, 3],
@@ -4112,6 +4738,18 @@ pub struct PowerScheduleEntryList {
 }
 
 impl PowerScheduleEntryList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { power_schedule_entry: alloc::vec![PowerScheduleEntry::minimal(); 1] }
+    }
+}
+
+impl PowerScheduleEntryList {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[2], min: &[1], max: &[1024] };
@@ -4188,6 +4826,23 @@ pub struct PowerScheduleEntry {
     pub power_l2: Option<super::common::RationalNumber>,
     /// `Power_L3` element, 0..1.
     pub power_l3: Option<super::common::RationalNumber>,
+}
+
+impl PowerScheduleEntry {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            duration: 0,
+            power: super::common::RationalNumber::minimal(),
+            power_l2: None,
+            power_l3: None,
+        }
+    }
 }
 
 impl PowerScheduleEntry {
@@ -4303,6 +4958,23 @@ pub struct PowerSchedule {
 }
 
 impl PowerSchedule {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            time_anchor: 0,
+            available_energy: None,
+            power_tolerance: None,
+            power_schedule_entries: PowerScheduleEntryList::minimal(),
+        }
+    }
+}
+
+impl PowerSchedule {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2, 3, 4],
@@ -4409,6 +5081,18 @@ pub struct PriceLevelScheduleEntryList {
 }
 
 impl PriceLevelScheduleEntryList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { price_level_schedule_entry: alloc::vec![PriceLevelScheduleEntry::minimal(); 1] }
+    }
+}
+
+impl PriceLevelScheduleEntryList {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[2], min: &[1], max: &[1024] };
@@ -4481,6 +5165,18 @@ pub struct PriceLevelScheduleEntry {
     pub duration: u32,
     /// `PriceLevel` element, 1..1.
     pub price_level: u8,
+}
+
+impl PriceLevelScheduleEntry {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { duration: 0, price_level: 0 }
+    }
 }
 
 impl PriceLevelScheduleEntry {
@@ -4578,6 +5274,25 @@ pub struct PriceLevelSchedule {
     pub number_of_price_levels: u8,
     /// `PriceLevelScheduleEntries` element, 1..1.
     pub price_level_schedule_entries: PriceLevelScheduleEntryList,
+}
+
+impl PriceLevelSchedule {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            id: None,
+            time_anchor: 0,
+            price_schedule_id: 0,
+            price_schedule_description: None,
+            number_of_price_levels: 0,
+            price_level_schedule_entries: PriceLevelScheduleEntryList::minimal(),
+        }
+    }
 }
 
 impl PriceLevelSchedule {
@@ -4726,6 +5441,18 @@ pub struct PriceRuleStackList {
 }
 
 impl PriceRuleStackList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { price_rule_stack: alloc::vec![PriceRuleStack::minimal(); 1] }
+    }
+}
+
+impl PriceRuleStackList {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[2], min: &[1], max: &[1024] };
@@ -4798,6 +5525,18 @@ pub struct PriceRuleStack {
     pub duration: u32,
     /// `PriceRule` element, 1..8.
     pub price_rule: Vec<PriceRule>,
+}
+
+impl PriceRuleStack {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { duration: 0, price_rule: alloc::vec![PriceRule::minimal(); 1] }
+    }
 }
 
 impl PriceRuleStack {
@@ -4903,6 +5642,25 @@ pub struct PriceRule {
     pub renewable_generation_percentage: Option<u8>,
     /// `PowerRangeStart` element, 1..1.
     pub power_range_start: super::common::RationalNumber,
+}
+
+impl PriceRule {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            energy_fee: super::common::RationalNumber::minimal(),
+            parking_fee: None,
+            parking_fee_period: None,
+            carbon_dioxide_emission: None,
+            renewable_generation_percentage: None,
+            power_range_start: super::common::RationalNumber::minimal(),
+        }
+    }
 }
 
 impl PriceRule {
@@ -5049,6 +5807,18 @@ pub struct PriceSchedule {
 }
 
 impl PriceSchedule {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { time_anchor: 0, price_schedule_id: 0, price_schedule_description: None }
+    }
+}
+
+impl PriceSchedule {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2, 3],
@@ -5161,6 +5931,15 @@ impl ScheduleExchangeReqChoice {
             Self::ScheduledSEReqControlMode(_) => "Scheduled_SEReqControlMode",
         }
     }
+
+    /// The smallest value of this choice the schema permits.
+    ///
+    /// The schema's first alternative, minimally built: a choice
+    /// has no absent spelling, so a refusal has to pick one.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self::DynamicSEReqControlMode(DynamicSEReqControlMode::minimal())
+    }
 }
 
 /// `ScheduleExchangeReqType`.
@@ -5173,6 +5952,22 @@ pub struct ScheduleExchangeReq {
     pub maximum_supporting_points: u16,
     /// `choice of 2` element, 1..1.
     pub choice: ScheduleExchangeReqChoice,
+}
+
+impl ScheduleExchangeReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            maximum_supporting_points: 12,
+            choice: ScheduleExchangeReqChoice::minimal(),
+        }
+    }
 }
 
 impl ScheduleExchangeReq {
@@ -5300,6 +6095,15 @@ impl ScheduleExchangeResChoice {
             Self::ScheduledSEResControlMode(_) => "Scheduled_SEResControlMode",
         }
     }
+
+    /// The smallest value of this choice the schema permits.
+    ///
+    /// The schema's first alternative, minimally built: a choice
+    /// has no absent spelling, so a refusal has to pick one.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self::DynamicSEResControlMode(DynamicSEResControlMode::minimal())
+    }
 }
 
 /// `ScheduleExchangeResType`.
@@ -5316,6 +6120,24 @@ pub struct ScheduleExchangeRes {
     pub go_to_pause: Option<bool>,
     /// `choice of 2` element, 1..1.
     pub choice: ScheduleExchangeResChoice,
+}
+
+impl ScheduleExchangeRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            evse_processing: super::common::Processing::ALL[0],
+            go_to_pause: None,
+            choice: ScheduleExchangeResChoice::minimal(),
+        }
+    }
 }
 
 impl ScheduleExchangeRes {
@@ -5473,6 +6295,22 @@ pub struct ScheduleTuple {
 }
 
 impl ScheduleTuple {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            schedule_tuple_id: 0,
+            charging_schedule: ChargingSchedule::minimal(),
+            discharging_schedule: None,
+        }
+    }
+}
+
+impl ScheduleTuple {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2, 3],
@@ -5569,6 +6407,18 @@ pub struct ScheduledEVPPTControlMode {
 }
 
 impl ScheduledEVPPTControlMode {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { selected_schedule_tuple_id: 0, power_tolerance_acceptance: None }
+    }
+}
+
+impl ScheduledEVPPTControlMode {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -5661,6 +6511,24 @@ pub struct ScheduledSEReqControlMode {
     pub ev_minimum_energy_request: Option<super::common::RationalNumber>,
     /// `EVEnergyOffer` element, 0..1.
     pub ev_energy_offer: Option<EVEnergyOffer>,
+}
+
+impl ScheduledSEReqControlMode {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            departure_time: None,
+            ev_target_energy_request: None,
+            ev_maximum_energy_request: None,
+            ev_minimum_energy_request: None,
+            ev_energy_offer: None,
+        }
+    }
 }
 
 impl ScheduledSEReqControlMode {
@@ -5780,6 +6648,18 @@ pub struct ScheduledSEResControlMode {
 }
 
 impl ScheduledSEResControlMode {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { schedule_tuple: alloc::vec![ScheduleTuple::minimal(); 1] }
+    }
+}
+
+impl ScheduledSEResControlMode {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[2], min: &[1], max: &[3] };
@@ -5853,6 +6733,18 @@ pub struct ScheduledSMDTControlMode {
 }
 
 impl ScheduledSMDTControlMode {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { selected_schedule_tuple_id: 0 }
+    }
+}
+
+impl ScheduledSMDTControlMode {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[0], min: &[1], max: &[1] };
@@ -5912,6 +6804,18 @@ impl ScheduledSMDTControlMode {
 pub struct SelectedServiceList {
     /// `SelectedService` element, 1..16.
     pub selected_service: Vec<SelectedService>,
+}
+
+impl SelectedServiceList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { selected_service: alloc::vec![SelectedService::minimal(); 1] }
+    }
 }
 
 impl SelectedServiceList {
@@ -5987,6 +6891,18 @@ pub struct SelectedService {
     pub service_id: u16,
     /// `ParameterSetID` element, 1..1.
     pub parameter_set_id: u16,
+}
+
+impl SelectedService {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { service_id: 0, parameter_set_id: 0 }
+    }
 }
 
 impl SelectedService {
@@ -6078,6 +6994,18 @@ pub struct ServiceDetailReq {
 }
 
 impl ServiceDetailReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { header: super::common::MessageHeader::minimal(), service_id: 0 }
+    }
+}
+
+impl ServiceDetailReq {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -6163,6 +7091,23 @@ pub struct ServiceDetailRes {
     pub service_id: u16,
     /// `ServiceParameterList` element, 1..1.
     pub service_parameter_list: ServiceParameterList,
+}
+
+impl ServiceDetailRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            service_id: 0,
+            service_parameter_list: ServiceParameterList::minimal(),
+        }
+    }
 }
 
 impl ServiceDetailRes {
@@ -6282,6 +7227,18 @@ pub struct ServiceDiscoveryReq {
 }
 
 impl ServiceDiscoveryReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { header: super::common::MessageHeader::minimal(), supported_service_i_ds: None }
+    }
+}
+
+impl ServiceDiscoveryReq {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -6361,6 +7318,24 @@ pub struct ServiceDiscoveryRes {
     pub energy_transfer_service_list: ServiceList,
     /// `VASList` element, 0..1.
     pub vas_list: Option<ServiceList>,
+}
+
+impl ServiceDiscoveryRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            service_renegotiation_supported: false,
+            energy_transfer_service_list: ServiceList::minimal(),
+            vas_list: None,
+        }
+    }
 }
 
 impl ServiceDiscoveryRes {
@@ -6490,6 +7465,18 @@ pub struct ServiceIDList {
 }
 
 impl ServiceIDList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { service_id: alloc::vec![0; 1] }
+    }
+}
+
+impl ServiceIDList {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[2], min: &[1], max: &[16] };
@@ -6567,6 +7554,18 @@ pub struct ServiceList {
 }
 
 impl ServiceList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { service: alloc::vec![Service::minimal(); 1] }
+    }
+}
+
+impl ServiceList {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[2], min: &[1], max: &[8] };
@@ -6637,6 +7636,18 @@ impl ServiceList {
 pub struct ServiceParameterList {
     /// `ParameterSet` element, 1..32.
     pub parameter_set: Vec<ParameterSet>,
+}
+
+impl ServiceParameterList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { parameter_set: alloc::vec![ParameterSet::minimal(); 1] }
+    }
 }
 
 impl ServiceParameterList {
@@ -6714,6 +7725,22 @@ pub struct ServiceSelectionReq {
     pub selected_energy_transfer_service: SelectedService,
     /// `SelectedVASList` element, 0..1.
     pub selected_vas_list: Option<SelectedServiceList>,
+}
+
+impl ServiceSelectionReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            selected_energy_transfer_service: SelectedService::minimal(),
+            selected_vas_list: None,
+        }
+    }
 }
 
 impl ServiceSelectionReq {
@@ -6809,6 +7836,21 @@ pub struct ServiceSelectionRes {
 }
 
 impl ServiceSelectionRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+        }
+    }
+}
+
+impl ServiceSelectionRes {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -6892,6 +7934,18 @@ pub struct Service {
     pub service_id: u16,
     /// `FreeService` element, 1..1.
     pub free_service: bool,
+}
+
+impl Service {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { service_id: 0, free_service: false }
+    }
 }
 
 impl Service {
@@ -6983,6 +8037,21 @@ pub struct SessionSetupReq {
 }
 
 impl SessionSetupReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            evcc_id: "0".repeat(Lengths::max(255).min_len()),
+        }
+    }
+}
+
+impl SessionSetupReq {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -7066,6 +8135,22 @@ pub struct SessionSetupRes {
     pub response_code: super::common::ResponseCode,
     /// `EVSEID` element, 1..1.
     pub evse_id: String,
+}
+
+impl SessionSetupRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            evse_id: "0".repeat(Lengths::max(255).min_len()),
+        }
+    }
 }
 
 impl SessionSetupRes {
@@ -7173,6 +8258,23 @@ pub struct SessionStopReq {
     pub ev_termination_code: Option<String>,
     /// `EVTerminationExplanation` element, 0..1.
     pub ev_termination_explanation: Option<String>,
+}
+
+impl SessionStopReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            charging_session: ChargingSession::ALL[0],
+            ev_termination_code: None,
+            ev_termination_explanation: None,
+        }
+    }
 }
 
 impl SessionStopReq {
@@ -7292,6 +8394,21 @@ pub struct SessionStopRes {
 }
 
 impl SessionStopRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+        }
+    }
+}
+
+impl SessionStopRes {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2],
@@ -7377,6 +8494,22 @@ pub struct SignedCertificateChain {
     pub certificate: Vec<u8>,
     /// `SubCertificates` element, 0..1.
     pub sub_certificates: Option<SubCertificates>,
+}
+
+impl SignedCertificateChain {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            id: "0".repeat(Lengths::max(65536).min_len()),
+            certificate: alloc::vec![0u8; Lengths::max(1600).min_len()],
+            sub_certificates: None,
+        }
+    }
 }
 
 impl SignedCertificateChain {
@@ -7487,6 +8620,15 @@ impl SignedInstallationDataChoice {
             Self::TPMEncryptedPrivateKey(_) => "TPM_EncryptedPrivateKey",
         }
     }
+
+    /// The smallest value of this choice the schema permits.
+    ///
+    /// The schema's first alternative, minimally built: a choice
+    /// has no absent spelling, so a refusal has to pick one.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self::SECP521EncryptedPrivateKey(alloc::vec![0u8; Lengths::exact(94).min_len()])
+    }
 }
 
 /// `SignedInstallationDataType`.
@@ -7503,6 +8645,24 @@ pub struct SignedInstallationData {
     pub dh_public_key: Vec<u8>,
     /// `choice of 3` element, 1..1.
     pub choice: SignedInstallationDataChoice,
+}
+
+impl SignedInstallationData {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            id: "0".repeat(Lengths::max(65536).min_len()),
+            contract_certificate_chain: ContractCertificateChain::minimal(),
+            ec_dh_curve: EcdhCurve::ALL[0],
+            dh_public_key: alloc::vec![0u8; Lengths::exact(133).min_len()],
+            choice: SignedInstallationDataChoice::minimal(),
+        }
+    }
 }
 
 impl SignedInstallationData {
@@ -7679,6 +8839,15 @@ impl SignedMeteringDataChoice {
             Self::ScheduledSMDTControlMode(_) => "Scheduled_SMDTControlMode",
         }
     }
+
+    /// The smallest value of this choice the schema permits.
+    ///
+    /// The schema's first alternative, minimally built: a choice
+    /// has no absent spelling, so a refusal has to pick one.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self::DynamicSMDTControlMode(DynamicSMDTControlMode::minimal())
+    }
 }
 
 /// `SignedMeteringDataType`.
@@ -7695,6 +8864,24 @@ pub struct SignedMeteringData {
     pub receipt: Option<super::common::Receipt>,
     /// `choice of 2` element, 1..1.
     pub choice: SignedMeteringDataChoice,
+}
+
+impl SignedMeteringData {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            id: "0".repeat(Lengths::max(65536).min_len()),
+            session_id: alloc::vec![0u8; Lengths::exact(8).min_len()],
+            meter_info: super::common::MeterInfo::minimal(),
+            receipt: None,
+            choice: SignedMeteringDataChoice::minimal(),
+        }
+    }
 }
 
 impl SignedMeteringData {
@@ -7836,6 +9023,18 @@ pub struct SubCertificates {
 }
 
 impl SubCertificates {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { certificate: alloc::vec![alloc::vec![0u8; Lengths::max(1600).min_len()]; 1] }
+    }
+}
+
+impl SubCertificates {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[2], min: &[1], max: &[3] };
@@ -7910,6 +9109,18 @@ impl SubCertificates {
 pub struct SupportedProvidersList {
     /// `ProviderID` element, 1..128.
     pub provider_id: Vec<String>,
+}
+
+impl SupportedProvidersList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { provider_id: alloc::vec!["0".repeat(Lengths::max(80).min_len()); 1] }
+    }
 }
 
 impl SupportedProvidersList {
@@ -7989,6 +9200,18 @@ pub struct TargetPosition {
     pub target_offset_x: u16,
     /// `TargetOffsetY` element, 1..1.
     pub target_offset_y: u16,
+}
+
+impl TargetPosition {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { target_offset_x: 0, target_offset_y: 0 }
+    }
 }
 
 impl TargetPosition {
@@ -8078,6 +9301,18 @@ pub struct TaxRuleList {
 }
 
 impl TaxRuleList {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self { tax_rule: alloc::vec![TaxRule::minimal(); 1] }
+    }
+}
+
+impl TaxRuleList {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape =
         Shape { prod_before: &[0, 1], width: &[1, 1], repeat_width: &[2], min: &[1], max: &[10] };
@@ -8162,6 +9397,27 @@ pub struct TaxRule {
     pub applies_to_overstay_fee: bool,
     /// `AppliesMinimumMaximumCost` element, 1..1.
     pub applies_minimum_maximum_cost: bool,
+}
+
+impl TaxRule {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            tax_rule_id: 0,
+            tax_rule_name: None,
+            tax_rate: super::common::RationalNumber::minimal(),
+            tax_included_in_price: None,
+            applies_to_energy_fee: false,
+            applies_to_parking_fee: false,
+            applies_to_overstay_fee: false,
+            applies_minimum_maximum_cost: false,
+        }
+    }
 }
 
 impl TaxRule {
@@ -8357,6 +9613,25 @@ pub struct VehicleCheckInReq {
 }
 
 impl VehicleCheckInReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            ev_check_in_status: EvCheckInStatus::ALL[0],
+            parking_method: ParkingMethod::ALL[0],
+            vehicle_frame: None,
+            device_offset: None,
+            vehicle_travel: None,
+        }
+    }
+}
+
+impl VehicleCheckInReq {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2, 3, 4, 5, 6],
@@ -8512,6 +9787,24 @@ pub struct VehicleCheckInRes {
 }
 
 impl VehicleCheckInRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            parking_space: None,
+            device_location: None,
+            target_distance: None,
+        }
+    }
+}
+
+impl VehicleCheckInRes {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2, 3, 4, 5],
@@ -8648,6 +9941,22 @@ pub struct VehicleCheckOutReq {
 }
 
 impl VehicleCheckOutReq {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            ev_check_out_status: EvCheckOutStatus::ALL[0],
+            check_out_time: 0,
+        }
+    }
+}
+
+impl VehicleCheckOutReq {
     /// Event-code arithmetic of this type's content model.
     const SHAPE: Shape = Shape {
         prod_before: &[0, 1, 2, 3],
@@ -8748,6 +10057,22 @@ pub struct VehicleCheckOutRes {
     pub response_code: super::common::ResponseCode,
     /// `EVSECheckOutStatus` element, 1..1.
     pub evse_check_out_status: EvseCheckOutStatus,
+}
+
+impl VehicleCheckOutRes {
+    /// The smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum, every optional one
+    /// absent. Built to be encodable rather than meaningful: it is
+    /// what a refusal is made of when there is nothing to report.
+    #[must_use]
+    pub fn minimal() -> Self {
+        Self {
+            header: super::common::MessageHeader::minimal(),
+            response_code: super::common::ResponseCode::ALL[0],
+            evse_check_out_status: EvseCheckOutStatus::ALL[0],
+        }
+    }
 }
 
 impl VehicleCheckOutRes {
@@ -9371,8 +10696,8 @@ impl AuthorizationReq {
 }
 
 impl crate::exi::ExiDocument for AuthorizationReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9395,8 +10720,8 @@ impl AuthorizationRes {
 }
 
 impl crate::exi::ExiDocument for AuthorizationRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9419,8 +10744,8 @@ impl AuthorizationSetupReq {
 }
 
 impl crate::exi::ExiDocument for AuthorizationSetupReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9443,8 +10768,8 @@ impl AuthorizationSetupRes {
 }
 
 impl crate::exi::ExiDocument for AuthorizationSetupRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9467,8 +10792,8 @@ impl CertificateInstallationReq {
 }
 
 impl crate::exi::ExiDocument for CertificateInstallationReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9491,8 +10816,8 @@ impl CertificateInstallationRes {
 }
 
 impl crate::exi::ExiDocument for CertificateInstallationRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9515,8 +10840,8 @@ impl MeteringConfirmationReq {
 }
 
 impl crate::exi::ExiDocument for MeteringConfirmationReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9539,8 +10864,8 @@ impl MeteringConfirmationRes {
 }
 
 impl crate::exi::ExiDocument for MeteringConfirmationRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9563,8 +10888,8 @@ impl PowerDeliveryReq {
 }
 
 impl crate::exi::ExiDocument for PowerDeliveryReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9587,8 +10912,8 @@ impl PowerDeliveryRes {
 }
 
 impl crate::exi::ExiDocument for PowerDeliveryRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9611,8 +10936,8 @@ impl ScheduleExchangeReq {
 }
 
 impl crate::exi::ExiDocument for ScheduleExchangeReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9635,8 +10960,8 @@ impl ScheduleExchangeRes {
 }
 
 impl crate::exi::ExiDocument for ScheduleExchangeRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9659,8 +10984,8 @@ impl ServiceDetailReq {
 }
 
 impl crate::exi::ExiDocument for ServiceDetailReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9683,8 +11008,8 @@ impl ServiceDetailRes {
 }
 
 impl crate::exi::ExiDocument for ServiceDetailRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9707,8 +11032,8 @@ impl ServiceDiscoveryReq {
 }
 
 impl crate::exi::ExiDocument for ServiceDiscoveryReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9731,8 +11056,8 @@ impl ServiceDiscoveryRes {
 }
 
 impl crate::exi::ExiDocument for ServiceDiscoveryRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9755,8 +11080,8 @@ impl ServiceSelectionReq {
 }
 
 impl crate::exi::ExiDocument for ServiceSelectionReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9779,8 +11104,8 @@ impl ServiceSelectionRes {
 }
 
 impl crate::exi::ExiDocument for ServiceSelectionRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9803,8 +11128,8 @@ impl SessionSetupReq {
 }
 
 impl crate::exi::ExiDocument for SessionSetupReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9827,8 +11152,8 @@ impl SessionSetupRes {
 }
 
 impl crate::exi::ExiDocument for SessionSetupRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9851,8 +11176,8 @@ impl SessionStopReq {
 }
 
 impl crate::exi::ExiDocument for SessionStopReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9875,8 +11200,8 @@ impl SessionStopRes {
 }
 
 impl crate::exi::ExiDocument for SessionStopRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9899,8 +11224,8 @@ impl SignedInstallationData {
 }
 
 impl crate::exi::ExiDocument for SignedInstallationData {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9923,8 +11248,8 @@ impl SignedMeteringData {
 }
 
 impl crate::exi::ExiDocument for SignedMeteringData {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9947,8 +11272,8 @@ impl VehicleCheckInReq {
 }
 
 impl crate::exi::ExiDocument for VehicleCheckInReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9971,8 +11296,8 @@ impl VehicleCheckInRes {
 }
 
 impl crate::exi::ExiDocument for VehicleCheckInRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -9995,8 +11320,8 @@ impl VehicleCheckOutReq {
 }
 
 impl crate::exi::ExiDocument for VehicleCheckOutReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -10019,8 +11344,8 @@ impl VehicleCheckOutRes {
 }
 
 impl crate::exi::ExiDocument for VehicleCheckOutRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;
         self.encode_body(&mut e)?;
@@ -10176,8 +11501,8 @@ impl Document {
 }
 
 impl crate::exi::ExiDocument for Document {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(self.code(), DOCUMENT_WIDTH)?;
         match self {
@@ -10356,6 +11681,80 @@ impl Document {
 }
 
 impl Document {
+    /// The response that refuses this request, carrying
+    /// `code`.
+    ///
+    /// Every other field is the schema's minimum, so
+    /// this always encodes. A station answering a
+    /// sequence error has to send the matching response
+    /// type, and usually has nothing to put in one.
+    ///
+    /// `None` when this is already a response.
+    #[must_use]
+    pub fn refusal(&self, code: super::common::ResponseCode) -> Option<Self> {
+        Some(match self {
+            Self::AuthorizationReq(_) => Self::AuthorizationRes(AuthorizationRes {
+                response_code: code,
+                ..AuthorizationRes::minimal()
+            }),
+            Self::AuthorizationSetupReq(_) => Self::AuthorizationSetupRes(AuthorizationSetupRes {
+                response_code: code,
+                ..AuthorizationSetupRes::minimal()
+            }),
+            Self::CertificateInstallationReq(_) => {
+                Self::CertificateInstallationRes(CertificateInstallationRes {
+                    response_code: code,
+                    ..CertificateInstallationRes::minimal()
+                })
+            }
+            Self::MeteringConfirmationReq(_) => {
+                Self::MeteringConfirmationRes(MeteringConfirmationRes {
+                    response_code: code,
+                    ..MeteringConfirmationRes::minimal()
+                })
+            }
+            Self::PowerDeliveryReq(_) => Self::PowerDeliveryRes(PowerDeliveryRes {
+                response_code: code,
+                ..PowerDeliveryRes::minimal()
+            }),
+            Self::ScheduleExchangeReq(_) => Self::ScheduleExchangeRes(ScheduleExchangeRes {
+                response_code: code,
+                ..ScheduleExchangeRes::minimal()
+            }),
+            Self::ServiceDetailReq(_) => Self::ServiceDetailRes(ServiceDetailRes {
+                response_code: code,
+                ..ServiceDetailRes::minimal()
+            }),
+            Self::ServiceDiscoveryReq(_) => Self::ServiceDiscoveryRes(ServiceDiscoveryRes {
+                response_code: code,
+                ..ServiceDiscoveryRes::minimal()
+            }),
+            Self::ServiceSelectionReq(_) => Self::ServiceSelectionRes(ServiceSelectionRes {
+                response_code: code,
+                ..ServiceSelectionRes::minimal()
+            }),
+            Self::SessionSetupReq(_) => Self::SessionSetupRes(SessionSetupRes {
+                response_code: code,
+                ..SessionSetupRes::minimal()
+            }),
+            Self::SessionStopReq(_) => Self::SessionStopRes(SessionStopRes {
+                response_code: code,
+                ..SessionStopRes::minimal()
+            }),
+            Self::VehicleCheckInReq(_) => Self::VehicleCheckInRes(VehicleCheckInRes {
+                response_code: code,
+                ..VehicleCheckInRes::minimal()
+            }),
+            Self::VehicleCheckOutReq(_) => Self::VehicleCheckOutRes(VehicleCheckOutRes {
+                response_code: code,
+                ..VehicleCheckOutRes::minimal()
+            }),
+            _ => return None,
+        })
+    }
+}
+
+impl Document {
     /// The *fragment* event code of this message.
     ///
     /// See [`FRAGMENT_WIDTH`] for why this differs from
@@ -10395,8 +11794,8 @@ impl Document {
     }
 
     /// Encodes this message as a standalone EXI fragment.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(self.fragment_code(), FRAGMENT_WIDTH)?;
         match self {
@@ -10433,9 +11832,20 @@ impl Document {
         e.finish()
     }
 
+    /// Encodes this message as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
     /// Encodes this message as an EXI fragment into a vector.
     pub fn to_fragment(&self) -> ExiResult<Vec<u8>> {
         crate::exi::encode_growing(|buf| self.encode_fragment(buf))
+    }
+
+    /// The same, under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Parses a message from a standalone EXI fragment.
@@ -10493,13 +11903,28 @@ impl AbsolutePriceSchedule {
     /// A fragment is `SD SE(AbsolutePriceSchedule) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10529,13 +11954,28 @@ impl AdditionalServiceList {
     /// A fragment is `SD SE(AdditionalSelectedServices) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10565,13 +12005,28 @@ impl AdditionalService {
     /// A fragment is `SD SE(AdditionalService) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10601,13 +12056,28 @@ impl AuthorizationReq {
     /// A fragment is `SD SE(AuthorizationReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10637,13 +12107,28 @@ impl AuthorizationRes {
     /// A fragment is `SD SE(AuthorizationRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10673,13 +12158,28 @@ impl AuthorizationSetupReq {
     /// A fragment is `SD SE(AuthorizationSetupReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10709,13 +12209,28 @@ impl AuthorizationSetupRes {
     /// A fragment is `SD SE(AuthorizationSetupRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10745,13 +12260,28 @@ impl CertificateChain {
     /// A fragment is `SD SE(CPSCertificateChain) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10781,13 +12311,28 @@ impl CertificateInstallationReq {
     /// A fragment is `SD SE(CertificateInstallationReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10817,13 +12362,28 @@ impl CertificateInstallationRes {
     /// A fragment is `SD SE(CertificateInstallationRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10853,13 +12413,28 @@ impl ContractCertificateChain {
     /// A fragment is `SD SE(ContractCertificateChain) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10889,13 +12464,28 @@ impl DynamicEVPPTControlMode {
     /// A fragment is `SD SE(Dynamic_EVPPTControlMode) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10925,13 +12515,28 @@ impl DynamicSEReqControlMode {
     /// A fragment is `SD SE(Dynamic_SEReqControlMode) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10961,13 +12566,28 @@ impl DynamicSEResControlMode {
     /// A fragment is `SD SE(Dynamic_SEResControlMode) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -10997,13 +12617,28 @@ impl DynamicSMDTControlMode {
     /// A fragment is `SD SE(Dynamic_SMDTControlMode) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11033,13 +12668,28 @@ impl EIMAReqAuthorizationMode {
     /// A fragment is `SD SE(EIM_AReqAuthorizationMode) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11069,13 +12719,28 @@ impl EIMASResAuthorizationMode {
     /// A fragment is `SD SE(EIM_ASResAuthorizationMode) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11105,13 +12770,28 @@ impl EVAbsolutePriceSchedule {
     /// A fragment is `SD SE(EVAbsolutePriceSchedule) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11141,13 +12821,28 @@ impl EVEnergyOffer {
     /// A fragment is `SD SE(EVEnergyOffer) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11177,13 +12872,28 @@ impl EVPowerProfile {
     /// A fragment is `SD SE(EVPowerProfile) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11213,13 +12923,28 @@ impl EVPowerProfileEntryList {
     /// A fragment is `SD SE(EVPowerProfileEntries) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11249,13 +12974,28 @@ impl EVPowerSchedule {
     /// A fragment is `SD SE(EVPowerSchedule) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11285,13 +13025,28 @@ impl EVPowerScheduleEntryList {
     /// A fragment is `SD SE(EVPowerScheduleEntries) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11321,13 +13076,28 @@ impl EVPowerScheduleEntry {
     /// A fragment is `SD SE(EVPowerScheduleEntry) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11357,13 +13127,28 @@ impl EVPriceRule {
     /// A fragment is `SD SE(EVPriceRule) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11393,13 +13178,28 @@ impl EVPriceRuleStack {
     /// A fragment is `SD SE(EVPriceRuleStack) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11429,13 +13229,28 @@ impl EVPriceRuleStackList {
     /// A fragment is `SD SE(EVPriceRuleStacks) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11465,13 +13280,28 @@ impl MeteringConfirmationReq {
     /// A fragment is `SD SE(MeteringConfirmationReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11501,13 +13331,28 @@ impl MeteringConfirmationRes {
     /// A fragment is `SD SE(MeteringConfirmationRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11537,13 +13382,28 @@ impl SignedCertificateChain {
     /// A fragment is `SD SE(OEMProvisioningCertificateChain) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11573,13 +13433,28 @@ impl OverstayRule {
     /// A fragment is `SD SE(OverstayRule) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11609,13 +13484,28 @@ impl OverstayRuleList {
     /// A fragment is `SD SE(OverstayRules) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11645,13 +13535,28 @@ impl Parameter {
     /// A fragment is `SD SE(Parameter) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11681,13 +13586,28 @@ impl ParameterSet {
     /// A fragment is `SD SE(ParameterSet) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11717,13 +13637,28 @@ impl PnCAReqAuthorizationMode {
     /// A fragment is `SD SE(PnC_AReqAuthorizationMode) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11753,13 +13688,28 @@ impl PnCASResAuthorizationMode {
     /// A fragment is `SD SE(PnC_ASResAuthorizationMode) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11789,13 +13739,28 @@ impl PowerDeliveryReq {
     /// A fragment is `SD SE(PowerDeliveryReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11825,13 +13790,28 @@ impl PowerDeliveryRes {
     /// A fragment is `SD SE(PowerDeliveryRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11861,13 +13841,28 @@ impl PowerSchedule {
     /// A fragment is `SD SE(PowerSchedule) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11897,13 +13892,28 @@ impl PowerScheduleEntryList {
     /// A fragment is `SD SE(PowerScheduleEntries) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11933,13 +13943,28 @@ impl PriceLevelSchedule {
     /// A fragment is `SD SE(PriceLevelSchedule) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -11969,13 +13994,28 @@ impl PriceLevelScheduleEntryList {
     /// A fragment is `SD SE(PriceLevelScheduleEntries) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12005,13 +14045,28 @@ impl PriceLevelScheduleEntry {
     /// A fragment is `SD SE(PriceLevelScheduleEntry) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12041,13 +14096,28 @@ impl PriceRule {
     /// A fragment is `SD SE(PriceRule) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12077,13 +14147,28 @@ impl PriceRuleStack {
     /// A fragment is `SD SE(PriceRuleStack) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12113,13 +14198,28 @@ impl PriceRuleStackList {
     /// A fragment is `SD SE(PriceRuleStacks) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12149,13 +14249,28 @@ impl EMAIDList {
     /// A fragment is `SD SE(PrioritizedEMAIDs) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12185,13 +14300,28 @@ impl ScheduleExchangeReq {
     /// A fragment is `SD SE(ScheduleExchangeReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12221,13 +14351,28 @@ impl ScheduleExchangeRes {
     /// A fragment is `SD SE(ScheduleExchangeRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12257,13 +14402,28 @@ impl ScheduleTuple {
     /// A fragment is `SD SE(ScheduleTuple) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12293,13 +14453,28 @@ impl ScheduledEVPPTControlMode {
     /// A fragment is `SD SE(Scheduled_EVPPTControlMode) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12329,13 +14504,28 @@ impl ScheduledSEReqControlMode {
     /// A fragment is `SD SE(Scheduled_SEReqControlMode) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12365,13 +14555,28 @@ impl ScheduledSEResControlMode {
     /// A fragment is `SD SE(Scheduled_SEResControlMode) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12401,13 +14606,28 @@ impl ScheduledSMDTControlMode {
     /// A fragment is `SD SE(Scheduled_SMDTControlMode) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12437,13 +14657,28 @@ impl SelectedServiceList {
     /// A fragment is `SD SE(SelectedVASList) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12473,13 +14708,28 @@ impl Service {
     /// A fragment is `SD SE(Service) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12509,13 +14759,28 @@ impl ServiceDetailReq {
     /// A fragment is `SD SE(ServiceDetailReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12545,13 +14810,28 @@ impl ServiceDetailRes {
     /// A fragment is `SD SE(ServiceDetailRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12581,13 +14861,28 @@ impl ServiceDiscoveryReq {
     /// A fragment is `SD SE(ServiceDiscoveryReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12617,13 +14912,28 @@ impl ServiceDiscoveryRes {
     /// A fragment is `SD SE(ServiceDiscoveryRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12653,13 +14963,28 @@ impl ServiceParameterList {
     /// A fragment is `SD SE(ServiceParameterList) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12689,13 +15014,28 @@ impl ServiceSelectionReq {
     /// A fragment is `SD SE(ServiceSelectionReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12725,13 +15065,28 @@ impl ServiceSelectionRes {
     /// A fragment is `SD SE(ServiceSelectionRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12761,13 +15116,28 @@ impl SessionSetupReq {
     /// A fragment is `SD SE(SessionSetupReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12797,13 +15167,28 @@ impl SessionSetupRes {
     /// A fragment is `SD SE(SessionSetupRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12833,13 +15218,28 @@ impl SessionStopReq {
     /// A fragment is `SD SE(SessionStopReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12869,13 +15269,28 @@ impl SessionStopRes {
     /// A fragment is `SD SE(SessionStopRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12905,13 +15320,28 @@ impl SignedInstallationData {
     /// A fragment is `SD SE(SignedInstallationData) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12941,13 +15371,28 @@ impl SignedMeteringData {
     /// A fragment is `SD SE(SignedMeteringData) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -12977,13 +15422,28 @@ impl SubCertificates {
     /// A fragment is `SD SE(SubCertificates) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -13013,13 +15473,28 @@ impl SupportedProvidersList {
     /// A fragment is `SD SE(SupportedProviders) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -13049,13 +15524,28 @@ impl ServiceIDList {
     /// A fragment is `SD SE(SupportedServiceIDs) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -13085,13 +15575,28 @@ impl TaxRule {
     /// A fragment is `SD SE(TaxRule) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -13121,13 +15626,28 @@ impl TaxRuleList {
     /// A fragment is `SD SE(TaxRules) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -13157,13 +15677,28 @@ impl VehicleCheckInReq {
     /// A fragment is `SD SE(VehicleCheckInReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -13193,13 +15728,28 @@ impl VehicleCheckInRes {
     /// A fragment is `SD SE(VehicleCheckInRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -13229,13 +15779,28 @@ impl VehicleCheckOutReq {
     /// A fragment is `SD SE(VehicleCheckOutReq) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.
@@ -13265,13 +15830,28 @@ impl VehicleCheckOutRes {
     /// A fragment is `SD SE(VehicleCheckOutRes) … EE ED`: the same element
     /// body as a document, under a different root table. This is
     /// the form an ISO 15118 signature is computed over.
-    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    ///
+    /// `coding` decides how a repeated string value is written; the
+    /// interoperable default is [`ValueCoding::Literal`].
+    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(crate::exi::Header::ISO15118)?;
         e.event(Self::FRAGMENT_CODE, FRAGMENT_WIDTH)?;
         self.encode_body(&mut e)?;
         e.event(FRAGMENT_ED_CODE, FRAGMENT_WIDTH)?;
         e.finish()
+    }
+
+    /// Encodes this element as a standalone EXI fragment,
+    /// every value written in full.
+    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {
+        self.encode_fragment_with(buf, ValueCoding::Literal)
+    }
+
+    /// Encodes this element as an EXI fragment into a vector,
+    /// under an explicit [`ValueCoding`].
+    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {
+        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))
     }
 
     /// Encodes this element as an EXI fragment into a vector.

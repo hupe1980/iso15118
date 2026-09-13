@@ -298,7 +298,11 @@ pub fn write_frame(
         declared: u32::MAX,
         limit: u32::MAX as usize,
     })?;
-    let total = HEADER_LEN + payload.len();
+    // Checked, and the symmetry with `split_frame` is the point rather than the
+    // arithmetic: both sides of one rule should agree about whether it can
+    // overflow. CVE-2026-54169 is this exact sum done the other way — a payload
+    // measured against the buffer and then written at `buffer + 8`.
+    let total = HEADER_LEN.checked_add(payload.len()).ok_or(V2gtpError::BufferTooSmall)?;
     if out.len() < total {
         return Err(V2gtpError::BufferTooSmall);
     }

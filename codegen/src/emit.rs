@@ -862,6 +862,7 @@ impl Emitter<'_> {
             }
             let name = QName::new(String::new(), rust.clone());
             self.struct_decl(&mut out, &name, rust, &fields);
+            self.minimal_impl(&mut out, rust, &fields);
             self.shape_decl(&mut out, rust, &layout);
             self.encode_impl(&mut out, rust, &fields);
             self.decode_impl(&mut out, rust, &fields);
@@ -1000,16 +1001,41 @@ impl Emitter<'_> {
         let _ = writeln!(out, "    /// A fragment is `SD SE({local}) … EE ED`: the same element");
         let _ = writeln!(out, "    /// body as a document, under a different root table. This is");
         let _ = writeln!(out, "    /// the form an ISO 15118 signature is computed over.");
+        let _ = writeln!(out, "    ///");
+        let _ =
+            writeln!(out, "    /// `coding` decides how a repeated string value is written; the");
+        let _ = writeln!(out, "    /// interoperable default is [`ValueCoding::Literal`].");
         let _ = writeln!(
             out,
-            "    pub fn encode{suffix}(&self, buf: &mut [u8]) -> ExiResult<usize> {{"
+            "    pub fn encode{suffix}_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {{"
         );
-        let _ = writeln!(out, "        let mut e = Encoder::new(buf);");
+        let _ = writeln!(out, "        let mut e = Encoder::with_value_coding(buf, coding);");
         let _ = writeln!(out, "        e.write_header(crate::exi::Header::ISO15118)?;");
         let _ = writeln!(out, "        e.event(Self::{prefix}_CODE, {width})?;");
         let _ = writeln!(out, "        self.encode_body(&mut e)?;");
         let _ = writeln!(out, "        e.event({ed}, {width})?;");
         let _ = writeln!(out, "        e.finish()");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    /// Encodes this element as a standalone EXI fragment,");
+        let _ = writeln!(out, "    /// every value written in full.");
+        let _ = writeln!(
+            out,
+            "    pub fn encode{suffix}(&self, buf: &mut [u8]) -> ExiResult<usize> {{"
+        );
+        let _ = writeln!(out, "        self.encode{suffix}_with(buf, ValueCoding::Literal)");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    /// Encodes this element as an EXI fragment into a vector,");
+        let _ = writeln!(out, "    /// under an explicit [`ValueCoding`].");
+        let _ = writeln!(
+            out,
+            "    pub fn to{suffix}_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {{"
+        );
+        let _ = writeln!(
+            out,
+            "        crate::exi::encode_growing(|buf| self.encode{suffix}_with(buf, coding))"
+        );
         let _ = writeln!(out, "    }}");
         let _ = writeln!(out);
         let _ = writeln!(out, "    /// Encodes this element as an EXI fragment into a vector.");
@@ -1091,8 +1117,11 @@ impl Emitter<'_> {
             let _ = writeln!(out, "}}");
             let _ = writeln!(out);
             let _ = writeln!(out, "impl crate::exi::ExiDocument for {rust} {{");
-            let _ = writeln!(out, "    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {{");
-            let _ = writeln!(out, "        let mut e = Encoder::new(buf);");
+            let _ = writeln!(
+                out,
+                "    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {{"
+            );
+            let _ = writeln!(out, "        let mut e = Encoder::with_value_coding(buf, coding);");
             let _ = writeln!(out, "        e.write_header(crate::exi::Header::ISO15118)?;");
             let _ = writeln!(out, "        e.event(Self::DOCUMENT_CODE, DOCUMENT_WIDTH)?;");
             let _ = writeln!(out, "        self.encode_body(&mut e)?;");
@@ -1166,8 +1195,11 @@ impl Emitter<'_> {
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
         let _ = writeln!(out, "impl crate::exi::ExiDocument for Document {{");
-        let _ = writeln!(out, "    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {{");
-        let _ = writeln!(out, "        let mut e = Encoder::new(buf);");
+        let _ = writeln!(
+            out,
+            "    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {{"
+        );
+        let _ = writeln!(out, "        let mut e = Encoder::with_value_coding(buf, coding);");
         let _ = writeln!(out, "        e.write_header(crate::exi::Header::ISO15118)?;");
         let _ = writeln!(out, "        e.event(self.code(), DOCUMENT_WIDTH)?;");
         let _ = writeln!(out, "        match self {{");
@@ -1311,6 +1343,53 @@ impl Emitter<'_> {
                 let _ = writeln!(out, "    }}");
                 let _ = writeln!(out, "}}");
                 let _ = writeln!(out);
+
+                // …and the refusal each request is answered with, paired by
+                // name the same way the body-choice sets pair theirs.
+                let by_name: BTreeMap<String, &String> =
+                    roots.iter().map(|(_, name, rust)| (pascal(&name.local), rust)).collect();
+                let pairs: Vec<(String, String, &String)> = roots
+                    .iter()
+                    .filter_map(|(_, name, _)| {
+                        let variant = pascal(&name.local);
+                        let stem = variant.strip_suffix("Req")?;
+                        let res = format!("{stem}Res");
+                        let inner = by_name.get(&res)?;
+                        self.response_code_types.get(*inner)?;
+                        Some((variant.clone(), res, *inner))
+                    })
+                    .collect();
+                if !pairs.is_empty() {
+                    let _ = writeln!(out, "impl Document {{");
+                    let _ =
+                        writeln!(out, "    /// The response that refuses this request, carrying");
+                    let _ = writeln!(out, "    /// `code`.");
+                    let _ = writeln!(out, "    ///");
+                    let _ = writeln!(out, "    /// Every other field is the schema's minimum, so");
+                    let _ = writeln!(out, "    /// this always encodes. A station answering a");
+                    let _ =
+                        writeln!(out, "    /// sequence error has to send the matching response");
+                    let _ = writeln!(out, "    /// type, and usually has nothing to put in one.");
+                    let _ = writeln!(out, "    ///");
+                    let _ = writeln!(out, "    /// `None` when this is already a response.");
+                    let _ = writeln!(out, "    #[must_use]");
+                    let _ = writeln!(
+                        out,
+                        "    pub fn refusal(&self, code: {code_type}) -> Option<Self> {{"
+                    );
+                    let _ = writeln!(out, "        Some(match self {{");
+                    for (req, res, inner) in &pairs {
+                        let _ = writeln!(
+                            out,
+                            "            Self::{req}(_) => Self::{res}({inner} {{ response_code: code, ..{inner}::minimal() }}),"
+                        );
+                    }
+                    let _ = writeln!(out, "            _ => return None,");
+                    let _ = writeln!(out, "        }})");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
+                    let _ = writeln!(out);
+                }
             }
         }
 
@@ -1343,9 +1422,9 @@ impl Emitter<'_> {
         let _ = writeln!(out, "    /// Encodes this message as a standalone EXI fragment.");
         let _ = writeln!(
             out,
-            "    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {{"
+            "    pub fn encode_fragment_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {{"
         );
-        let _ = writeln!(out, "        let mut e = Encoder::new(buf);");
+        let _ = writeln!(out, "        let mut e = Encoder::with_value_coding(buf, coding);");
         let _ = writeln!(out, "        e.write_header(crate::exi::Header::ISO15118)?;");
         let _ = writeln!(out, "        e.event(self.fragment_code(), FRAGMENT_WIDTH)?;");
         let _ = writeln!(out, "        match self {{");
@@ -1361,10 +1440,30 @@ impl Emitter<'_> {
         let _ = writeln!(out, "        e.finish()");
         let _ = writeln!(out, "    }}");
         let _ = writeln!(out);
+        let _ = writeln!(out, "    /// Encodes this message as a standalone EXI fragment,");
+        let _ = writeln!(out, "    /// every value written in full.");
+        let _ = writeln!(
+            out,
+            "    pub fn encode_fragment(&self, buf: &mut [u8]) -> ExiResult<usize> {{"
+        );
+        let _ = writeln!(out, "        self.encode_fragment_with(buf, ValueCoding::Literal)");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
         let _ = writeln!(out, "    /// Encodes this message as an EXI fragment into a vector.");
         let _ = writeln!(out, "    pub fn to_fragment(&self) -> ExiResult<Vec<u8>> {{");
         let _ =
             writeln!(out, "        crate::exi::encode_growing(|buf| self.encode_fragment(buf))");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    /// The same, under an explicit [`ValueCoding`].");
+        let _ = writeln!(
+            out,
+            "    pub fn to_fragment_with(&self, coding: ValueCoding) -> ExiResult<Vec<u8>> {{"
+        );
+        let _ = writeln!(
+            out,
+            "        crate::exi::encode_growing(|buf| self.encode_fragment_with(buf, coding))"
+        );
         let _ = writeln!(out, "    }}");
         let _ = writeln!(out);
         let _ = writeln!(out, "    /// Parses a message from a standalone EXI fragment.");
@@ -1454,6 +1553,9 @@ impl Emitter<'_> {
             "clippy::large_enum_variant",
             "clippy::result_large_err",
             "clippy::unreadable_literal",
+            // A refusal sets `response_code` and takes the rest from `minimal()`;
+            // where the code is the only field, that update is empty.
+            "clippy::needless_update",
         ] {
             let _ = writeln!(out, "    {lint},");
         }
@@ -1468,7 +1570,7 @@ impl Emitter<'_> {
         );
         let _ = writeln!(
             out,
-            "use crate::exi::{{DateTime, Decimal, Decoder, Encoder, ExiError, ExiResult, Float, Lengths, ValueCtx}};"
+            "use crate::exi::{{\n    DateTime, Decimal, Decoder, Encoder, ExiError, ExiResult, Float, Lengths, ValueCoding,\n    ValueCtx,\n}};"
         );
         let _ = writeln!(out);
         let _ = writeln!(out, "/// Name of the schema set this module was generated from.");
@@ -1563,6 +1665,7 @@ impl Emitter<'_> {
         }
 
         self.struct_decl(out, name, rust, &fields);
+        self.minimal_impl(out, rust, &fields);
         self.shape_decl(out, rust, layout);
         self.encode_impl(out, rust, &fields);
         self.decode_impl(out, rust, &fields);
@@ -1857,6 +1960,64 @@ impl Emitter<'_> {
         let _ = writeln!(out, "    }}");
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
+        self.choice_refusal(out, enum_name, variants, &code_type);
+    }
+
+    /// Writes `refusal()`: the response that refuses a request.
+    ///
+    /// Pairing is by name (`XxxReq` to `XxxRes`), which is the schema's own
+    /// convention and holds for every V2G message.
+    fn choice_refusal(
+        &self,
+        out: &mut String,
+        enum_name: &str,
+        variants: &[(String, String, Kind)],
+        code_type: &str,
+    ) {
+        let responses: BTreeMap<&str, &str> = variants
+            .iter()
+            .filter_map(|(variant, _, kind)| match kind {
+                Kind::Struct(inner) if self.response_code_types.contains_key(inner) => {
+                    Some((variant.as_str(), inner.as_str()))
+                }
+                _ => None,
+            })
+            .collect();
+        let pairs: Vec<(&str, &str, &str)> = variants
+            .iter()
+            .filter_map(|(variant, _, _)| {
+                let stem = variant.strip_suffix("Req")?;
+                let res = format!("{stem}Res");
+                let (name, inner) = responses.get_key_value(&*res)?;
+                Some((variant.as_str(), *name, *inner))
+            })
+            .collect();
+        if pairs.is_empty() {
+            return;
+        }
+        let _ = writeln!(out, "impl {enum_name} {{");
+        let _ = writeln!(out, "    /// The response that refuses this request, carrying `code`.");
+        let _ = writeln!(out, "    ///");
+        let _ = writeln!(out, "    /// Every other field is the schema's minimum, so this always");
+        let _ = writeln!(out, "    /// encodes. A station answering a sequence error has to send");
+        let _ = writeln!(out, "    /// the matching response type, and at that moment it usually");
+        let _ = writeln!(out, "    /// has nothing to put in one.");
+        let _ = writeln!(out, "    ///");
+        let _ = writeln!(out, "    /// `None` when this is already a response.");
+        let _ = writeln!(out, "    #[must_use]");
+        let _ = writeln!(out, "    pub fn refusal(&self, code: {code_type}) -> Option<Self> {{");
+        let _ = writeln!(out, "        Some(match self {{");
+        for (req, res, inner) in &pairs {
+            let _ = writeln!(
+                out,
+                "            Self::{req}(_) => Self::{res}({inner} {{ response_code: code, ..{inner}::minimal() }}),"
+            );
+        }
+        let _ = writeln!(out, "            _ => return None,");
+        let _ = writeln!(out, "        }})");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
     }
 
     /// Writes the struct, and any enum a choice item needs.
@@ -1894,6 +2055,19 @@ impl Emitter<'_> {
             }
             let _ = writeln!(out, "        }}");
             let _ = writeln!(out, "    }}");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "    /// The smallest value of this choice the schema permits.");
+            let _ = writeln!(out, "    ///");
+            let _ =
+                writeln!(out, "    /// The schema's first alternative, minimally built: a choice");
+            let _ = writeln!(out, "    /// has no absent spelling, so a refusal has to pick one.");
+            let _ = writeln!(out, "    #[must_use]");
+            let _ = writeln!(out, "    pub fn minimal() -> Self {{");
+            if let Some((variant, _, kind)) = variants.first() {
+                let inner = Self::minimal_kind(kind);
+                let _ = writeln!(out, "        Self::{variant}({inner})");
+            }
+            let _ = writeln!(out, "    }}");
             let _ = writeln!(out, "}}");
             let _ = writeln!(out);
             self.choice_response_code(out, enum_name, variants);
@@ -1927,6 +2101,89 @@ impl Emitter<'_> {
         }
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
+    }
+
+    /// Writes `minimal()`: the smallest value of this type the schema permits.
+    ///
+    /// Every required field at its own minimum — a required list gets exactly
+    /// its `minOccurs` entries, a required string exactly its `minLength`
+    /// characters, an optional anything nothing at all.
+    ///
+    /// It exists for one job that has no other answer: a station that must
+    /// refuse a request still has to answer it, and usually has nothing to put
+    /// in the response. Recursion terminates because it follows **required**
+    /// fields only, and a required cycle would be a schema with no finite
+    /// instance.
+    fn minimal_impl(&self, out: &mut String, rust: &str, fields: &[Emitted]) {
+        let _ = writeln!(out, "impl {rust} {{");
+        let _ = writeln!(out, "    /// The smallest value of this type the schema permits.");
+        let _ = writeln!(out, "    ///");
+        let _ =
+            writeln!(out, "    /// Every required field at its own minimum, every optional one");
+        let _ =
+            writeln!(out, "    /// absent. Built to be encodable rather than meaningful: it is");
+        let _ = writeln!(out, "    /// what a refusal is made of when there is nothing to report.");
+        let _ = writeln!(out, "    #[must_use]");
+        let _ = writeln!(out, "    pub fn minimal() -> Self {{");
+        if fields.iter().all(|f| f.phantom) {
+            let _ = writeln!(out, "        Self");
+        } else {
+            let _ = writeln!(out, "        Self {{");
+            for f in fields {
+                if f.phantom {
+                    continue;
+                }
+                let _ = writeln!(out, "            {}: {},", f.name, Self::minimal_expr(f));
+            }
+            let _ = writeln!(out, "        }}");
+        }
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+    }
+
+    /// The minimal value of one field, wrapper included.
+    fn minimal_expr(f: &Emitted) -> String {
+        let inner = match &f.kind {
+            FieldKind::Single(kind) => Self::minimal_kind(kind),
+            FieldKind::Choice { enum_name, .. } => format!("{enum_name}::minimal()"),
+        };
+        if f.max > 1 {
+            if f.min == 0 {
+                "Vec::new()".into()
+            } else {
+                format!("alloc::vec![{inner}; {}]", f.min)
+            }
+        } else if f.min == 0 {
+            "None".into()
+        } else {
+            inner
+        }
+    }
+
+    /// The minimal value of one field's underlying kind.
+    fn minimal_kind(kind: &Kind) -> String {
+        match kind {
+            Kind::Scalar(Scalar::Bool) => "false".into(),
+            Kind::Scalar(Scalar::Uint(_) | Scalar::Int(_)) => "0".into(),
+            // The bottom of the restricted range is the only value certain to
+            // be in it.
+            Kind::Scalar(Scalar::Restricted { min, .. }) => format!("{min}"),
+            // `ALL` is in EXI index order, so `[0]` is the schema's first value.
+            Kind::Scalar(Scalar::Enum(name)) => format!("{name}::ALL[0]"),
+            Kind::Scalar(Scalar::Str { lengths, .. }) => {
+                format!("\"0\".repeat({lengths}.min_len())")
+            }
+            Kind::Scalar(Scalar::Binary { lengths }) => {
+                format!("alloc::vec![0u8; {lengths}.min_len()]")
+            }
+            Kind::Scalar(Scalar::Decimal) => "Decimal::default()".into(),
+            Kind::Scalar(Scalar::Float) => "Float::ZERO".into(),
+            Kind::Scalar(Scalar::DateTime) => "DateTime::default()".into(),
+            Kind::Struct(name) => format!("{name}::minimal()"),
+            // Phantom fields never reach here.
+            Kind::Unsupported => "()".into(),
+        }
     }
 
     /// Writes the event-code arithmetic as static data.

@@ -53,9 +53,9 @@ pub mod seq;
 pub mod string_table;
 
 pub use bitstream::{BitReader, BitWriter};
-pub use codec::{Decoder, Encoder, ExiDocument, Lengths, MAX_DEPTH, encode_growing};
+pub use codec::{Decoder, Encoder, ExiDocument, Lengths, MAX_DEPTH, ValueCoding, encode_growing};
 pub use error::{ExiError, ExiResult};
 pub use header::{Header, read_header, write_header};
 pub use primitives::{DateTime, Decimal, Float, Fraction, bit_width};
 pub use seq::{SeqReader, SeqWriter, Shape, Step};
-pub use string_table::{ExiOptions, ValueCtx, ValueTable};
+pub use string_table::{ValueCtx, ValueTable};

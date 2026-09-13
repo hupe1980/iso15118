@@ -78,9 +78,11 @@ loop {
             Event::ProtocolAgreed(p) => println!("speaking {p}"),   // "iso15118-20"
             // This is where your charging station lives.
             Event::Request(req) => secc.respond(now(), my_logic(&req)?)?,
-            // Out of sequence: answer with `response_code`, then it is over.
+            // Out of sequence: `refusal` builds the answer, and it always encodes.
             Event::Refused { message, response_code, .. } => {
-                secc.respond(now(), failure(&message, response_code))?;
+                if let Some(no) = message.refusal(response_code) {
+                    secc.respond(now(), no)?;
+                }
             }
             Event::Closed(why) => return Ok(println!("session over: {why}")),
             _ => {}

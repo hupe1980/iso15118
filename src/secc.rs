@@ -640,10 +640,14 @@ impl Secc {
     /// survived the pause and re-running them would be out of sequence.
     #[cfg(feature = "iso20-common")]
     #[cfg_attr(docsrs, doc(cfg(feature = "iso20-common")))]
-    pub fn resume(&mut self, session_id: SessionId, service: crate::session::iso20::Service) {
+    pub fn resume(
+        &mut self,
+        session_id: SessionId,
+        energy_transfer: crate::session::iso20::EnergyTransfer,
+    ) {
         self.join_session(session_id);
         if let Some(flow) = self.flow.as_mut() {
-            flow.resume(service);
+            flow.resume(energy_transfer);
         }
     }
 

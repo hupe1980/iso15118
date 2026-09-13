@@ -42,8 +42,11 @@ schemas. Nothing in the build depends on having either.
 
 ## What the generator emits
 
-For each schema set: typed Rust structs, and `Encode`/`Decode` implementations
-that walk derived event-code arithmetic.
+For each schema set: typed Rust structs, `Encode`/`Decode` implementations that
+walk derived event-code arithmetic, and two constructors the schema alone can
+supply — `minimal()`, the smallest value a type permits, and `refusal(code)`,
+the response that refuses a request. The second is built from the first, which
+is why a refusal always encodes even when the station has nothing to put in it.
 
 Notably it does **not** emit state tables. A content model's whole grammar becomes
 five short integer slices — productions before each item, the event-code width at

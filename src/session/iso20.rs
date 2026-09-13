@@ -15,14 +15,24 @@
 //! graph and the response code a departure from it earns.
 //!
 //! ```
-//! use iso15118::session::iso20::{Request, Sequencer, Service};
+//! use iso15118::session::iso20::{EnergyTransfer, Request, Sequencer, Service};
+//!
+//! // Service id 6 is `DC_BPT`: the DC flow, and power may move both ways.
+//! let dc_bpt = EnergyTransfer::from_service_id(6).expect("an energy transfer service");
+//! assert_eq!(dc_bpt.service, Service::Dc);
+//! assert!(dc_bpt.bidirectional);
 //!
 //! let mut s = Sequencer::new();
 //! s.accept(Request::SessionSetup)?;
 //! s.accept(Request::AuthorizationSetup)?;
 //! s.accept(Request::Authorization)?;
 //! s.accept(Request::ServiceDiscovery)?;
-//! s.accept(Request::ServiceSelection(Service::Dc))?;
+//! s.accept(Request::ServiceSelection(dc_bpt))?;
+//! s.accept(Request::ChargeParameterDiscovery)?;
+//! // Bidirectional changes the parameters, not the order — so the schedule
+//! // exchange a V2H session turns on is the same transition a DC session makes.
+//! s.accept(Request::ScheduleExchange)?;
+//! assert!(s.is_bidirectional());
 //!
 //! // Authorization comes first in -20, unlike -2 where it follows selection.
 //! assert!(!s.permits(Request::Authorization));
@@ -89,8 +99,10 @@ pub enum Request {
     ServiceDiscovery,
     /// `ServiceDetailReq`.
     ServiceDetail,
-    /// `ServiceSelectionReq`. The chosen service decides the rest of the flow.
-    ServiceSelection(Service),
+    /// `ServiceSelectionReq`. The chosen service decides the rest of the flow,
+    /// and its `bidirectional` half decides nothing about the flow at all —
+    /// see [`EnergyTransfer`].
+    ServiceSelection(EnergyTransfer),
     /// `CertificateInstallationReq`.
     CertificateInstallation,
     /// `AC_/DC_/WPT_/ACDP_ChargeParameterDiscoveryReq`.
@@ -187,7 +199,7 @@ impl Request {
             D::CertificateInstallationReq(_) => Self::CertificateInstallation,
             D::ServiceDiscoveryReq(_) => Self::ServiceDiscovery,
             D::ServiceDetailReq(_) => Self::ServiceDetail,
-            D::ServiceSelectionReq(req) => Self::ServiceSelection(Service::of(req)?),
+            D::ServiceSelectionReq(req) => Self::ServiceSelection(EnergyTransfer::of(req)?),
             D::ScheduleExchangeReq(_) => Self::ScheduleExchange,
             D::PowerDeliveryReq(req) => Self::PowerDelivery(req.charge_progress),
             D::MeteringConfirmationReq(_) => Self::MeteringConfirmation,
@@ -361,6 +373,58 @@ impl Service {
     }
 }
 
+/// The energy transfer a -20 session selected: which flow, and which way power
+/// may move.
+///
+/// [`Service`] answers the first question and deliberately not the second —
+/// bidirectional power transfer changes the *parameters* a message carries, not
+/// the order the messages come in, which is why `AC_BPT` walks exactly the flow
+/// `AC` does and why there is no `iso20-bpt` feature.
+///
+/// The selected service id carries one bit more than the flow needs, and it is
+/// the only place the protocol says whether this session may discharge — which
+/// is the question a load manager above the protocol exists to ask.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct EnergyTransfer {
+    /// The flow the rest of the session follows.
+    pub service: Service,
+    /// True for the `_BPT` service ids — 5 (`AC_BPT`), 6 (`DC_BPT`) and 7
+    /// (`DC_ACDP_BPT`).
+    ///
+    /// It says the *service* permits power in both directions. It does not say
+    /// power will flow that way, which is a schedule and a decision, not a
+    /// selection.
+    pub bidirectional: bool,
+}
+
+impl EnergyTransfer {
+    /// Maps an ISO 15118-20 service id to the flow it selects and whether it is
+    /// bidirectional.
+    ///
+    /// `None` for an id this crate has no message set for — see
+    /// [`Service::from_service_id`], which this shares its table with.
+    #[must_use]
+    pub const fn from_service_id(id: u16) -> Option<Self> {
+        let Some(service) = Service::from_service_id(id) else { return None };
+        // 5 `AC_BPT`, 6 `DC_BPT`, 7 `DC_ACDP_BPT` — the standard assigned them
+        // contiguously, which is why this reads as a range rather than three ids.
+        Some(Self { service, bidirectional: matches!(id, 5..=7) })
+    }
+
+    /// Reads the selected energy transfer out of a `ServiceSelectionReq`.
+    #[must_use]
+    pub fn of(req: &crate::iso20::messages::ServiceSelectionReq) -> Option<Self> {
+        Self::from_service_id(req.selected_energy_transfer_service.service_id)
+    }
+
+    /// Unidirectional, for a caller that has only the flow.
+    #[must_use]
+    pub const fn unidirectional(service: Service) -> Self {
+        Self { service, bidirectional: false }
+    }
+}
+
 /// Where an ISO 15118-20 session has got to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -463,7 +527,7 @@ impl Phase {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Sequencer {
     phase: Phase,
-    service: Option<Service>,
+    energy_transfer: Option<EnergyTransfer>,
     /// Set by a `PowerDeliveryReq(ScheduleRenegotiation)`: the DC safety phases
     /// are behind us and must not be demanded again.
     renegotiated: bool,
@@ -482,7 +546,7 @@ impl Sequencer {
     /// A session that has not yet seen its first request.
     #[must_use]
     pub const fn new() -> Self {
-        Self { phase: Phase::Start, service: None, renegotiated: false, failed: false }
+        Self { phase: Phase::Start, energy_transfer: None, renegotiated: false, failed: false }
     }
 
     /// Picks up a paused session, from just after `SessionSetup`.
@@ -493,8 +557,8 @@ impl Sequencer {
     /// discovery. Whether an arriving session id names a resumable session is
     /// stored state the core does not hold, so the application decides and
     /// calls this while answering `SessionSetupReq` with `OK_OldSessionJoined`.
-    pub const fn resume(&mut self, service: Service) {
-        self.service = Some(service);
+    pub const fn resume(&mut self, energy_transfer: EnergyTransfer) {
+        self.energy_transfer = Some(energy_transfer);
         self.phase = Phase::ServiceSelected;
         self.renegotiated = false;
     }
@@ -522,10 +586,29 @@ impl Sequencer {
         self.phase
     }
 
-    /// The selected service, once `ServiceSelection` has said.
+    /// The selected flow, once `ServiceSelection` has said.
     #[must_use]
     pub const fn service(&self) -> Option<Service> {
-        self.service
+        match self.energy_transfer {
+            Some(e) => Some(e.service),
+            None => None,
+        }
+    }
+
+    /// The selected energy transfer — the flow *and* whether it is
+    /// bidirectional.
+    ///
+    /// The half a load manager above the protocol needs and the flow does not:
+    /// `AC_BPT` sequences exactly as `AC` does, so nothing below this asks.
+    #[must_use]
+    pub const fn energy_transfer(&self) -> Option<EnergyTransfer> {
+        self.energy_transfer
+    }
+
+    /// True once a bidirectional energy transfer service has been selected.
+    #[must_use]
+    pub const fn is_bidirectional(&self) -> bool {
+        matches!(self.energy_transfer, Some(e) if e.bidirectional)
     }
 
     /// True once the vehicle has asked to renegotiate its schedule.
@@ -576,7 +659,7 @@ impl Sequencer {
         }
         // Record the facts the rest of the graph branches on before moving.
         match request {
-            Request::ServiceSelection(service) => self.service = Some(service),
+            Request::ServiceSelection(transfer) => self.energy_transfer = Some(transfer),
             // A *service* renegotiation unwinds the session to just after
             // authorization, and the two facts the DC branch depends on unwind
             // with it. Leaving `renegotiated` set would let the next service —
@@ -586,7 +669,7 @@ impl Sequencer {
             // now open. Leaving `service` set would keep answering "DC" about a
             // service nobody has selected yet.
             Request::SessionStop(ChargingSession::ServiceRenegotiation) => {
-                self.service = None;
+                self.energy_transfer = None;
                 self.renegotiated = false;
             }
             _ => {}
@@ -629,9 +712,9 @@ impl Sequencer {
 
         use ChargingSession as S;
 
-        let dc = self.service.is_some_and(Service::is_dc);
-        let acdp = self.service == Some(Service::Acdp);
-        let wpt = self.service == Some(Service::Wpt);
+        let dc = self.service().is_some_and(Service::is_dc);
+        let acdp = self.service() == Some(Service::Acdp);
+        let wpt = self.service() == Some(Service::Wpt);
 
         // After a `FAILED_*` response the session is over bar the formalities:
         // the peer may stop it and nothing else. Renegotiating a service it was
@@ -841,7 +924,7 @@ mod tests {
         // there is still nothing to renegotiate.
         let mut s = run(&PREAMBLE);
         assert!(!s.permits(Request::SessionStop(ChargingSession::ServiceRenegotiation)));
-        s.accept(Request::ServiceSelection(Service::Ac)).unwrap();
+        s.accept(Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Ac))).unwrap();
         assert!(s.permits(Request::SessionStop(ChargingSession::ServiceRenegotiation)));
     }
 
@@ -851,7 +934,7 @@ mod tests {
     fn a_service_renegotiation_forgets_the_previous_service() {
         let mut s = run(&PREAMBLE);
         for r in [
-            Request::ServiceSelection(Service::Ac),
+            Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Ac)),
             Request::ChargeParameterDiscovery,
             Request::ScheduleExchange,
             Request::PowerDelivery(ChargeProgress::Start),
@@ -866,7 +949,7 @@ mod tests {
         assert!(!s.has_renegotiated(), "a DC service now must still prove its isolation");
 
         s.accept(Request::ServiceDiscovery).unwrap();
-        s.accept(Request::ServiceSelection(Service::Dc)).unwrap();
+        s.accept(Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Dc))).unwrap();
         s.accept(Request::ChargeParameterDiscovery).unwrap();
         s.accept(Request::ScheduleExchange).unwrap();
         assert!(
@@ -884,7 +967,7 @@ mod tests {
     fn a_pause_is_refused_while_the_cable_is_live() {
         let mut s = run(&PREAMBLE);
         for r in [
-            Request::ServiceSelection(Service::Dc),
+            Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Dc)),
             Request::ChargeParameterDiscovery,
             Request::ScheduleExchange,
         ] {
@@ -952,7 +1035,7 @@ mod tests {
     fn the_dc_flow_runs_end_to_end() {
         let mut s = run(&PREAMBLE);
         for r in [
-            Request::ServiceSelection(Service::Dc),
+            Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Dc)),
             Request::ChargeParameterDiscovery,
             Request::ScheduleExchange,
             Request::CableCheck,
@@ -973,7 +1056,7 @@ mod tests {
     #[test]
     fn the_ac_flow_skips_the_dc_phases() {
         let mut s = run(&PREAMBLE);
-        s.accept(Request::ServiceSelection(Service::Ac)).unwrap();
+        s.accept(Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Ac))).unwrap();
         s.accept(Request::ChargeParameterDiscovery).unwrap();
         s.accept(Request::ScheduleExchange).unwrap();
         assert!(!s.permits(Request::CableCheck));
@@ -999,7 +1082,7 @@ mod tests {
     fn a_resumed_session_skips_straight_to_parameters() {
         let mut s = Sequencer::new();
         s.accept(Request::SessionSetup).unwrap();
-        s.resume(Service::Dc);
+        s.resume(EnergyTransfer::unidirectional(Service::Dc));
         assert_eq!(s.phase(), Phase::ServiceSelected);
         assert!(!s.permits(Request::AuthorizationSetup), "already settled before the pause");
         s.accept(Request::ChargeParameterDiscovery).unwrap();
@@ -1011,7 +1094,7 @@ mod tests {
     fn a_schedule_renegotiation_returns_to_parameter_discovery() {
         let mut s = run(&PREAMBLE);
         for r in [
-            Request::ServiceSelection(Service::Ac),
+            Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Ac)),
             Request::ChargeParameterDiscovery,
             Request::ScheduleExchange,
             Request::PowerDelivery(ChargeProgress::Start),
@@ -1038,7 +1121,7 @@ mod tests {
     fn dc_schedule_renegotiation_does_not_repeat_the_cable_check() {
         let mut s = run(&PREAMBLE);
         for r in [
-            Request::ServiceSelection(Service::Dc),
+            Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Dc)),
             Request::ChargeParameterDiscovery,
             Request::ScheduleExchange,
             Request::CableCheck,
@@ -1061,7 +1144,7 @@ mod tests {
     fn dc_cannot_skip_the_cable_check_before_the_first_power_delivery() {
         let mut s = run(&PREAMBLE);
         for r in [
-            Request::ServiceSelection(Service::Dc),
+            Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Dc)),
             Request::ChargeParameterDiscovery,
             Request::ScheduleExchange,
         ] {
@@ -1077,7 +1160,7 @@ mod tests {
     fn a_service_renegotiation_returns_to_service_discovery() {
         let mut s = run(&PREAMBLE);
         for r in [
-            Request::ServiceSelection(Service::Ac),
+            Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Ac)),
             Request::ChargeParameterDiscovery,
             Request::ScheduleExchange,
             Request::PowerDelivery(ChargeProgress::Start),
@@ -1095,7 +1178,7 @@ mod tests {
     #[test]
     fn the_pantograph_checks_in_before_charging_and_out_after() {
         let mut s = run(&PREAMBLE);
-        s.accept(Request::ServiceSelection(Service::Acdp)).unwrap();
+        s.accept(Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Acdp))).unwrap();
         s.accept(Request::VehicleCheckIn).unwrap();
         for r in [
             Request::ChargeParameterDiscovery,
@@ -1113,7 +1196,7 @@ mod tests {
     #[test]
     fn a_check_in_needs_a_pantograph() {
         let mut s = run(&PREAMBLE);
-        s.accept(Request::ServiceSelection(Service::Dc)).unwrap();
+        s.accept(Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Dc))).unwrap();
         assert!(!s.permits(Request::VehicleCheckIn));
     }
 
@@ -1130,7 +1213,7 @@ mod tests {
     #[test]
     fn a_failure_leaves_only_session_stop() {
         let mut s = run(&PREAMBLE);
-        s.accept(Request::ServiceSelection(Service::Dc)).unwrap();
+        s.accept(Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Dc))).unwrap();
         s.failed();
         assert!(s.is_failed());
         for r in [
@@ -1153,7 +1236,7 @@ mod tests {
     fn service_renegotiation_does_not_end_the_session() {
         let mut s = run(&PREAMBLE);
         for r in [
-            Request::ServiceSelection(Service::Ac),
+            Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Ac)),
             Request::ChargeParameterDiscovery,
             Request::ScheduleExchange,
             Request::PowerDelivery(ChargeProgress::Start),
@@ -1170,14 +1253,14 @@ mod tests {
         // ...and the authorization survived it.
         assert!(!s.permits(Request::AuthorizationSetup));
         s.accept(Request::ServiceDiscovery).unwrap();
-        s.accept(Request::ServiceSelection(Service::Dc)).unwrap();
+        s.accept(Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Dc))).unwrap();
         assert_eq!(s.service(), Some(Service::Dc));
     }
 
     #[test]
     fn a_paused_session_is_finished_but_not_terminated() {
         let mut s = run(&PREAMBLE);
-        s.accept(Request::ServiceSelection(Service::Ac)).unwrap();
+        s.accept(Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Ac))).unwrap();
         s.accept(Request::SessionStop(ChargingSession::Pause)).unwrap();
         assert!(s.is_finished());
         assert!(s.is_paused());
@@ -1186,7 +1269,9 @@ mod tests {
 
     #[test]
     fn a_session_can_be_stopped_from_any_established_phase() {
-        for extra in [&[][..], &[Request::ServiceSelection(Service::Dc)]] {
+        for extra in
+            [&[][..], &[Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Dc))]]
+        {
             let mut s = run(&PREAMBLE);
             for &r in extra {
                 s.accept(r).unwrap();
@@ -1247,7 +1332,7 @@ mod tests {
     fn a_service_renegotiation_does_not_inherit_a_schedule_renegotiation() {
         let mut s = run(&PREAMBLE);
         for r in [
-            Request::ServiceSelection(Service::Dc),
+            Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Dc)),
             Request::ChargeParameterDiscovery,
             Request::ScheduleExchange,
             Request::CableCheck,
@@ -1265,7 +1350,7 @@ mod tests {
 
         for r in [
             Request::ServiceDiscovery,
-            Request::ServiceSelection(Service::Dc),
+            Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Dc)),
             Request::ChargeParameterDiscovery,
             Request::ScheduleExchange,
         ] {
@@ -1285,5 +1370,70 @@ mod tests {
         assert_eq!(Service::Dc.payload_type(), PayloadType::Part20Dc);
         assert_eq!(Service::Wpt.payload_type(), PayloadType::Part20Wpt);
         assert_eq!(Service::Acdp.payload_type(), PayloadType::Part20Acdp);
+    }
+    /// `hems` read `Service`'s four variants and concluded that "the schedule
+    /// negotiation a BPT session turns on has no path through the sequencer".
+    /// It does. Bidirectional power transfer changes the parameters a message
+    /// carries, not the order the messages come in, so `DC_BPT` walks exactly
+    /// the flow `DC` walks — and this test is here so that stays checkable
+    /// rather than arguable.
+    #[test]
+    fn a_whole_dc_bpt_session_walks_the_same_flow_as_dc() {
+        let bpt = EnergyTransfer::from_service_id(6).expect("DC_BPT is an energy transfer service");
+        assert_eq!(bpt.service, Service::Dc);
+        assert!(bpt.bidirectional);
+
+        let mut s = Sequencer::new();
+        for r in [
+            Request::SessionSetup,
+            Request::AuthorizationSetup,
+            Request::Authorization,
+            Request::ServiceDiscovery,
+            Request::ServiceSelection(bpt),
+            Request::ChargeParameterDiscovery,
+            Request::ScheduleExchange,
+            Request::CableCheck,
+            Request::PreCharge,
+            Request::PowerDelivery(ChargeProgress::Start),
+            Request::ChargeLoop,
+            Request::PowerDelivery(ChargeProgress::Stop),
+            Request::WeldingDetection,
+        ] {
+            s.accept(r).unwrap_or_else(|e| panic!("{r:?} in a DC_BPT session: {e}"));
+        }
+        assert_eq!(s.phase(), Phase::WeldingDetection);
+        assert!(s.is_bidirectional(), "the session must still know it may discharge");
+    }
+
+    /// The bit the flow does not need and a load manager does.
+    #[test]
+    fn the_service_id_says_which_way_power_may_move() {
+        for (id, service, bidirectional) in [
+            (1, Service::Ac, false),
+            (2, Service::Dc, false),
+            (3, Service::Wpt, false),
+            (4, Service::Acdp, false),
+            (5, Service::Ac, true),
+            (6, Service::Dc, true),
+            (7, Service::Acdp, true),
+        ] {
+            let t = EnergyTransfer::from_service_id(id).expect("an energy transfer service");
+            assert_eq!(t, EnergyTransfer { service, bidirectional }, "service id {id}");
+        }
+        // The megawatt charging system and AC_DER have no message set here, so
+        // they are not energy transfers this crate can sequence.
+        for id in [8, 9, 10, 65, 66, 0] {
+            assert_eq!(EnergyTransfer::from_service_id(id), None, "service id {id}");
+        }
+    }
+
+    /// A session that paused as bidirectional resumes as bidirectional.
+    #[test]
+    fn a_resumed_session_remembers_it_was_bidirectional() {
+        let mut s = Sequencer::new();
+        s.resume(EnergyTransfer::from_service_id(5).expect("AC_BPT"));
+        assert_eq!(s.phase(), Phase::ServiceSelected);
+        assert_eq!(s.service(), Some(Service::Ac));
+        assert!(s.is_bidirectional());
     }
 }

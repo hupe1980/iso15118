@@ -32,8 +32,9 @@ the caller's, and that is the point.
 
 > 🚧 **Status: pre-1.0, but the protocol is real.** All 121 message types round-trip
 > byte-for-byte against the EXI reference implementation, as documents *and* as
-> signature fragments. `examples/` completes an AC charging session over a real
-> socket. What is missing is [named rather than
+> signature fragments, and 3 538 messages from captured charging sessions do the
+> same against real equipment. `examples/` completes an AC charging session over a
+> real socket. What is missing is [named rather than
 > implied](https://hupe1980.github.io/iso15118/docs/roadmap/) — certificate
 > revocation above all.
 
@@ -51,6 +52,8 @@ a bare-metal microcontroller.
    are additive and every one gates real code, grammar tables included.
 3. **A wire format someone else agrees with.** Round-tripping your own encoder
    through your own decoder proves they agree with each other and nothing more.
+   Checked against the EXI reference implementation *and* against captured
+   sessions, because those are different claims.
 4. **A decoder you can point at the internet.** Every length bounded by *both* its
    schema facets before anything is allocated — `xs:length` is not
    `xs:maxLength` — plus `#![forbid(unsafe_code)]` and ten fuzz targets. The
@@ -90,7 +93,6 @@ use iso15118::Protocols;
 # fn now() -> Instant { Instant::ZERO }
 # fn random_session_id() -> [u8; 8] { [0; 8] }
 # fn my_logic(_: &Message) -> Result<Message, SeccError> { unimplemented!() }
-# fn failure(_: &Message, _: u8) -> Message { unimplemented!() }
 # fn run(stream: &mut std::net::TcpStream) -> Result<(), Box<dyn std::error::Error>> {
 # let mut buf = [0u8; 4096];
 let mut secc = Secc::new(SeccConfig {
@@ -110,9 +112,11 @@ loop {
             Event::ProtocolAgreed(p) => println!("speaking {p}"),   // "iso15118-20"
             // This is where your charging station lives.
             Event::Request(req) => secc.respond(now(), my_logic(&req)?)?,
-            // Out of sequence: answer with `response_code`, then it is over.
+            // Out of sequence: `refusal` builds the answer, and it always encodes.
             Event::Refused { message, response_code, .. } => {
-                secc.respond(now(), failure(&message, response_code))?;
+                if let Some(no) = message.refusal(response_code) {
+                    secc.respond(now(), no)?;
+                }
             }
             Event::Closed(why) => return Ok(println!("session over: {why}")),
             _ => {}
@@ -195,16 +199,17 @@ assert_eq!(SessionStopReq::from_bytes(&bytes)?, req);
 
 | Layer | State |
 |---|---|
-| **EXI** codec — schema-informed, bit-packed | primitives, string table, grammars, header, documents **and fragments**, every length facet enforced both ways |
+| **EXI** codec — schema-informed, bit-packed | primitives, value string table, grammars, header, documents **and fragments**, every length facet enforced both ways. Writes the form the field can read and accepts both — see [`ValueCoding`](https://docs.rs/iso15118/latest/iso15118/exi/enum.ValueCoding.html) |
 | **V2GTP** framing · **SDP** discovery | all payload types, hostile-length handling, bounded reassembly, an unsupported payload type *ignored* rather than fatal \[V2G2-800\]; discovery for **both** sides — the vehicle's retry engine with TLS-downgrade and off-link rejection, and the station's answer as the table \[V2G2-625\]–\[V2G2-627\] determine |
 | **SLAC** (ISO 15118-3) | frame codec with every layout pinned byte for byte, timers, and the matching state machine for both roles |
 | **ISO 15118-2** message set | all 34 body messages, `ds:Signature` included |
 | **ISO 15118-20** message sets | `CommonMessages`, AC, DC, WPT, ACDP |
 | **Session layer** | Plug & Charge refused on an unsecured transport \[V2G2-634\]; clock, spec timers and loop budgets **per role** — the station's half of every pair is the shorter one, so it answers `FAILED` while the vehicle is still listening — ordering graphs for both generations, and the ISO 15118-2 rule that a charging profile must fit the schedule it was offered, with the `ResponseCode` the standard prescribes |
 | **EVCC / SECC drivers** | handshake, sequencing, session-id stamping and checking, half-duplex in both directions, pause and resume — with a whole DC session per generation as an end-to-end test |
+| **Refusing a request** | `Message::refusal()` returns the response that refuses it, with every other field at the schema's minimum — so a station that has nothing to say can still *say* it. Every request in both generations is covered, and each refusal is asserted to encode |
 | **Reading the battery** | `Message::ev_energy_status()` — state of charge, capacity, energy request and departure out of *either* generation, in exact integer milliwatt-hours, without the caller naming an EXI type |
 | **Protocol identity** | `Protocol` / `Protocols` with stable short names, `Display`, `FromStr` and serde that all agree on one spelling |
-| **Plug & Charge signatures** | XMLDSig over EXI fragments, build and verify, algorithm restrictions enforced, and the two bindings that make a signature mean something: the `GenChallenge` for authorization and the echoed reading for metering |
+| **Plug & Charge signatures** | XMLDSig over EXI fragments, build and verify, algorithm restrictions enforced, and the two bindings that make a signature mean something: the `GenChallenge` for authorization and the echoed reading for metering. Real captured **RiseV2G** authorizations verify |
 | **V2G PKI** | `pnc::pki` — an allocation-free DER/X.509 reader and RFC 5280 path validation under ISO 15118's own Annex F profiles: the depth limit \[V2G2-009\], `BasicConstraints` and `pathLenConstraint`, the key-usage bits each leaf row requires, and the `Domain Component` \[V2G2-925\] makes a validity condition |
 | **Contract key delivery** | `pnc::envelope` — the one place a secret crosses the wire: one-pass ECDH \[V2G2-818\], the concatenation KDF, AES-128-CBC \[V2G2-815\], and \[V2G2-823\]'s check that the delivered key belongs to the certificate it came with, with no call that skips it |
 
@@ -217,8 +222,8 @@ public, so a DIN codec of your own can ride them. See
 
 ## 🔬 Verification
 
-Four passes, each asking a question the others cannot. Only the first says
-anything about other implementations.
+Five passes, each asking a question the others cannot. Only the last two say
+anything about other implementations, and they ask different things.
 
 ```text
 scripts/verify-grammars.sh   all 2 / 80 / 54 / 42 / 48 / 38 / 34 element
@@ -232,7 +237,20 @@ catch what no round-trip can: a dropped substitution-group head, mixed content o
 the wrong side of `EE`, a string-table partition populated on a global hit. The
 same principle covers the two structures that are not EXI: the certificate chains
 `pnc::pki` validates and the contract-key envelope `pnc::envelope` opens are both
-built by **OpenSSL**, from the requirement text.
+built by **OpenSSL**, from the requirement text — and all ten OEM provisioning
+leaves of Hubject's published test PKI validate to its real V2G Root.
+
+**Replayed against real hardware.** 3 538 messages from captured charging
+sessions — dSPACE DS5366 equipment against **Josev** and **RiseV2G** — decode and
+re-encode **byte for byte, every one**: full ISO 15118-2 AC and DC sessions, a
+pause, a renegotiation, a sales-tariff schedule, a multi-EVSE SLAC run, an
+ISO 15118-20 AC bidirectional session, a DIN 70121 session declined by name, and
+four Plug & Charge sessions over TLS whose signatures verify.
+
+It is a separate pass because the two claims are different: `exificient` and
+Canonical EXI want a repeated string value written as a table reference, and
+`libcbv2g` — the codec EVerest ships — cannot decode one at all. The encoder
+writes what the field reads; the decoder accepts both.
 
 **Read against the standards**, and against what EVerest and Josev do — because
 the scripts prove the encoding and nothing above it. `xs:length` is not

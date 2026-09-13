@@ -10,7 +10,7 @@
 
 #![cfg(feature = "iso2")]
 
-use iso15118::exi::{ExiDocument, ExiError};
+use iso15118::exi::{ExiDocument, ExiError, ValueCoding};
 use iso15118::iso2::{
     Body, BodyChoice, MessageHeader, ResponseCode, SessionSetupReq, SessionSetupRes, V2GMessage,
 };
@@ -149,8 +149,20 @@ fn every_single_bit_flip_is_rejected_or_decodes_cleanly() {
 /// this one for interoperability.
 ///
 ///
-/// The vector below is `exificient`'s, encoding the fragment against
-/// `xmldsig-core-schema.xsd` alone.
+/// Two vectors, because `SignedInfo` names the canonical-EXI URI **twice** and
+/// the two ways of writing the second occurrence are the whole of this crate's
+/// Plug & Charge interoperability story:
+///
+/// * `FIELD` is what this crate signs and what the field signs — the URI spelled
+///   out both times. `RiseV2G` produces it, and `libcbv2g` (`EVerest`'s codec) can
+///   read nothing else: it implements no string table and answers
+///   `EXI_ERROR__STRINGVALUES_NOT_SUPPORTED` for a reference.
+/// * `REFERENCE` is `exificient`'s, and what Canonical EXI actually requires —
+///   *"a string value MUST be represented using a compact identifier"*.
+///
+/// Both decode to the same `SignedInfo`. Only the first is verifiable by a real
+/// peer, which is why it is the default and why the specification is the one
+/// that gives way here. See [`ValueCoding`].
 #[test]
 fn signed_info_is_a_fragment_of_the_xmldsig_schema_alone() {
     use iso15118::iso2::{
@@ -158,10 +170,18 @@ fn signed_info_is_a_fragment_of_the_xmldsig_schema_alone() {
         Transforms,
     };
 
+    // exificient's: the second canonical-EXI URI is a string-table reference.
     const REFERENCE: &str = "808112b43a3a381d1797bbbbbb973b999737b93397aa2917b1b0b737b734b1b0b\
 616b2bc3497a1ab43a3a381d1797bbbbbb973b999737b933979918181897981a17bc36b63239b4b396b6b7b93291b2b1b2\
 39b096b9b430991a9b2206234944310002429687474703a2f2f7777772e77332e6f72672f323030312f30342f786d6c656\
 e6323736861323536406aabbccddeeff1b8";
+
+    // What this crate signs: the URI written out in full both times.
+    const FIELD: &str = "808112b43a3a381d1797bbbbbb973b999737b93397aa2917b1b0b737b734b1b0b\
+616b2bc3497a1ab43a3a381d1797bbbbbb973b999737b933979918181897981a17bc36b63239b4b396b6b7b93291b2b1b2\
+39b096b9b4309 91a9b220623494431025687474703a2f2f7777772e77332e6f72672f54522f63616e6f6e6963616c2d65\
+78692f4852d0e8e8e0745e5eeeeeee5cee665cdee4ce5e646060625e60685ef0dad8cadcc646e6d0c2646a6c80d557799b\
+bddfe370";
 
     let signed_info = SignedInfo {
         id: None,
@@ -188,11 +208,24 @@ e6323736861323536406aabbccddeeff1b8";
         }],
     };
 
-    let expected: Vec<u8> = (0..REFERENCE.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&REFERENCE[i..i + 2], 16).unwrap())
-        .collect();
+    let unhex = |s: &str| -> Vec<u8> {
+        let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    };
+    let field = unhex(FIELD);
+    let referenced = unhex(REFERENCE);
 
-    assert_eq!(signed_info.to_xmldsig_fragment().unwrap(), expected);
-    assert_eq!(SignedInfo::from_xmldsig_fragment(&expected).unwrap(), signed_info);
+    // The default is the field's.
+    assert_eq!(signed_info.to_xmldsig_fragment().unwrap(), field);
+    assert_eq!(
+        signed_info.to_xmldsig_fragment_with(ValueCoding::Referenced).unwrap(),
+        referenced,
+        "this codec must still be able to produce exificient's bytes exactly"
+    );
+
+    // And both read back to the same structure, which is why verifying under
+    // either is not leniency about content.
+    assert_eq!(SignedInfo::from_xmldsig_fragment(&field).unwrap(), signed_info);
+    assert_eq!(SignedInfo::from_xmldsig_fragment(&referenced).unwrap(), signed_info);
+    assert!(field.len() > referenced.len(), "spelling it out costs bytes; that is the trade");
 }

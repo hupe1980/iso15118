@@ -6,6 +6,7 @@
 //! willing to accept and refuses anything else, rather than trusting whatever
 //! the message asks for.
 
+use crate::exi::ValueCoding;
 use alloc::vec::Vec;
 
 use crate::iso20::messages::{
@@ -96,6 +97,20 @@ pub fn verify(
     hash: &impl Hash,
     verifier: &impl Verify,
 ) -> Result<(), PncError> {
+    super::either_coding(|coding| {
+        verify_with(signature, elements, accepted, hash, verifier, coding)
+    })
+}
+
+/// [`verify`], pinned to one [`ValueCoding`] for the `SignedInfo` bytes.
+pub fn verify_with(
+    signature: &Signature,
+    elements: &[Signed<'_>],
+    accepted: &[Suite],
+    hash: &impl Hash,
+    verifier: &impl Verify,
+    coding: ValueCoding,
+) -> Result<(), PncError> {
     let info = &signature.signed_info;
     // \[V2G2-771\]: three attributes the schema carries and the profile
     // forbids. Checked first, because a signature that uses one is not a
@@ -123,7 +138,7 @@ pub fn verify(
         )?;
     }
 
-    let canonical = info.to_xmldsig_fragment()?;
+    let canonical = info.to_xmldsig_fragment_with(coding)?;
     verifier.verify(suite, &canonical, &signature.signature_value.value)
 }
 
@@ -133,8 +148,11 @@ fn transform_algorithms(transforms: Option<&Transforms>) -> Option<impl Iterator
 }
 
 /// The `SignedInfo` bytes a signer must sign, for a signature already built.
-pub fn canonical_signed_info(signature: &Signature) -> Result<Vec<u8>, PncError> {
-    Ok(signature.signed_info.to_xmldsig_fragment()?)
+///
+/// See [`iso2::signed_info_bytes`](super::iso2::signed_info_bytes) for why the
+/// coding is a parameter rather than the word "canonical".
+pub fn signed_info_bytes(signature: &Signature, coding: ValueCoding) -> Result<Vec<u8>, PncError> {
+    Ok(signature.signed_info.to_xmldsig_fragment_with(coding)?)
 }
 
 // ---------------------------------------------------------------------------
@@ -189,8 +207,17 @@ pub fn verify_authorization(
     if mode.id.is_empty() {
         return Err(PncError::MissingId);
     }
-    let fragment = mode.to_fragment()?;
-    verify(signature, &[Signed::new(&mode.id, &fragment)], accepted, hash, verifier)
+    super::either_coding(|coding| {
+        let fragment = mode.to_fragment_with(coding)?;
+        verify_with(
+            signature,
+            &[Signed::new(&mode.id, &fragment)],
+            accepted,
+            hash,
+            verifier,
+            coding,
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -235,8 +262,17 @@ pub fn verify_metering_data(
     if data.id.is_empty() {
         return Err(PncError::MissingId);
     }
-    let fragment = data.to_fragment()?;
-    verify(signature, &[Signed::new(&data.id, &fragment)], accepted, hash, verifier)
+    super::either_coding(|coding| {
+        let fragment = data.to_fragment_with(coding)?;
+        verify_with(
+            signature,
+            &[Signed::new(&data.id, &fragment)],
+            accepted,
+            hash,
+            verifier,
+            coding,
+        )
+    })
 }
 
 /// Checks that a `MeteringConfirmationReq` acknowledges the reading that was

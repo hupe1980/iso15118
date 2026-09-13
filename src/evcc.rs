@@ -322,9 +322,9 @@ impl Evcc {
     /// is ignored there.
     #[cfg(feature = "iso20-common")]
     #[cfg_attr(docsrs, doc(cfg(feature = "iso20-common")))]
-    pub fn resume(&mut self, service: crate::session::iso20::Service) {
+    pub fn resume(&mut self, energy_transfer: crate::session::iso20::EnergyTransfer) {
         if let Some(flow) = self.flow.as_mut() {
-            flow.resume(service);
+            flow.resume(energy_transfer);
         }
     }
 

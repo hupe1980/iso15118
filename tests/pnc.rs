@@ -11,6 +11,7 @@
 
 #![cfg(all(feature = "pnc", feature = "iso2"))]
 
+use iso15118::exi::ValueCoding;
 use iso15118::iso2::{Signature, Transform, Transforms};
 use iso15118::pnc::{self, Hash, PncError, Sign, Signed, Suite, Verify};
 
@@ -81,14 +82,54 @@ fn the_signature_has_the_shape_the_profile_prescribes() {
     assert_eq!(transforms.transform[0].algorithm, pnc::CANONICAL_EXI);
 }
 
-/// The signature is over the *canonical `SignedInfo` fragment*, not over the
-/// message and not over a document encoding of `SignedInfo`.
+/// The signature is over the `SignedInfo` **fragment**, not over the message
+/// and not over a document encoding of `SignedInfo`.
 #[test]
 fn the_signed_bytes_are_the_signed_info_fragment() {
     let signature = signed(&one());
-    let canonical = pnc::iso2::canonical_signed_info(&signature).unwrap();
-    assert_eq!(signature.signature_value.value, Sha.digest(Suite::EcdsaSha256, &canonical));
-    assert_eq!(canonical[0], 0x80, "an EXI stream, header and all");
+    let bytes = pnc::iso2::signed_info_bytes(&signature, ValueCoding::Literal).unwrap();
+    assert_eq!(signature.signature_value.value, Sha.digest(Suite::EcdsaSha256, &bytes));
+    assert_eq!(bytes[0], 0x80, "an EXI stream, header and all");
+}
+
+/// `SignedInfo` names the canonical-EXI URI **twice** — once in
+/// `CanonicalizationMethod` and once in the one `Transform` — and what this
+/// crate signs must spell it out both times.
+///
+/// This is the whole of the Plug & Charge interoperability defect that real
+/// captures found: writing the second occurrence as a string-table reference is
+/// what Canonical EXI asks for, and it is undecodable to `libcbv2g` and not
+/// what `RiseV2G` signs. The assertion is on the **bytes**, because every test
+/// that looked at the decoded structure passed while the signature was
+/// unverifiable by any real peer.
+#[test]
+fn the_signed_bytes_spell_the_transform_uri_out_both_times() {
+    let signature = signed(&one());
+    let bytes = pnc::iso2::signed_info_bytes(&signature, ValueCoding::Literal).unwrap();
+
+    // The URI is bit-shifted in the stream, so search for it the way it lands:
+    // the fragment is not byte-aligned, and a naive `windows` over ASCII would
+    // find nothing even when the value is written in full.
+    let occurrences = shifted_occurrences(&bytes, pnc::CANONICAL_EXI.as_bytes());
+    assert_eq!(
+        occurrences, 2,
+        "the canonical-EXI URI must appear twice in full, not once plus a reference"
+    );
+
+    // …and the referenced coding really is the other thing, so this test would
+    // have failed before the default changed.
+    let referenced = pnc::iso2::signed_info_bytes(&signature, ValueCoding::Referenced).unwrap();
+    assert!(referenced.len() < bytes.len(), "a reference is shorter than the value");
+    assert_eq!(shifted_occurrences(&referenced, pnc::CANONICAL_EXI.as_bytes()), 1);
+}
+
+/// Counts occurrences of `needle` in `haystack` at any bit offset.
+fn shifted_occurrences(haystack: &[u8], needle: &[u8]) -> usize {
+    let bits: Vec<bool> =
+        haystack.iter().flat_map(|b| (0..8).rev().map(move |i| (b >> i) & 1 == 1)).collect();
+    let want: Vec<bool> =
+        needle.iter().flat_map(|b| (0..8).rev().map(move |i| (b >> i) & 1 == 1)).collect();
+    bits.windows(want.len()).filter(|w| *w == want.as_slice()).count()
 }
 
 #[test]

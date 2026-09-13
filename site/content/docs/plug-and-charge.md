@@ -1,6 +1,6 @@
 +++
 title = "Plug & Charge"
-description = "The ISO 15118 XML signature profile over EXI fragments: what gets digested, why SignedInfo uses a different schema, what verification refuses, and what a valid signature does not prove."
+description = "The ISO 15118 XML signature profile over EXI fragments: what gets digested, why SignedInfo uses a different schema, why the canonical-EXI URI is written out twice, what verification refuses, and what a valid signature does not prove."
 weight = 70
 
 [extra]
@@ -23,9 +23,9 @@ SignedInfo
 SignatureValue            = ECDSA(H(EXI fragment of SignedInfo))
 ```
 
-## The two invisible details
+## The three invisible details
 
-Both decide whether anyone else can verify what you produce, and neither is
+Each decides whether anyone else can verify what you produce, and none is
 visible from the XML.
 
 **1. The digested bytes are the element as an EXI _fragment_, not as an EXI
@@ -38,8 +38,33 @@ indexed by every element qname the schema *declares* — 281 in ISO 15118-20
 15118-2 Annex J — not against the V2G schema set that imports it. OpenV2G
 originally shipped the other reading and changed it for interoperability.
 
-Both are pinned here against the EXI reference implementation, which is the only
-way to know either of them is right.
+**3. The canonical-EXI URI is written out both times it appears.** It occurs
+twice in the skeleton above — once in `CanonicalizationMethod`, once in the
+single `Transform`. EXI lets the second be a short reference into the value
+string table and **Canonical EXI requires it**, but `libcbv2g` — the codec
+EVerest ships — has no string table and returns
+`EXI_ERROR__STRINGVALUES_NOT_SUPPORTED` rather than decode one, and RiseV2G
+writes the URI out in full. A signature in the form the specification prefers is
+one no deployed peer can verify.
+
+This crate signs the form the field signs, and verifies either — the field's
+first, then the canonical one:
+
+```rust,no_run
+use iso15118::exi::ValueCoding;
+# use iso15118::pnc;
+# fn f(sig: &iso15118::iso2::Signature) -> Result<(), pnc::PncError> {
+let field = pnc::iso2::signed_info_bytes(sig, ValueCoding::Literal)?;
+let canonical = pnc::iso2::signed_info_bytes(sig, ValueCoding::Referenced)?;
+# Ok(()) }
+```
+
+Trying both is not leniency about content: the algorithms, the transforms, the
+forbidden attributes and the coverage are checked once on the decoded
+`SignedInfo`, before either attempt. Only the serialisation differs.
+
+All three are pinned — the first two against the EXI reference implementation,
+the third against captured sessions. See [Verification](@/docs/verification.md).
 
 ## Signing
 

@@ -21,7 +21,9 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::exi::{Decoder, Encoder, ExiDocument, ExiError, ExiResult, Header, Lengths, ValueCtx};
+use crate::exi::{
+    Decoder, Encoder, ExiDocument, ExiError, ExiResult, Header, Lengths, ValueCoding, ValueCtx,
+};
 use crate::{Error, Protocol, Protocols, Result};
 
 /// Maximum number of `AppProtocol` entries a request may carry (`maxOccurs`).
@@ -500,11 +502,11 @@ impl SupportedAppProtocolRes {
 }
 
 impl ExiDocument for SupportedAppProtocolReq {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
         if self.app_protocols.is_empty() || self.app_protocols.len() > MAX_APP_PROTOCOLS {
             return Err(ExiError::ValueTooLong);
         }
-        let mut e = Encoder::new(buf);
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(Header::ISO15118)?;
         e.event(EC_REQ, W_ROOT)?;
 
@@ -558,8 +560,8 @@ impl ExiDocument for SupportedAppProtocolReq {
 }
 
 impl ExiDocument for SupportedAppProtocolRes {
-    fn to_slice(&self, buf: &mut [u8]) -> ExiResult<usize> {
-        let mut e = Encoder::new(buf);
+    fn to_slice_with(&self, buf: &mut [u8], coding: ValueCoding) -> ExiResult<usize> {
+        let mut e = Encoder::with_value_coding(buf, coding);
         e.write_header(Header::ISO15118)?;
         e.event(EC_RES, W_ROOT)?;
 

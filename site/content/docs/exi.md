@@ -129,18 +129,45 @@ is indexed by every element qname the schema *declares* (281 in ISO 15118-20
 
 ## The value string table
 
-Every string *value* an EXI stream carries is offered to a two-level table first:
-a partition local to the element or attribute it belongs to, and a partition
-global to the whole document. A repeat costs a couple of bits instead of its
-characters, which is why a certificate chain sent twice in one session is nearly
-free the second time.
+Every string *value* may be written into a two-level table — a partition local to
+its element or attribute, and one global to the document — so that a later
+occurrence can be a short reference instead of the characters again.
 
-Getting this wrong is not a size regression, it is a wire incompatibility: reader
-and writer must add entries in exactly the same order or every subsequent index
-desynchronises. The subtle rule is that **EXI populates a partition only when a
-value is coded literally.** A value found in the *global* partition is not added
-to the local one — and doing otherwise desynchronises as soon as one string
-appears under two element names, which is most real messages.
+**This codec decodes both forms and writes only one.** `ValueCoding::Literal` is
+the default: every value written out in full. A reference is what `exificient`
+produces and what Canonical EXI requires — *"a string value MUST be represented
+using a compact identifier if possible"* — and it is also what no deployed
+implementation can read. `libcbv2g`, the codec [EVerest](https://everest.energy)
+ships, has no value table: its decoder subtracts the literal's length offset of
+two and returns `EXI_ERROR__STRINGVALUES_NOT_SUPPORTED` for anything shorter. A
+message carrying a reference is not larger for that peer, it is undecodable.
+
+```rust
+use iso15118::exi::{ExiDocument, ValueCoding};
+# use iso15118::app_protocol::SupportedAppProtocolReq;
+# use iso15118::Protocol;
+# let msg = SupportedAppProtocolReq::advertising([Protocol::Iso20, Protocol::Iso2]);
+let interoperable = msg.to_vec()?;                          // every value in full
+let canonical = msg.to_vec_with(ValueCoding::Referenced)?;  // what exificient writes
+# Ok::<_, iso15118::exi::ExiError>(())
+```
+
+Signature verification accepts either, since a peer may have canonicalised
+properly — see [Plug & Charge](@/docs/plug-and-charge.md).
+
+The table arithmetic is exact either way, and the rule that catches people is
+that **EXI populates a partition only when a value is coded literally**: a value
+found in the *global* partition is not added to the local one. All 121 message
+types are checked byte for byte against `exificient` in `Referenced` mode.
+
+### Keep string values ASCII
+
+`libcbv2g` reads and writes one **octet** per character and rejects anything
+above 127. EXI specifies a character as a Unicode code point, which is what this
+crate writes — so for ASCII the two agree exactly and above it they do not agree
+at all. `"Ladesäule"` as a `ServiceName` is valid ISO 15118 and undecodable to
+EVerest. This crate does not refuse it: the schema permits it, and silently
+transliterating your data would be the worse failure.
 
 ## Using the codec directly
 

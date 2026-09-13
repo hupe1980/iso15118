@@ -150,6 +150,13 @@ Leaving this out is the class of bug behind EVerest's
 a peer keeps walking the flow as though the refusal had not happened. Here it is
 a state, two lines of graph, and a test.
 
+The station still has to *send* the refusal, and the response it needs is
+whatever type the request paired with — usually with nothing to put in it.
+`Message::refusal(response_code)` returns that response with every other field
+at the schema's minimum, so it always encodes. Building one by hand with an
+empty required list does not, and the station then goes silent exactly where the
+standard told it to explain.
+
 ### `SessionStopReq` with `Terminate` is legal from any established phase
 
 Not only at the end of a completed charge. Vehicles abort — a fault, a driver

@@ -175,10 +175,15 @@ impl Profile {
             Self::SeccCertificate => Some(KeyUsage::DIGITAL_SIGNATURE),
             // Table F.4 marks `digitalSignature`, `nonRepudiation`,
             // `keyEncipherment` and `keyAgreement` on the contract certificate.
-            // Only the first two are required here: `keyAgreement` is what
-            // \[V2G2-822\] needs for the `CertificateInstallation` envelope,
-            // which this crate does not implement, and demanding a bit for a
-            // flow that is not here would refuse certificates that work.
+            // Only the first two are required *here*, and the reason is that
+            // this profile is about the certificate a vehicle **authorizes**
+            // with. `keyAgreement` is what \[V2G2-822\] needs for the
+            // `CertificateInstallation` envelope — which [`envelope`] does
+            // implement — but that bit belongs to the certificate doing the
+            // ECDH, and demanding it of every contract certificate presented
+            // for authorization would refuse certificates that work.
+            //
+            // [`envelope`]: crate::pnc::envelope
             Self::ContractCertificate => {
                 Some(KeyUsage::DIGITAL_SIGNATURE.and(KeyUsage::NON_REPUDIATION))
             }
