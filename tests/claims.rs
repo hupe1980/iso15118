@@ -142,7 +142,10 @@ fn the_fuzz_target_count() {
 
 #[test]
 fn the_feature_flag_count() {
-    let manifest = fs::read_to_string(root().join("Cargo.toml")).expect("read Cargo.toml");
+    // A Windows checkout has CRLF line endings; the table is found by its lines.
+    let manifest = fs::read_to_string(root().join("Cargo.toml"))
+        .expect("read Cargo.toml")
+        .replace("\r\n", "\n");
     let features = manifest
         .split("\n[features]\n")
         .nth(1)
