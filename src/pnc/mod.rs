@@ -16,81 +16,49 @@
 //! SignatureValue            = ECDSA(H(EXI fragment of SignedInfo))
 //! ```
 //!
-//! Two details decide whether anyone else can verify what this produces, and
-//! both are invisible from the XML:
+//! Two details decide interoperability, both invisible from the XML:
 //!
-//! 1. The bytes that get digested are the element as an **EXI fragment**, not
-//!    as an EXI document. The two differ from their very first event code,
-//!    because a fragment is indexed by every element qname the schema
-//!    *declares* and a document only by its global elements.
-//! 2. `SignedInfo` itself is encoded against the **xmldsig schema alone** —
-//!    ISO 15118-2 Annex J — and not against the V2G schema set that imports it.
-//!    `OpenV2G` originally did the latter and changed for interoperability.
+//! 1. The digested bytes are the element as an **EXI fragment**, not a
+//!    document — a fragment is indexed by every declared element qname, a
+//!    document only by its global elements.
+//! 2. `SignedInfo` is encoded against the **xmldsig schema alone** (ISO 15118-2
+//!    Annex J), not the V2G schema set that imports it.
 //!
 //! Both are pinned here by vectors from the EXI reference implementation, in
 //! `tests/iso2_messages.rs` and `tests/reference_messages.rs`.
 //!
 //! # Crypto is yours
 //!
-//! This module computes *what* to hash and *what* to sign, and checks the
-//! result. It does not contain a hash or a curve: [`Hash`], [`Sign`] and
-//! [`Verify`] are one-method traits, so the same code runs on `RustCrypto`, on a
-//! TPM, or on a secure element — which is what ISO 15118-20 anticipates for
-//! contract keys, and what an ECU with a hardware key store needs.
-//!
-//! For the case where the key really is just bytes in memory — a charging
-//! station on a general-purpose CPU, or a test — the `pnc-rustcrypto` feature
-//! ships [`rustcrypto`], which is those three traits over `sha2`, `p256` and
-//! `p521` and nothing else.
+//! This module computes *what* to hash and sign, and checks the result. [`Hash`],
+//! [`Sign`] and [`Verify`] are one-method traits, so the same code runs on
+//! `RustCrypto`, a TPM or a secure element. The `pnc-rustcrypto` feature ships
+//! [`rustcrypto`]: those traits over `sha2`, `p256` and `p521`, plus `aes` and
+//! `cbc` for the contract-key [`envelope`].
 //!
 //! # Verification is the security boundary
 //!
 //! [`iso2::verify`] and [`iso20::verify`] refuse a signature that:
 //!
 //! * names a canonicalisation, transform or digest algorithm outside the
-//!   profile — a signature is only as strong as the weakest algorithm it is
-//!   allowed to name;
-//! * asks for MAC truncation through `HMACOutputLength`, the field behind
-//!   CVE-2009-0217. ISO 15118 has no HMAC suite at all, so a signature naming it
-//!   is not one this profile describes;
+//!   profile;
+//! * asks for MAC truncation through `HMACOutputLength` (CVE-2009-0217) — the
+//!   profile has no HMAC suite;
 //! * covers an element the caller did not supply, or leaves one the caller did
-//!   supply uncovered. Both directions matter: the first is a signature over
-//!   something you are not checking, the second is content nobody signed. XML
-//!   signature wrapping is exactly this, and it is why the check is on both
-//!   sides rather than "every reference I recognise verifies".
+//!   supply uncovered — both directions, which is what defeats XML signature
+//!   wrapping.
 //!
 //! Digests are compared without an early return, so a mismatch does not leak
 //! where it first differed.
 //!
 //! # ...and a valid signature is not an authorization
 //!
-//! All of that establishes that *the contract's key signed these bytes*. It
-//! does not establish that the bytes belong to the session in front of you: a
-//! signature captured from a charge last week is a perfectly valid signature.
-//! What separates the two is the `GenChallenge` the station issues and the
-//! vehicle signs back, and the check that closes the loop is the one that gets
-//! left out — the signature is verified, the echoed nonce is not looked at, and
-//! the binding it exists to provide is not there.
-//!
-//! So `iso2::verify_authorization` and `iso20::verify_authorization` do both
-//! halves in one call and offer no way to ask for only the first. See
-//! [`GenChallenge`].
-//!
-//! It still does not establish that the *key* is one to trust. That is
-//! certificate-chain validation, and it is [`pki`] — a separate question with a
-//! separate answer, because the two are independent: the challenge binding says
-//! *which session* a signature is about, and the chain says *whose key* made
-//! it. A crate that did one and implied the other would be the more dangerous
-//! kind of half-done.
-//!
-//! And [`envelope`] is the third question, which only comes up once: when a
-//! contract certificate is *delivered*, its private key comes with it, encrypted
-//! under an ECDH secret. That is the one place in ISO 15118 where a secret
-//! crosses the wire.
-//!
-//! What none of them establishes is that the vehicle is plugged into this
-//! station rather than into a relay, which the standard does not let anyone
-//! establish.
+//! A signature captured from last week's charge is still a valid signature.
+//! `iso2::verify_authorization` and `iso20::verify_authorization` check the
+//! signature *and* the echoed [`GenChallenge`] in one call, with no way to ask
+//! for only the first. Whether the *key* is one to trust is [`pki`]; the
+//! contract key delivered with a certificate is [`envelope`]. None of them can
+//! establish that the vehicle is plugged into this station rather than into a
+//! relay — the standard gives no way to.
 
 use alloc::string::String;
 use alloc::vec::Vec;

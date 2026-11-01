@@ -11752,6 +11752,27 @@ impl Document {
             _ => return None,
         })
     }
+
+    /// Every request of this schema set, each at the
+    /// schema's minimum — the set [`Document::refusal`] answers.
+    #[must_use]
+    pub fn requests() -> Vec<Self> {
+        alloc::vec![
+            Self::AuthorizationReq(AuthorizationReq::minimal()),
+            Self::AuthorizationSetupReq(AuthorizationSetupReq::minimal()),
+            Self::CertificateInstallationReq(CertificateInstallationReq::minimal()),
+            Self::MeteringConfirmationReq(MeteringConfirmationReq::minimal()),
+            Self::PowerDeliveryReq(PowerDeliveryReq::minimal()),
+            Self::ScheduleExchangeReq(ScheduleExchangeReq::minimal()),
+            Self::ServiceDetailReq(ServiceDetailReq::minimal()),
+            Self::ServiceDiscoveryReq(ServiceDiscoveryReq::minimal()),
+            Self::ServiceSelectionReq(ServiceSelectionReq::minimal()),
+            Self::SessionSetupReq(SessionSetupReq::minimal()),
+            Self::SessionStopReq(SessionStopReq::minimal()),
+            Self::VehicleCheckInReq(VehicleCheckInReq::minimal()),
+            Self::VehicleCheckOutReq(VehicleCheckOutReq::minimal()),
+        ]
+    }
 }
 
 impl Document {

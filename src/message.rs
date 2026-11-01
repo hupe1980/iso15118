@@ -54,6 +54,50 @@ pub enum Message {
     #[cfg(feature = "iso20-acdp")]
     #[cfg_attr(docsrs, doc(cfg(feature = "iso20-acdp")))]
     Iso20Acdp(Box<crate::iso20::acdp::Document>),
+    /// An ISO 15118-20 Amd 1 `AC_DER_IEC` message: the AC set as Amd 1's
+    /// distributed-energy-resource schema extends it, so the AC messages carry
+    /// the DER members as well.
+    #[cfg(feature = "iso20-ac-der-iec")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "iso20-ac-der-iec")))]
+    Iso20AcDerIec(Box<crate::iso20::ac_der_iec::Document>),
+    /// An ISO 15118-20 Amd 1 `AC_DER_SAE` message: the AC set as Amd 1's
+    /// distributed-energy-resource schema extends it, so the AC messages carry
+    /// the DER members as well.
+    #[cfg(feature = "iso20-ac-der-sae")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "iso20-ac-der-sae")))]
+    Iso20AcDerSae(Box<crate::iso20::ac_der_sae::Document>),
+}
+
+/// Reads an AC charge loop: the plain AC set and the two `AC_DER` sets share
+/// these types field for field, as separate Rust types per schema set.
+///
+/// The two *dynamic* control modes restate the energy request on every turn of
+/// the loop, which is what a load manager tracks. The scheduled ones do not: a
+/// vehicle following a schedule is not asking for an amount. The `AC_DER`
+/// control modes carry grid-code settings, not a request, and fall through.
+#[cfg(any(feature = "iso20-ac", feature = "iso20-ac-der-iec", feature = "iso20-ac-der-sae"))]
+macro_rules! ac_charge_loop_status {
+    ($set:ident, $m:expr) => {{
+        use crate::iso20::$set::{ACChargeLoopReqChoice as C, Document as D};
+        let D::ACChargeLoopReq(r) = &**$m else { return None };
+        let mut out = display_energy_status(r.display_parameters.as_ref());
+        match &r.choice {
+            C::DynamicACCLReqControlMode(c) => out.take_request(
+                c.departure_time,
+                &c.ev_target_energy_request,
+                &c.ev_minimum_energy_request,
+                &c.ev_maximum_energy_request,
+            ),
+            C::BPTDynamicACCLReqControlMode(c) => out.take_request(
+                c.departure_time,
+                &c.ev_target_energy_request,
+                &c.ev_minimum_energy_request,
+                &c.ev_maximum_energy_request,
+            ),
+            _ => {}
+        }
+        Some(out)
+    }};
 }
 
 impl Message {
@@ -122,6 +166,18 @@ impl Message {
                     .map(|m| Self::Iso20Acdp(Box::new(m)))
                     .map_err(MessageError::Exi)
             }
+            #[cfg(feature = "iso20-ac-der-iec")]
+            (PayloadType::Part20AcDerIec, Some(Protocol::Iso20)) => {
+                crate::iso20::ac_der_iec::Document::from_bytes(bytes)
+                    .map(|m| Self::Iso20AcDerIec(Box::new(m)))
+                    .map_err(MessageError::Exi)
+            }
+            #[cfg(feature = "iso20-ac-der-sae")]
+            (PayloadType::Part20AcDerSae, Some(Protocol::Iso20)) => {
+                crate::iso20::ac_der_sae::Document::from_bytes(bytes)
+                    .map(|m| Self::Iso20AcDerSae(Box::new(m)))
+                    .map_err(MessageError::Exi)
+            }
             // Nothing matched, and the two reasons are not the same fault.
             _ if !payload_type.belongs_to(protocol) => {
                 // A message for a session other than this one — a -20 payload
@@ -155,6 +211,10 @@ impl Message {
             Self::Iso20Wpt(m) => m.to_vec(),
             #[cfg(feature = "iso20-acdp")]
             Self::Iso20Acdp(m) => m.to_vec(),
+            #[cfg(feature = "iso20-ac-der-iec")]
+            Self::Iso20AcDerIec(m) => m.to_vec(),
+            #[cfg(feature = "iso20-ac-der-sae")]
+            Self::Iso20AcDerSae(m) => m.to_vec(),
         }
         .map_err(MessageError::Exi)?;
         Ok((self.payload_type(), bytes))
@@ -177,6 +237,10 @@ impl Message {
             Self::Iso20Wpt(_) => PayloadType::Part20Wpt,
             #[cfg(feature = "iso20-acdp")]
             Self::Iso20Acdp(_) => PayloadType::Part20Acdp,
+            #[cfg(feature = "iso20-ac-der-iec")]
+            Self::Iso20AcDerIec(_) => PayloadType::Part20AcDerIec,
+            #[cfg(feature = "iso20-ac-der-sae")]
+            Self::Iso20AcDerSae(_) => PayloadType::Part20AcDerSae,
         }
     }
 
@@ -212,6 +276,10 @@ impl Message {
             Self::Iso20Wpt(m) => m.name(),
             #[cfg(feature = "iso20-acdp")]
             Self::Iso20Acdp(m) => m.name(),
+            #[cfg(feature = "iso20-ac-der-iec")]
+            Self::Iso20AcDerIec(m) => m.name(),
+            #[cfg(feature = "iso20-ac-der-sae")]
+            Self::Iso20AcDerSae(m) => m.name(),
         }
     }
 
@@ -256,27 +324,26 @@ impl Message {
             Self::Iso20Wpt(m) => m.response_code().map(|c| classify(c.is_ok(), c.is_warning())),
             #[cfg(feature = "iso20-acdp")]
             Self::Iso20Acdp(m) => m.response_code().map(|c| classify(c.is_ok(), c.is_warning())),
+            #[cfg(feature = "iso20-ac-der-iec")]
+            Self::Iso20AcDerIec(m) => {
+                m.response_code().map(|c| classify(c.is_ok(), c.is_warning()))
+            }
+            #[cfg(feature = "iso20-ac-der-sae")]
+            Self::Iso20AcDerSae(m) => {
+                m.response_code().map(|c| classify(c.is_ok(), c.is_warning()))
+            }
         }
     }
 
     /// What this message says about the vehicle's battery, if anything.
     ///
-    /// `None` for a message that carries no battery information at all — every
-    /// response, the handshake, and the requests that are pure protocol.
+    /// `None` for a message that carries no battery information — every
+    /// response, the handshake, and the pure-protocol requests. See
+    /// [`EvEnergyStatus`].
     ///
-    /// This is the one question a consumer above the protocol actually has, and
-    /// answering it otherwise means knowing both message sets: -2 hides a state of
-    /// charge in `DC_EVStatus` on six different requests and its energy figures
-    /// in `ChargeParameterDiscoveryReq`, while -20 puts the state of charge in
-    /// `DisplayParameters` on the charge loop and the energy figures in
-    /// `ScheduleExchangeReq`. See [`EvEnergyStatus`].
-    ///
-    /// An energy value in a unit that is not watt-hours is dropped rather than
-    /// converted, and so is one that cannot be scaled to an exact integer —
-    /// both are `None`, on the principle that a wrong number is worse than no
-    /// number for a quantity somebody is billed for.
-    /// Present only when a build has a message set to read one out of — with
-    /// neither generation enabled there is no message that carries a battery.
+    /// An energy value not in watt-hours, or not scalable to an exact integer, is
+    /// `None` rather than converted: a wrong number is worse than none for a
+    /// quantity somebody is billed for.
     #[must_use]
     #[cfg(any(feature = "iso2", feature = "iso20-common"))]
     #[cfg_attr(docsrs, doc(cfg(any(feature = "iso2", feature = "iso20-common"))))]
@@ -287,31 +354,11 @@ impl Message {
             #[cfg(feature = "iso20-common")]
             Self::Iso20(m) => iso20_common_energy_status(m)?,
             #[cfg(feature = "iso20-ac")]
-            Self::Iso20Ac(m) => {
-                use crate::iso20::ac::ACChargeLoopReqChoice as C;
-                let crate::iso20::ac::Document::ACChargeLoopReq(r) = &**m else { return None };
-                let mut out = display_energy_status(r.display_parameters.as_ref());
-                // The four *dynamic* control modes restate the energy request
-                // on every turn of the loop, which is what a load manager
-                // tracks. The scheduled ones do not: a vehicle following a
-                // schedule is not asking for an amount.
-                match &r.choice {
-                    C::DynamicACCLReqControlMode(c) => out.take_request(
-                        c.departure_time,
-                        &c.ev_target_energy_request,
-                        &c.ev_minimum_energy_request,
-                        &c.ev_maximum_energy_request,
-                    ),
-                    C::BPTDynamicACCLReqControlMode(c) => out.take_request(
-                        c.departure_time,
-                        &c.ev_target_energy_request,
-                        &c.ev_minimum_energy_request,
-                        &c.ev_maximum_energy_request,
-                    ),
-                    _ => {}
-                }
-                out
-            }
+            Self::Iso20Ac(m) => ac_charge_loop_status!(ac, m)?,
+            #[cfg(feature = "iso20-ac-der-iec")]
+            Self::Iso20AcDerIec(m) => ac_charge_loop_status!(ac_der_iec, m)?,
+            #[cfg(feature = "iso20-ac-der-sae")]
+            Self::Iso20AcDerSae(m) => ac_charge_loop_status!(ac_der_sae, m)?,
             #[cfg(feature = "iso20-dc")]
             Self::Iso20Dc(m) => {
                 use crate::iso20::dc::DCChargeLoopReqChoice as C;
@@ -421,6 +468,16 @@ impl Message {
                 let code = crate::iso20::common::ResponseCode::from_index(u64::from(code)).ok()?;
                 Some(Self::Iso20Acdp(alloc::boxed::Box::new(m.refusal(code)?)))
             }
+            #[cfg(feature = "iso20-ac-der-iec")]
+            Self::Iso20AcDerIec(m) => {
+                let code = crate::iso20::common::ResponseCode::from_index(u64::from(code)).ok()?;
+                Some(Self::Iso20AcDerIec(alloc::boxed::Box::new(m.refusal(code)?)))
+            }
+            #[cfg(feature = "iso20-ac-der-sae")]
+            Self::Iso20AcDerSae(m) => {
+                let code = crate::iso20::common::ResponseCode::from_index(u64::from(code)).ok()?;
+                Some(Self::Iso20AcDerSae(alloc::boxed::Box::new(m.refusal(code)?)))
+            }
         }
     }
 
@@ -452,6 +509,10 @@ impl Message {
             Self::Iso20Wpt(m) => header_session_id(m.header()),
             #[cfg(feature = "iso20-acdp")]
             Self::Iso20Acdp(m) => header_session_id(m.header()),
+            #[cfg(feature = "iso20-ac-der-iec")]
+            Self::Iso20AcDerIec(m) => header_session_id(m.header()),
+            #[cfg(feature = "iso20-ac-der-sae")]
+            Self::Iso20AcDerSae(m) => header_session_id(m.header()),
         }
     }
 
@@ -504,6 +565,10 @@ impl Message {
             Self::Iso20Wpt(m) => set_header_session_id(m.header_mut(), id),
             #[cfg(feature = "iso20-acdp")]
             Self::Iso20Acdp(m) => set_header_session_id(m.header_mut(), id),
+            #[cfg(feature = "iso20-ac-der-iec")]
+            Self::Iso20AcDerIec(m) => set_header_session_id(m.header_mut(), id),
+            #[cfg(feature = "iso20-ac-der-sae")]
+            Self::Iso20AcDerSae(m) => set_header_session_id(m.header_mut(), id),
         }
     }
 }
@@ -596,7 +661,13 @@ fn iso20_common_energy_status(doc: &crate::iso20::messages::Document) -> Option<
 
 /// Reads the ISO 15118-20 charge-loop side, which is the same `DisplayParameters`
 /// for AC, DC and WPT.
-#[cfg(any(feature = "iso20-ac", feature = "iso20-dc", feature = "iso20-wpt"))]
+#[cfg(any(
+    feature = "iso20-ac",
+    feature = "iso20-dc",
+    feature = "iso20-wpt",
+    feature = "iso20-ac-der-iec",
+    feature = "iso20-ac-der-sae"
+))]
 fn display_energy_status(p: Option<&crate::iso20::common::DisplayParameters>) -> EvEnergyStatus {
     let Some(p) = p else { return EvEnergyStatus::default() };
     EvEnergyStatus {
@@ -637,29 +708,18 @@ fn set_header_session_id(
 
 /// Energy in milliwatt-hours.
 ///
-/// Exact integers rather than a float, for the reason
-/// [`schedule::Milliwatts`](crate::session::iso2::schedule::Milliwatts) gives:
-/// these numbers decide how much energy a vehicle is sold, and a rounding error
-/// there is a billing error. Milliwatt-hours hold every value either generation
-/// can express — `i16::MAX * 10^6` at the widest — four orders of magnitude
-/// inside the type, with no rounding and no floating point anywhere near it.
+/// Exact integers, not floats: these numbers decide what a vehicle is sold.
+/// Every value either generation can express — `i16::MAX * 10^6` at the widest —
+/// fits with room to spare.
 pub type MilliwattHours = i64;
 
 /// What the vehicle has said about its battery, whichever generation said it.
 ///
-/// The two generations carry this in different places, in different types, in
-/// different messages: ISO 15118-2 puts a state of charge in `DC_EVStatus` —
-/// which rides on six different requests — and the energy figures in
-/// `ChargeParameterDiscoveryReq`, while ISO 15118-20 puts the state of charge
-/// in `DisplayParameters` on every charge-loop message and the energy figures
-/// in `ScheduleExchangeReq`. A caller that wanted the vehicle's state of
-/// charge therefore had to know both message sets, both control modes and both numeric
-/// encodings to ask one question.
-///
-/// This is that question asked once. Every field is `Option` because every one
-/// of them is optional *somewhere*: a -2 AC session states no charge level at all, and a
-/// -20 charge loop need not carry `DisplayParameters`. `None` means "this
-/// message did not say", never "zero".
+/// ISO 15118-2 puts a state of charge in `DC_EVStatus` (on six requests) and
+/// the energy figures in `ChargeParameterDiscoveryReq`; ISO 15118-20 puts them
+/// in `DisplayParameters` on the charge loop and in `ScheduleExchangeReq` or a
+/// dynamic control mode. This reads either into one view. Every field is
+/// optional somewhere, so `None` means "this message did not say", never zero.
 ///
 /// ```
 /// # #[cfg(feature = "iso2")] {
@@ -746,7 +806,12 @@ impl EvEnergyStatus {
     /// The four dynamic modes — AC and DC, each with and without bidirectional
     /// power transfer — declare these four fields identically, so reading them
     /// is one function rather than four copies of one.
-    #[cfg(any(feature = "iso20-ac", feature = "iso20-dc"))]
+    #[cfg(any(
+        feature = "iso20-ac",
+        feature = "iso20-dc",
+        feature = "iso20-ac-der-iec",
+        feature = "iso20-ac-der-sae"
+    ))]
     fn take_request(
         &mut self,
         departure: Option<u32>,

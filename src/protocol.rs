@@ -1,37 +1,17 @@
 //! Which generation of the protocol a session speaks — and which set of them a
 //! piece of equipment implements.
 //!
-//! Two types, answering two different questions.
-//!
-//! [`Protocol`] is the outcome of the `supportedAppProtocol` handshake: one
-//! generation, the one this session settled on. [`Protocols`] is a set of them
-//! in preference order: what an EVCC will offer, what an SECC will accept, and
-//! — for anyone who has to write it down on a datasheet or in a regulatory
-//! feed — what a piece of equipment implements, independently of any session.
+//! [`Protocol`] is the generation a session settled on. [`Protocols`] is a set in
+//! preference order: what an EVCC offers, what an SECC accepts, or what a piece
+//! of equipment implements. [`Iso20Set`] is an ISO 15118-20 message set as the
+//! handshake names it.
 //!
 //! # The names are deliberate
 //!
 //! [`Protocol::as_str`] gives `"din70121"`, `"iso15118-2"` and `"iso15118-20"`,
-//! and `FromStr` reads them back. The generation is in the name on purpose,
-//! because the vocabularies *around* this protocol are not so careful.
-//!
-//! The clearest example carries legal weight. DATEX II's
-//! `VehicleToGridCommunicationTypeEnum` — carried in the feed a European
-//! operator publishes so a regulator can check AFIR compliance — offers `none`,
-//! `iso15118`, `iec619802`, `other` and `unknown`, and **no literal for
-//! ISO 15118-2 at all**. The literal that omits the generation is the one
-//! pinned to one: plain "Communication according to ISO15118." in the base
-//! `EnergyInfrastructure` namespace, and "Communication according to
-//! ISO15118-20." in the `AfirEnergyInfrastructure` namespace added in DATEX II
-//! v3.7, which the German AFIR Recharging profile builds on. So an operator
-//! whose stations speak the 2014 generation, mapping "we do ISO 15118" onto
-//! `iso15118`, publishes a claim of conformance with a duty it does not meet,
-//! in a document no schema validator will object to.
-//!
-//! That is a DATEX II problem and not one this crate can fix. What it can do is
-//! refuse to add to it: a name this crate emits always says which generation it
-//! means, `FromStr` never accepts a bare `"iso15118"`, and the error it returns
-//! for one says why.
+//! and `FromStr` reads them back. A bare `"iso15118"` is refused, with an error
+//! saying why: it names neither generation, and some vocabularies around this
+//! protocol — DATEX II's AFIR feed among them — use it ambiguously.
 
 use core::fmt;
 use core::str::FromStr;
@@ -48,15 +28,15 @@ use core::str::FromStr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum Protocol {
-    /// DIN SPEC 70121 — legacy DC charging, EIM only, no TLS.
+    /// DIN/TS 70121 (formerly DIN SPEC 70121) — legacy DC charging, EIM only,
+    /// no TLS.
     ///
-    /// Recognised in the handshake so a charger can decline it explicitly
-    /// rather than by silence, but its message set is **not implemented**: the
-    /// DIN schemas are not freely available, and hand-transcribing them would
-    /// produce a codec with no reference to check against. See
+    /// Recognised in the handshake so a charger can decline it by name, but its
+    /// message set is **not implemented**: the licence of the DIN schemas does
+    /// not clearly permit committing code generated from them. See
     /// [`session::Flow::supports`](crate::session::Flow::supports), which is
-    /// how the role drivers know, and the crate's `roadmap` documentation for
-    /// what to do about it.
+    /// how the role drivers know; a caller with its own DIN codec drives
+    /// [`session::Connection`](crate::session::Connection) directly.
     Din70121,
     /// ISO 15118-2:2014.
     Iso2,
@@ -110,14 +90,22 @@ impl Protocol {
         }
     }
 
-    /// The XML namespace that identifies this protocol in the
-    /// `supportedAppProtocol` handshake.
+    /// The XML namespace this crate advertises for the protocol in the
+    /// `supportedAppProtocol` handshake when no message set is named.
+    ///
+    /// ISO 15118-2 and DIN SPEC 70121 have one namespace each. ISO 15118-20
+    /// names a **message set** in the handshake — `…:-20:DC`, `…:-20:AC` and four
+    /// more, see [`Iso20Set`] — so it has six, and this returns the DC one.
+    /// [`Protocol::from_namespace`] recognises all six. Deployed peers agree on
+    /// this and on nothing else: Josev's vehicle offers `…:-20:DC` or `…:-20:AC`,
+    /// and `EVerest`'s station accepts the DC, AC and two `AC_DER` namespaces and
+    /// no other.
     #[must_use]
     pub const fn namespace(self) -> &'static str {
         match self {
             Self::Din70121 => "urn:din:70121:2012:MsgDef",
             Self::Iso2 => "urn:iso:15118:2:2013:MsgDef",
-            Self::Iso20 => "urn:iso:std:iso:15118:-20:CommonMessages",
+            Self::Iso20 => Iso20Set::Dc.namespace(),
         }
     }
 
@@ -140,16 +128,85 @@ impl Protocol {
         }
     }
 
-    /// Recognises a protocol from its handshake namespace.
+    /// Recognises a protocol from its handshake namespace — any of the six
+    /// ISO 15118-20 message-set namespaces for [`Protocol::Iso20`].
     #[must_use]
     pub fn from_namespace(ns: &str) -> Option<Self> {
-        Self::ALL.iter().copied().find(|p| p.namespace() == ns)
+        if Iso20Set::from_namespace(ns).is_some() {
+            return Some(Self::Iso20);
+        }
+        [Self::Din70121, Self::Iso2].into_iter().find(|p| p.namespace() == ns)
     }
 
     /// Whether this protocol requires TLS unconditionally.
     #[must_use]
     pub const fn requires_tls(self) -> bool {
         matches!(self, Self::Iso20)
+    }
+}
+
+/// An ISO 15118-20 message set, as the `supportedAppProtocol` handshake names it.
+///
+/// ISO 15118-20 does not advertise one namespace for the whole generation: each
+/// entry a vehicle offers names the message set of one energy transfer service,
+/// `urn:iso:std:iso:15118:-20:` followed by the set. Every one of them selects
+/// [`Protocol::Iso20`]; which service the session then uses is decided later, by
+/// `ServiceSelectionReq`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
+pub enum Iso20Set {
+    /// `urn:iso:std:iso:15118:-20:DC`.
+    Dc,
+    /// `urn:iso:std:iso:15118:-20:AC`.
+    Ac,
+    /// `urn:iso:std:iso:15118:-20:WPT`.
+    Wpt,
+    /// `urn:iso:std:iso:15118:-20:ACDP`.
+    Acdp,
+    /// `urn:iso:std:iso:15118:-20:AC-DER-IEC` (Amd 1).
+    AcDerIec,
+    /// `urn:iso:std:iso:15118:-20:AC-DER-SAE` (Amd 1).
+    AcDerSae,
+}
+
+impl Iso20Set {
+    /// Every set, in the order [`Iso20Set::namespace`] lists them.
+    pub const ALL: [Self; 6] =
+        [Self::Dc, Self::Ac, Self::Wpt, Self::Acdp, Self::AcDerIec, Self::AcDerSae];
+
+    /// The handshake namespace — the schema's own target namespace.
+    #[must_use]
+    pub const fn namespace(self) -> &'static str {
+        match self {
+            Self::Dc => "urn:iso:std:iso:15118:-20:DC",
+            Self::Ac => "urn:iso:std:iso:15118:-20:AC",
+            Self::Wpt => "urn:iso:std:iso:15118:-20:WPT",
+            Self::Acdp => "urn:iso:std:iso:15118:-20:ACDP",
+            Self::AcDerIec => "urn:iso:std:iso:15118:-20:AC-DER-IEC",
+            Self::AcDerSae => "urn:iso:std:iso:15118:-20:AC-DER-SAE",
+        }
+    }
+
+    /// The set a handshake namespace names, exactly as spelled.
+    #[must_use]
+    pub fn from_namespace(ns: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| s.namespace() == ns)
+    }
+
+    /// Whether this build has the message sets a session of this kind needs.
+    ///
+    /// A pantograph needs two: ACDP to position and connect, DC for the rest.
+    #[must_use]
+    pub const fn is_compiled(self) -> bool {
+        match self {
+            Self::Dc => cfg!(feature = "iso20-dc"),
+            Self::Ac => cfg!(feature = "iso20-ac"),
+            Self::Wpt => cfg!(feature = "iso20-wpt"),
+            Self::Acdp => cfg!(all(feature = "iso20-acdp", feature = "iso20-dc")),
+            Self::AcDerIec => cfg!(feature = "iso20-ac-der-iec"),
+            Self::AcDerSae => cfg!(feature = "iso20-ac-der-sae"),
+        }
     }
 }
 
@@ -175,6 +232,11 @@ impl FromStr for Protocol {
         }
         if let Some(p) = Self::from_namespace(s) {
             return Ok(p);
+        }
+        // A namespace no peer sends, which releases before 0.6.0 stored for
+        // ISO 15118-20; such a record still reads back.
+        if s == "urn:iso:std:iso:15118:-20:CommonMessages" {
+            return Ok(Self::Iso20);
         }
         Err(ParseProtocolError::for_input(s))
     }
@@ -258,27 +320,15 @@ impl std::error::Error for ParseProtocolError {}
 
 /// A set of protocol generations, in preference order.
 ///
-/// Three jobs, and it is the same set each time:
+/// What an EVCC offers, most preferred first
+/// ([`EvccConfig::protocols`](crate::evcc::EvccConfig::protocols)); what an SECC
+/// accepts, where the vehicle's order decides
+/// ([`SeccConfig::protocols`](crate::secc::SeccConfig::protocols)); or what a
+/// piece of equipment implements.
 ///
-/// * what an EVCC offers, most preferred first — the order *is* the priority
-///   the charger is required to honour, so it is a real choice
-///   ([`EvccConfig::protocols`](crate::evcc::EvccConfig::protocols));
-/// * what an SECC will accept, where the order is ignored because the vehicle's
-///   priority decides ([`SeccConfig::protocols`](crate::secc::SeccConfig::protocols));
-/// * what a piece of equipment *implements*, which is a fact about a charger on
-///   a datasheet rather than about any connection — and the fact a regulator
-///   asks for.
-///
-/// `Copy`, allocation-free and `const`-constructible, so it costs nothing on an
-/// ECU and can be built at compile time or read out of a configuration file at
-/// run time. Entries are distinct: inserting a protocol twice keeps its first,
-/// most-preferred position.
-///
-/// Equality is **order-sensitive**, because the order is the vehicle's stated
-/// priority and the standard obliges the charger to honour it — two vehicles
-/// offering the same two generations in opposite orders are asking for
-/// different things. Compare membership with [`Protocols::contains`] where the
-/// order genuinely does not matter.
+/// `Copy`, allocation-free and `const`-constructible. Entries are distinct:
+/// inserting twice keeps the first position. Equality is **order-sensitive** —
+/// the order is a stated priority; use [`Protocols::contains`] for membership.
 ///
 /// ```
 /// use iso15118::{Protocol, Protocols};

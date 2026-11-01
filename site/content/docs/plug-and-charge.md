@@ -1,16 +1,13 @@
 +++
 title = "Plug & Charge"
-description = "The ISO 15118 XML signature profile over EXI fragments: what gets digested, why SignedInfo uses a different schema, why the canonical-EXI URI is written out twice, what verification refuses, and what a valid signature does not prove."
+description = "The ISO 15118 XML signature profile over EXI fragments in iso15118: what gets digested, how SignedInfo is encoded, what verification refuses, the challenge and metering bindings, and what a valid signature does not prove."
 weight = 70
 
 [extra]
 nav_title = "Plug & Charge"
 +++
 
-A V2G signature is an XML signature in shape only. Everything that makes XMLDSig
-hard — canonicalisation choices, arbitrary transforms, `KeyInfo`, enveloped
-signatures, `Object` — is nailed shut by ISO 15118, and what is left fits on a
-page:
+ISO 15118 restricts XMLDSig to one shape:
 
 ```text
 SignedInfo
@@ -23,32 +20,17 @@ SignedInfo
 SignatureValue            = ECDSA(H(EXI fragment of SignedInfo))
 ```
 
-## The three invisible details
+## Three details that decide interoperability
 
-Each decides whether anyone else can verify what you produce, and none is
-visible from the XML.
-
-**1. The digested bytes are the element as an EXI _fragment_, not as an EXI
-document.** The two differ from their very first event code, because a fragment is
-indexed by every element qname the schema *declares* — 281 in ISO 15118-20
-`CommonMessages` — and a document only by its global elements, of which there are
-54.
-
-**2. `SignedInfo` itself is encoded against the xmldsig schema _alone_** — ISO
-15118-2 Annex J — not against the V2G schema set that imports it. OpenV2G
-originally shipped the other reading and changed it for interoperability.
-
-**3. The canonical-EXI URI is written out both times it appears.** It occurs
-twice in the skeleton above — once in `CanonicalizationMethod`, once in the
-single `Transform`. EXI lets the second be a short reference into the value
-string table and **Canonical EXI requires it**, but `libcbv2g` — the codec
-EVerest ships — has no string table and returns
-`EXI_ERROR__STRINGVALUES_NOT_SUPPORTED` rather than decode one, and RiseV2G
-writes the URI out in full. A signature in the form the specification prefers is
-one no deployed peer can verify.
-
-This crate signs the form the field signs, and verifies either — the field's
-first, then the canonical one:
+1. **Digests cover the element as an EXI _fragment_**, not a document. Fragments
+   are indexed over every declared element (281 in ISO 15118-20 `CommonMessages`),
+   documents over global elements only (54) — they differ from the first event code.
+2. **`SignedInfo` is encoded against the xmldsig schema alone** (ISO 15118-2
+   Annex J), not the V2G schema set that imports it.
+3. **The canonical-EXI URI is written out both times.** Canonical EXI requires a
+   string-table reference for the second; `libcbv2g`, the codec EVerest ships, has
+   no string table and cannot decode one. This crate signs the literal form and
+   verifies either:
 
 ```rust,no_run
 use iso15118::exi::ValueCoding;
@@ -59,17 +41,14 @@ let canonical = pnc::iso2::signed_info_bytes(sig, ValueCoding::Referenced)?;
 # Ok(()) }
 ```
 
-Trying both is not leniency about content: the algorithms, the transforms, the
-forbidden attributes and the coverage are checked once on the decoded
-`SignedInfo`, before either attempt. Only the serialisation differs.
-
-All three are pinned — the first two against the EXI reference implementation,
-the third against captured sessions. See [Verification](@/docs/verification.md).
+Algorithms, transforms and coverage are checked once on the decoded `SignedInfo`;
+only the serialisation differs between the two attempts. All three details are
+pinned — see [Verification](@/docs/verification.md).
 
 ## Signing
 
-Every generated message type has a `to_fragment()`, which produces exactly the
-bytes the signature covers.
+`to_fragment()` on every generated message type produces the bytes a signature
+covers.
 
 ```rust,no_run
 use iso15118::pnc::{self, Signed};
@@ -78,65 +57,25 @@ let fragment = authorization_req.to_fragment()?;
 let signature = pnc::iso2::sign(&[Signed::new("ID1", &fragment)], &sha256, &key)?;
 ```
 
-`build_signed_info` is exposed separately, so a caller with an offline or remote
-signer can obtain the exact bytes to sign without this crate ever holding the key.
+`build_signed_info` gives a remote or offline signer the exact bytes to sign. For
+authorization, use `sign_authorization` / `verify_authorization` below.
 
-For the authorization exchange itself, prefer `sign_authorization` and
-`verify_authorization` below: they cover the same bytes and also carry the nonce
-that ties the signature to the session.
-
-## Verification is the security boundary
+## What verification refuses
 
 `pnc::{iso2,iso20}::verify` refuses a signature that:
 
-- names a **canonicalisation, transform or digest algorithm outside the profile** —
-  a signature is only as strong as the weakest algorithm it is allowed to name;
-- carries a `Transforms` list that is anything but exactly one canonical-EXI
-  transform. A transform is a program that runs over the signed bytes before they
-  are digested; allowing an unexpected one is allowing the signer to decide what
-  was signed;
-- asks for **MAC truncation** via `HMACOutputLength`. That is the field behind
-  CVE-2009-0217, where a verifier that honoured the truncation a signer chose
-  would accept a signature over one byte of MAC. ISO 15118 has no HMAC suite at
-  all, so a signature naming it is not one this profile describes;
-- **covers an element the caller did not supply**, or **leaves one the caller did
-  supply uncovered**. Both directions matter: the first is a signature over
-  something you are not checking, the second is content nobody signed. XML
-  signature wrapping is exactly that, which is why the check is on both sides
-  rather than "every reference I recognise verifies".
+- names a canonicalisation, transform or digest algorithm outside the profile;
+- has a `Transforms` list other than exactly one canonical-EXI transform;
+- carries `HMACOutputLength` (MAC truncation, CVE-2009-0217);
+- covers an element the caller did not supply, or leaves a supplied one uncovered
+  (signature wrapping).
 
-Digests are compared without an early return, so a mismatch does not leak where it
-first differed.
+`KeyInfo`, `Object`, `xs:any` wildcards and `XPath` transforms are refused at the
+codec: the key comes from the contract certificate chain, never from the signature.
+Digests compare in constant time. `pnc::iso20::verify` takes the suites the caller
+accepts and refuses others.
 
-### ...and what it is not allowed to carry at all
-
-`SignatureType` declares four children; ISO 15118 uses two. `KeyInfo` and
-`Object` stay in the **grammar** — they have to, or every event code after them
-shifts and nothing decodes — but they have no Rust form, and a peer that sends
-one is **refused, not skipped**.
-
-Skipping would be the dangerous answer. `KeyInfo` is where XMLDSig carries key
-material, and a verifier that takes a key out of the signature it is checking is
-checking that signature against itself. ISO 15118 takes the key from the contract
-certificate chain in the message body and nowhere else.
-
-The same applies to the `xs:any` wildcards inside `CanonicalizationMethod`,
-`DigestMethod` and `SignatureMethod`, and to `Transform`'s second branch — which
-is `XPath`, an expression language. All five are refused at the codec, before the
-profile checks above ever see them.
-
-ISO 15118-20 defines more than one suite, so the algorithm named in the signature
-would otherwise decide which one is in force — a decision an attacker would like
-to make. `pnc::iso20::verify` therefore takes the suites the *caller* is willing
-to accept and refuses anything else.
-
-## ...and a valid signature is not an authorization
-
-Everything above establishes that the contract's key signed *these bytes*. It says
-nothing about *when*, and a signature that could have been made last week is a
-signature an eavesdropper can replay. What closes that is the `GenChallenge`: the
-station picks sixteen random bytes, the vehicle echoes them inside the element it
-signs, and the station checks that what came back is the nonce it issued.
+## The challenge binds the signature to the session
 
 ```text
  ISO 15118-2                          ISO 15118-20
@@ -148,10 +87,8 @@ signs, and the station checks that what came back is the nonce it issued.
                                                ds:Signature over that
 ```
 
-Both halves have to hold, and it is the second one implementations leave out: the
-signature is verified, the echoed nonce is never looked at, and the check that was
-supposed to bind the signature to this session binds it to nothing. So the two
-checks are one call, and there is no way to ask for only the first.
+Signature and echoed challenge are checked in one call; there is no way to check
+only the signature.
 
 ```rust,no_run
 use iso15118::pnc::{self, GenChallenge};
@@ -163,32 +100,17 @@ let challenge = GenChallenge::new(rng.gen());
 pnc::iso2::verify_authorization(&request, &signature, &challenge, &sha256, &contract_key)?;
 ```
 
-The vehicle's half is `pnc::iso2::sign_authorization`, which fills in the `Id` and
-the echoed challenge and returns the `ds:Signature` for the message header.
-ISO 15118-20 has the same pair over `PnC_AReqAuthorizationMode`, plus its suite
-policy.
+`sign_authorization` is the vehicle's half. ISO 15118-20 has the same pair over
+`PnC_AReqAuthorizationMode`.
 
-A signature made for another session is a *perfectly valid* signature; it simply
-does not authorize this one. That is the whole of what the nonce buys, and it is
-[a test](https://github.com/hupe1980/iso15118/blob/main/tests/pnc.rs).
-
-## ...and the same again, for the money
-
-Authorization is not the only exchange where one side signs something the *other*
-side chose. The metering receipt is the other, and it is where the energy on the
-invoice comes from:
+## The metering receipt
 
 | | ISO 15118-2 | ISO 15118-20 |
 |---|---|---|
-| Who signs | the **vehicle** | the **station** |
+| Who signs | the vehicle | the station |
 | What | `MeteringReceiptReq` | `SignedMeteringData` |
 | Echoed by | — | the vehicle, in `MeteringConfirmationReq` |
-| The check that is forgotten | is this the reading *we* metered? | is this the reading *we* issued? |
-
-A vehicle that signs a `MeteringReceiptReq` signs whatever `MeterInfo` is in it.
-A station that verifies the signature and files the receipt — without checking
-that the reading inside is the one it actually metered — has a cryptographically
-impeccable record of a number the vehicle made up. So the check is the same call:
+| Also checked | the reading is the one this station metered | the reading is the one this station issued |
 
 ```rust,no_run
 use iso15118::pnc;
@@ -199,22 +121,15 @@ pnc::iso2::verify_metering_receipt(
 )?;
 ```
 
-It checks the session, the echoed reading and the signature together, and offers
-no way to ask for only the last. ISO 15118-20 splits the same exchange the other
-way — `pnc::iso20::sign_metering_data` on the station, `verify_metering_data` on
-the vehicle, and `verify_metering_confirmation` for the echo, which carries no
-signature of its own and is therefore worth *only* the echo check.
+Session, echoed reading and signature are checked together. ISO 15118-20:
+`sign_metering_data` (station), `verify_metering_data` and
+`verify_metering_confirmation` (the echo, which carries no signature).
 
-## Bring your own cryptography
+## Cryptography
 
-The hash and the curve are one-method traits, so `pnc` itself contains no
-cryptography. The same code runs on RustCrypto, a TPM or a secure element — which
-is what ISO 15118-20 anticipates for contract keys, and what a vehicle controller
-with a hardware key store needs.
-
-That is the right boundary, but it left the obvious case — a charging station on a
-general-purpose CPU, or any test — writing the obvious binding itself. The
-`pnc-rustcrypto` feature is that binding and nothing more:
+Hash and curve are one-method traits; `pnc` contains no cryptography, so a TPM or
+secure element plugs in. The `pnc-rustcrypto` feature is the binding for a
+general-purpose CPU:
 
 ```rust
 use iso15118::pnc::rustcrypto::{Sha2, SigningKey};
@@ -228,39 +143,16 @@ pnc::iso2::verify(&signature, &[Signed::new("ID1", &fragment)], &Sha2, &key.veri
 # Ok::<_, iso15118::pnc::PncError>(())
 ```
 
-Two things it gets right that are easy to get wrong:
-
-- **Signing is RFC 6979 deterministic**, so even the backend needs no RNG. That is
-  not a convenience — a repeated ECDSA nonce leaks the private key.
-- **It produces the raw `r ‖ s` pair** XMLDSig wants, not the ASN.1 DER wrapper
-  most libraries return by default. That is the mistake that makes a signature
-  nobody else can verify.
-
-It also refuses a suite the key is not on, in both directions, because a suite
-mismatch is how a peer talks a signature down to the weaker of two algorithms.
+It signs deterministically (RFC 6979, no RNG), produces the raw `r ‖ s` pair
+XMLDSig wants rather than DER, and refuses a suite the key is not on.
 
 ## What a valid signature does not prove
 
-<div class="note note-warn">
-<span class="note-title">Two limits worth stating plainly</span>
-
-**A verifying key is a trusted key only once its chain says so.** `pnc::pki`
-is that half — RFC 5280 basic path validation under the Annex F profiles, with
-the depth limit, the key-usage bits and the `Domain Component` \[V2G2-925\]
-makes a validity condition — and it is a *separate call*, deliberately: the
-challenge binding says which session a signature is about, the chain says whose
-key made it, and a crate that did one and implied the other would be the more
-dangerous kind of half-done.
-
-What no chain establishes is **revocation**: there is no OCSP and no CRL here,
-for reasons the standard itself gives. See [What is not here](@/docs/roadmap.md).
-
-**A valid signature does not mean the car is plugged in here.** What the vehicle
-signs is the station's random challenge and nothing else: no timestamp, no station
-identity. A relay between a victim's vehicle and a distant charger therefore
-passes every check the protocol defines, and bills the victim
-([arXiv 2512.15966](https://arxiv.org/abs/2512.15966)). That is a gap in the
-standard, not in an implementation — the countermeasures are a protocol change
-(bind the `EVSEID` into the signed data), mandatory OCSP, or distance bounding,
-and none of them is something one implementation can add unilaterally.
-</div>
+- **That the key is trusted.** Chain validation is `pnc::pki`, a separate call —
+  see [PKI](@/docs/pki.md). Revocation is not checked
+  ([limitations](@/docs/faq.md#limitations)).
+- **That the car is plugged in here.** The vehicle signs the station's challenge
+  and nothing else, so a relay between a victim's vehicle and a distant station
+  passes every check the protocol defines
+  ([arXiv 2512.15966](https://arxiv.org/abs/2512.15966)). That is a gap in the
+  standard.

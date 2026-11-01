@@ -4841,6 +4841,16 @@ impl Document {
             _ => return None,
         })
     }
+
+    /// Every request of this schema set, each at the
+    /// schema's minimum — the set [`Document::refusal`] answers.
+    #[must_use]
+    pub fn requests() -> Vec<Self> {
+        alloc::vec![
+            Self::ACChargeLoopReq(ACChargeLoopReq::minimal()),
+            Self::ACChargeParameterDiscoveryReq(ACChargeParameterDiscoveryReq::minimal()),
+        ]
+    }
 }
 
 impl Document {

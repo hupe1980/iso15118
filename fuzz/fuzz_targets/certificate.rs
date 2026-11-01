@@ -13,10 +13,30 @@
 //!   checks are decorative;
 //! * a certificate that parses is one whose profile invariants hold, so nothing
 //!   downstream has to re-check what the parser already promised.
+//!
+//! And two about validation, run with a verifier that accepts every signature
+//! so the fuzzer reaches the chain logic rather than stopping at ECDSA:
+//!
+//! * under ISO 15118-20's rules a certificate over 1 600 bytes is refused as
+//!   `TooLarge`, whatever its bytes — the bound comes before the parser;
+//! * the -20 rules only ever add refusals: a chain they accept, -2's accept.
 #![no_main]
 
-use iso15118::pnc::pki::Certificate;
+use iso15118::pnc::pki::{
+    self, Certificate, ChainError, ISO20_MAX_CERTIFICATE_LEN, Policy, Profile, TrustAnchor,
+    TrustAnchors, VerifyWith,
+};
+use iso15118::pnc::{PncError, Suite};
 use libfuzzer_sys::fuzz_target;
+
+/// Accepts every signature, so validation is exercised past the cryptography.
+struct AcceptAll;
+
+impl VerifyWith for AcceptAll {
+    fn verify_with(&self, _: Suite, _: &[u8], _: &[u8], _: &[u8]) -> Result<(), PncError> {
+        Ok(())
+    }
+}
 
 /// True when `part` is a subslice of `whole`, by address.
 fn within(whole: &[u8], part: &[u8]) -> bool {
@@ -26,6 +46,21 @@ fn within(whole: &[u8], part: &[u8]) -> bool {
 }
 
 fuzz_target!(|data: &[u8]| {
+    // The input as a self-anchored one-certificate chain, under both rules.
+    let anchors = [TrustAnchor::new(data, "fuzz")];
+    let anchors = TrustAnchors::new(&anchors);
+    let now = i64::from_le_bytes(data.get(..8).and_then(|b| b.try_into().ok()).unwrap_or_default());
+    let profile = Profile::Unchecked;
+    let iso2 = pki::validate(&[data], &anchors, Policy::iso2(profile), now, &AcceptAll);
+    let iso20 = pki::validate(&[data], &anchors, Policy::iso20(profile), now, &AcceptAll);
+    if data.len() > ISO20_MAX_CERTIFICATE_LEN {
+        assert_eq!(iso20, Err(ChainError::TooLarge { index: 0, len: data.len() }));
+    }
+    if let Ok(path) = &iso20 {
+        assert_eq!(path.anchor_source, "fuzz");
+        assert!(iso2.is_ok(), "-20 accepted a chain -2 refuses: {iso2:?}");
+    }
+
     let Ok(cert) = Certificate::parse(data) else { return };
 
     // Everything the parser handed back points into what it was given.

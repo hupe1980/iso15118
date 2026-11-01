@@ -20,6 +20,10 @@
 set -eu
 
 BASE="$(cd "$(dirname "$0")/.." && pwd)"
+BASE_DIR_FOR_SCHEMAS="$BASE"
+# shellcheck source=lib/schemas.sh
+. "$BASE/scripts/lib/schemas.sh"
+SCHEMA_DIR=$(schemas_dir)
 WORK="${ISO15118_VERIFY_DIR:-${TMPDIR:-/tmp}/iso15118-grammar-verify}"
 MAVEN=https://repo1.maven.org/maven2
 JARS="com/siemens/ct/exi/exificient-core/1.0.7/exificient-core-1.0.7.jar
@@ -59,12 +63,19 @@ iso20_messages:iso15118-20/V2G_CI_CommonMessages.xsd:urn:iso:std:iso:15118:-20:C
 iso20_ac:iso15118-20/V2G_CI_AC.xsd:urn:iso:std:iso:15118:-20:AC
 iso20_dc:iso15118-20/V2G_CI_DC.xsd:urn:iso:std:iso:15118:-20:DC
 iso20_wpt:iso15118-20/V2G_CI_WPT.xsd:urn:iso:std:iso:15118:-20:WPT
-iso20_acdp:iso15118-20/V2G_CI_ACDP.xsd:urn:iso:std:iso:15118:-20:ACDP"
+iso20_acdp:iso15118-20/V2G_CI_ACDP.xsd:urn:iso:std:iso:15118:-20:ACDP
+iso20_ac_der_iec:iso15118-20/V2G_CI_AC_DER_IEC.xsd:urn:iso:std:iso:15118:-20:AC,urn:iso:std:iso:15118:-20:AC-DER-IEC
+iso20_ac_der_sae:iso15118-20/V2G_CI_AC_DER_SAE.xsd:urn:iso:std:iso:15118:-20:AC,urn:iso:std:iso:15118:-20:AC-DER-SAE"
+
+# Agreeing with the reference proves nothing about a schema nobody pinned: both
+# sides would read the same changed file. Refuse it before comparing.
+# shellcheck disable=SC2046
+verify_schemas $(pinned_schemas) || exit 1
 
 for pair in $SETS; do
     module=${pair%%:*}
     rest=${pair#*:}
-    schema="$BASE/specs/${rest%%:*}"
+    schema="$SCHEMA_DIR/${rest%%:*}"
     namespace=${rest#*:}
     [ -f "$schema" ] || { echo "skip     $module (run scripts/fetch-schemas.sh)"; continue; }
     rm -rf "$WORK/samples/$module"
@@ -81,5 +92,19 @@ for pair in $SETS; do
         > "$WORK/samples/$module.fragments"
 done
 
+out="$WORK/reference_messages.out"
+status=0
 ISO15118_VECTORS="$WORK/samples" cargo test --manifest-path "$BASE/Cargo.toml" \
-    --all-features --test reference_messages -- --nocapture
+    --all-features --test reference_messages -- --nocapture 2>&1 | tee "$out" || status=1
+grep -q "test result: ok" "$out" || status=1
+
+# The count the pages quote is the documents one; fragments are the same set.
+if [ "$status" -eq 0 ]; then
+    n=$(sed -n 's/^all \([0-9]*\) documents round-trip against the reference$/\1/p' "$out")
+    . "$BASE/scripts/lib/claims.sh"
+    claims_agree "$BASE" "all $n documents round-trip" || status=1
+    claims_say "$BASE" README.md "All $n message types" || status=1
+    claims_say "$BASE" site/content/docs/verification.md "$n messages differed" || status=1
+    claims_say "$BASE" site/config.toml "messages = \"$n\"" || status=1
+fi
+exit "$status"

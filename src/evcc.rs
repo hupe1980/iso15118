@@ -1,44 +1,26 @@
 //! The vehicle's side of a session — sans I/O.
 //!
-//! [`Evcc`] is the mirror of [`Secc`](crate::secc::Secc), and the asymmetry
-//! between them is the protocol's, not this crate's: the vehicle *drives*. It
-//! chooses which request to send and when, and the charger only ever answers.
-//! So where the SECC surfaces requests to be answered, the EVCC accepts
-//! requests to be sent and surfaces the answers.
+//! [`Evcc`] mirrors [`Secc`](crate::secc::Secc), with the protocol's asymmetry:
+//! the vehicle drives. It accepts requests to send and surfaces the answers.
+//! It:
 //!
-//! What it does for you:
+//! * runs the `supportedAppProtocol` handshake — offering ISO 15118-20 as one
+//!   entry per message set ([`EvccConfig::iso20_sets`]) — and reads payload
+//!   type `0x8001` as the agreed message set afterwards;
+//! * refuses, before it reaches the wire, a request the phase does not allow, a
+//!   second request while one is unanswered, and a response that does not
+//!   answer the outstanding request \[V2G2-482\];
+//! * stamps the assigned session id into every request and checks it on every
+//!   response;
+//! * arms the per-message timeout (250 ms in a charge loop, seconds otherwise)
+//!   and the loop budget for a phase the charger keeps answering `..._Ongoing`;
+//! * stops after a `FAILED_*` response, a pause or a stop, and bounds
+//!   communication setup at `V2G_EVCC_CommunicationSetup_Timeout`.
 //!
-//! * runs the `supportedAppProtocol` handshake and remembers the outcome, so
-//!   payload type `0x8001` is read as the right message set afterwards;
-//! * refuses to send a request the current phase does not allow, *before* it
-//!   reaches the wire — a charger would answer `FAILED_SequenceError` and drop
-//!   the session, and finding out locally is better;
-//! * refuses to send a *second* request while the first is unanswered, because
-//!   V2G is half-duplex and the ordering graph does not say so on its own: a
-//!   charge loop's request is legal over and over, and what makes the second
-//!   one wrong is only that the first has not come back;
-//! * refuses a response that does not answer the outstanding request
-//!   \[V2G2-482\] — the ordering graph constrains requests, so this is the only
-//!   thing standing between a charger and an answer to a question nobody asked;
-//! * stamps the session id the charger assigned into every request it sends,
-//!   so the application never has to carry it — and checks the id on every
-//!   response, so a charger cannot change it mid-session;
-//! * arms the per-message response timeout, which is 250 ms for a charge loop
-//!   and seconds for everything else, *and* the budget for a whole phase the
-//!   charger keeps answering `..._Ongoing` — a cable check that never finishes
-//!   has to end the session, and the per-message timeout will not do it,
-//!   because a prompt `Ongoing` restarts it every time;
-//! * refuses to carry on after a `FAILED_*` response, and after a pause or a
-//!   stop, because ISO 15118 says the session is over;
-//! * bounds the whole of communication setup, from the connection opening to
-//!   `SessionSetupRes`, at `V2G_EVCC_CommunicationSetup_Timeout`.
-//!
-//! Note the asymmetry in the API too: [`Evcc::handle_input`] takes no
-//! timestamp, because nothing a *response* triggers starts a deadline — the
-//! vehicle's timers all start when it sends.
-//!
-//! What it does not do is decide anything: which services to select, what
-//! current to ask for, when to stop. That is the vehicle's business.
+//! [`Evcc::handle_input`] takes the arrival time because a response starts
+//! `V2G_EVCC_Sequence_Performance_Time` \[V2G2-485\], surfaced by
+//! [`Evcc::next_request_due`]. Which services to select, what current to ask
+//! for and when to stop are the vehicle's decisions.
 
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
@@ -48,8 +30,8 @@ use core::fmt;
 use crate::app_protocol::SupportedAppProtocolReq;
 use crate::message::Message;
 use crate::session::{
-    Connection, ConnectionError, Flow, FlowError, Instant, Millis, Role, Security, SequenceError,
-    SessionId, Timer, Timers,
+    Connection, ConnectionError, Flow, FlowError, Instant, LoopBudgets, Millis, Role, Security,
+    SequenceError, SessionId, Timer, Timers,
 };
 use crate::trace::{trace_close, trace_event};
 use crate::{MAX_EXI_PAYLOAD_LEN, Protocol, Protocols};
@@ -105,6 +87,15 @@ pub struct EvccConfig {
     /// Overrides the per-message response timeout. `None` uses the value the
     /// negotiated generation's sequencer gives for each message.
     pub message_timeout: Option<Millis>,
+    /// The deployment's own bounds for the authorization loop and the other
+    /// `..._Ongoing` loops. Defaults to none, which keeps the generation's
+    /// figures; see [`LoopBudgets`] for which loops it reaches.
+    pub loop_budgets: LoopBudgets,
+    /// The ISO 15118-20 message sets to offer, most preferred first — one
+    /// handshake entry each. Defaults to DC then AC
+    /// ([`DEFAULT_ISO20_SETS`](crate::app_protocol::DEFAULT_ISO20_SETS)), less
+    /// any this build cannot run. Empty leaves ISO 15118-20 out of the offer.
+    pub iso20_sets: alloc::vec::Vec<crate::Iso20Set>,
     /// The paused session to rejoin, if this is not a new one.
     ///
     /// `None` opens a fresh session, which travels as the all-zero id. `Some`
@@ -135,6 +126,12 @@ impl Default for EvccConfig {
             max_pending_frames: crate::session::MAX_PENDING_FRAMES,
             setup_timeout: crate::session::timers::iso2::EVCC_COMMUNICATION_SETUP_TIMEOUT,
             message_timeout: None,
+            loop_budgets: LoopBudgets::default(),
+            iso20_sets: crate::app_protocol::DEFAULT_ISO20_SETS
+                .iter()
+                .copied()
+                .filter(|s| s.is_compiled())
+                .collect(),
             rejoin: None,
         }
     }
@@ -202,12 +199,11 @@ pub struct Evcc {
     flow: Option<Flow>,
     events: VecDeque<Event>,
     session_id: SessionId,
-    /// What `start` actually put in `supportedAppProtocolReq`.
-    ///
-    /// Not `config.protocols`: a configured generation with no message set in
-    /// this build is never advertised, and the charger's answer is a schema id
-    /// indexing into what *was*.
-    advertised: Protocols,
+    /// The `supportedAppProtocolReq` this vehicle sent, kept so the charger's
+    /// answer — a schema id — is resolved against exactly what was offered.
+    offer: Option<SupportedAppProtocolReq>,
+    /// The ISO 15118-20 message set of the entry the charger chose.
+    iso20_set: Option<crate::Iso20Set>,
     /// The request that is waiting for an answer, by element name.
     outstanding: Option<&'static str>,
     /// True once `SessionSetupRes` has assigned the session id, after which
@@ -239,7 +235,8 @@ impl Evcc {
             flow: None,
             events: VecDeque::new(),
             session_id,
-            advertised: Protocols::new(),
+            offer: None,
+            iso20_set: None,
             outstanding: None,
             established: false,
             phase: None,
@@ -269,13 +266,16 @@ impl Evcc {
         }
         let mut advertised = self.config.protocols;
         advertised.retain(Flow::supports);
+        if self.config.iso20_sets.is_empty() {
+            advertised.remove(Protocol::Iso20);
+        }
         if advertised.is_empty() {
             return Err(EvccError::NothingToOffer { configured: self.config.protocols });
         }
         trace_event!(protocols = %advertised, "advertising");
-        self.advertised = advertised;
-        let req = SupportedAppProtocolReq::advertising(advertised);
-        self.conn.send(&Message::AppProtocolReq(Box::new(req)))?;
+        let req = SupportedAppProtocolReq::advertising_with(advertised, &self.config.iso20_sets);
+        self.conn.send(&Message::AppProtocolReq(Box::new(req.clone())))?;
+        self.offer = Some(req);
         self.timers.arm(Timer::CommunicationSetup, now, self.config.setup_timeout);
         self.timers.arm(
             Timer::Message,
@@ -312,20 +312,36 @@ impl Evcc {
         self.closed
     }
 
+    /// The ISO 15118-20 message set of the entry the charger chose, or `None`
+    /// before the handshake and for the other generations.
+    #[must_use]
+    pub const fn iso20_set(&self) -> Option<crate::Iso20Set> {
+        self.iso20_set
+    }
+
     /// Picks the flow back up after the station agreed to rejoin a paused
     /// session.
     ///
     /// Call once `SessionSetupRes` arrives with `OK_OldSessionJoined`, having
     /// named the session in [`EvccConfig::rejoin`]. An ISO 15118-20 flow then
     /// restarts at parameter discovery, because authorization and the selected
-    /// service survived the pause; ISO 15118-2 keeps only the id, so `service`
-    /// is ignored there.
+    /// service survived the pause. ISO 15118-2 keeps only the id, so there is
+    /// nothing to resume there and the call says so.
+    ///
+    /// # Errors
+    ///
+    /// [`ResumeError::NotNegotiated`](crate::session::ResumeError::NotNegotiated) before the handshake has settled, and
+    /// [`ResumeError::NotIso20`](crate::session::ResumeError::NotIso20) in an ISO 15118-2 session.
     #[cfg(feature = "iso20-common")]
     #[cfg_attr(docsrs, doc(cfg(feature = "iso20-common")))]
-    pub fn resume(&mut self, energy_transfer: crate::session::iso20::EnergyTransfer) {
-        if let Some(flow) = self.flow.as_mut() {
-            flow.resume(energy_transfer);
-        }
+    pub fn resume(
+        &mut self,
+        energy_transfer: crate::session::iso20::EnergyTransfer,
+    ) -> Result<(), crate::session::ResumeError> {
+        self.flow
+            .as_mut()
+            .ok_or(crate::session::ResumeError::NotNegotiated)?
+            .resume(energy_transfer)
     }
 
     /// Sends a request.
@@ -400,7 +416,7 @@ impl Evcc {
             return;
         }
         self.phase = Some(phase);
-        match flow.loop_timeout(Role::Evcc) {
+        match flow.loop_timeout(Role::Evcc, self.config.loop_budgets) {
             Some(budget) => self.timers.arm(Timer::Ongoing, now, budget),
             None => self.timers.disarm(Timer::Ongoing),
         }
@@ -478,20 +494,20 @@ impl Evcc {
                 return Ok(());
             };
             // The charger echoes the schema id, not the namespace, so the
-            // vehicle has to undo its own numbering. The lookup is against what
-            // was actually *advertised* and not against the configuration: the
-            // two differ whenever a configured generation had no message set in
-            // this build, and resolving against the wrong one would map the
-            // charger's answer onto a protocol it never chose.
-            //
-            // The numbering itself belongs to `advertising`, so the inverse
-            // does too — reimplementing the offset here is how the two come to
-            // disagree.
-            let Some(protocol) =
-                SupportedAppProtocolReq::advertised_protocol(self.advertised, schema_id)
+            // vehicle looks it up in the request it actually sent — not in the
+            // configuration, which differs whenever a configured generation had
+            // no message set in this build, and not by recomputing the
+            // numbering, which is how two copies of one rule come to disagree.
+            let entry = self
+                .offer
+                .as_ref()
+                .and_then(|req| req.app_protocols.iter().find(|e| e.schema_id == schema_id));
+            let Some((protocol, iso20_set)) =
+                entry.and_then(|e| Some((e.protocol()?, e.iso20_set())))
             else {
                 return Err(EvccError::UnknownSchemaId(schema_id));
             };
+            self.iso20_set = iso20_set;
             // Always `Some`: `start` advertised only what `Flow::supports`
             // allows, and the id just resolved against that same set.
             let Some(flow) = Flow::new(protocol, self.config.security) else {

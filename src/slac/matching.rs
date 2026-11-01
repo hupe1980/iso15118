@@ -1,12 +1,11 @@
 //! The SLAC matching run, as a pair of sans-I/O state machines.
 //!
-//! Matching answers a physical question with a protocol: of the several
-//! charging stations sharing a powerline medium, which one is this cable
-//! actually plugged into? The vehicle sends a burst of sounding packets, every
-//! station in earshot measures how loud they arrive, and the quietest link
-//! loses. The winner hands over a network key in the clear — which is only safe
-//! *because* the measurement has already established that nobody far away can
-//! hear it well enough to matter.
+//! Of the stations sharing a powerline medium, which one is this cable plugged
+//! into? The vehicle sends sounding packets, every station in earshot measures
+//! how loud they arrive, and the least attenuated link wins. The winner hands
+//! over a network key in the clear — safe only because nobody far away hears it
+//! well enough. Nothing in ISO 15118-3 authenticates these frames, so both
+//! engines bind every frame to the run it claims to belong to.
 //!
 //! ```text
 //!   EV                                                        EVSE
@@ -20,27 +19,18 @@
 //!    |<----------------- CM_SLAC_MATCH.CNF ---------------------|  NMK + NID
 //! ```
 //!
-//! Both engines follow the crate's usual shape: frames in, frames and events
-//! out, and the caller owns the clock and the raw socket. The sounding burst is
-//! the one place where *sending* is time-driven rather than reply-driven —
-//! [`Ev::poll_timeout`] paces it.
+//! Frames in, frames and events out; the caller owns the clock and the raw
+//! socket. The sounding burst is time-driven — [`Ev::poll_timeout`] paces it.
 //!
 //! # What the measurement is worth, and what it is not
 //!
-//! Every check below binds a frame to the run it claims to belong to. None of
-//! them makes the *measurement* trustworthy, and that gap has a CVE against the
-//! standard: **CVE-2025-12357**, spoofed SLAC measurements staging a
-//! man-in-the-middle against any ISO 15118-2 charger. A station reporting an
-//! implausibly low attenuation is claiming to be the closest thing on the
-//! medium, and the quietest link is defined to win; everything a forged report
-//! needs is broadcast in the clear during sounding.
-//!
-//! What this module can do, it does: a forged report moves the choice earlier
-//! and never later, the key is taken only from the station the vehicle chose,
-//! and [`EvEvent::Measurement`] surfaces *every* station's report rather than
-//! only the winner — so an application that wants to refuse an ambiguous run
-//! has the numbers to do it. The standard's own answer is ISO 15118-20, where
-//! TLS is mandatory and the chain authenticates the station.
+//! None of the checks makes the *measurement* trustworthy: a station can report
+//! an implausibly low attenuation and win (CVE-2025-12357, a man-in-the-middle
+//! against ISO 15118-2 chargers). Here a forged report never moves the choice
+//! later, the key is taken only from the chosen station, and
+//! [`EvEvent::Measurement`] surfaces every station's report so an application
+//! can refuse an ambiguous run. ISO 15118-20's mandatory TLS authenticates the
+//! station.
 //!
 //! # What stays outside
 //!

@@ -107,15 +107,30 @@ jobs:
       # scripts out; this is what notices when that stops being true.
       - name: Nothing but the crate
         run: |
-          if cargo package --list --locked | grep -E '^(site|tools|scripts|specs|\.github)/'; then
+          if cargo package --list --locked | grep -E '^(site|tools|scripts|concepts|specs|\.specify|\.claude|\.github)/'; then
             echo "::error::project scaffolding is in the package; check exclude in Cargo.toml"
             exit 1
           fi
 
+      # What the published crate is made of, in the form a charger maker's
+      # vulnerability tooling ingests: CycloneDX, every dependency any feature
+      # can pull, build-only tools left out because they do not ship. The Cyber
+      # Resilience Act makes a component's SBOM its integrator's question.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-cyclonedx
+      - name: SBOM
+        run: |
+          cargo cyclonedx --format json --spec-version 1.5 --all-features \
+            --no-build-deps --override-filename iso15118.cdx
+          cp iso15118.cdx.json target/package/
+
       - uses: actions/upload-artifact@v4
         with:
           name: crate
-          path: target/package/*.crate
+          path: |
+            target/package/*.crate
+            target/package/iso15118.cdx.json
           if-no-files-found: error
 
   publish:
@@ -165,6 +180,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Sigstore-backed attestations: this run's OIDC identity signs them, so
+      # there is no key to keep. Verify with
+      #   gh attestation verify iso15118-X.Y.Z.crate --repo hupe1980/iso15118
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -174,6 +194,31 @@ jobs:
         with:
           name: crate
           path: dist
+
+      # `cargo publish` packaged the crate again in its own job, so "the bytes
+      # crates.io received" is checked, not assumed: the attestation below is
+      # over this file only if crates.io reports the same digest for it.
+      - name: The crate being attested is the one crates.io holds
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          ours=$(sha256sum dist/*.crate | cut -d' ' -f1)
+          theirs=$(curl -sfSL -A "iso15118-release (https://github.com/hupe1980/iso15118)" \
+            "https://crates.io/api/v1/crates/iso15118/$version" | jq -r '.version.checksum')
+          if [ "$ours" != "$theirs" ]; then
+            echo "::error::dist crate $ours differs from crates.io's $theirs"
+            exit 1
+          fi
+
+      # Provenance for the exact bytes crates.io received: which workflow, which
+      # commit, which run built them. And the SBOM bound to the same subject, so
+      # the list of what is inside cannot be swapped for another one.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*.crate
+      - uses: actions/attest-sbom@v2
+        with:
+          subject-path: dist/*.crate
+          sbom-path: dist/iso15118.cdx.json
 
       # After the upload and never before: a release page announcing a version
       # crates.io rejected is worse than no release page. The `.crate` goes with
@@ -186,4 +231,4 @@ jobs:
           --title "$GITHUB_REF_NAME"
           --generate-notes
           --verify-tag
-          dist/*.crate
+          dist/*.crate dist/iso15118.cdx.json

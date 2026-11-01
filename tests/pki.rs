@@ -6,17 +6,20 @@
 //! against its own opinions. These are DER somebody else produced, to the same
 //! ASN.1, with the Annex F fields where Annex F says they go.
 //!
-//! What that is **not** is a chain from a published V2G test pool. Hubject's
-//! and OPNC's need registration, so the claim this file supports is "the
-//! Annex F profile is enforced, against certificates a third implementation
-//! encoded" — which is weaker than interoperability and is the accurate thing
-//! to say.
+//! What that is **not** is a chain from a published V2G test pool. That is
+//! `tests/pki_pool.rs`, which validates Hubject's public openPlugnCharge archive
+//! when it is present — so this file's claim stays "the Annex F profile, and the
+//! ISO 15118-20 Amd 1 rules, are enforced against certificates a third
+//! implementation encoded".
 //!
 //! The validity windows are absolute dates, so nothing here rots.
 
 #![cfg(all(feature = "pnc-rustcrypto", feature = "std"))]
 
-use iso15118::pnc::pki::{self, Certificate, ChainError, Curve, KeyUsage, Profile};
+use iso15118::pnc::pki::{
+    self, Certificate, ChainError, Curve, KeyUsage, Policy, Profile, TrustAnchor, TrustAnchors,
+    Validated,
+};
 use iso15118::pnc::rustcrypto::Backend;
 
 /// Inside every fixture's validity window.
@@ -38,6 +41,18 @@ fn secc_chain() -> [Vec<u8>; 3] {
 
 fn refs(v: &[Vec<u8>]) -> Vec<&[u8]> {
     v.iter().map(Vec::as_slice).collect()
+}
+
+/// `pki::validate` with every anchor labelled `"test"`.
+fn validate<'a>(
+    chain: &[&'a [u8]],
+    anchors: &[&'a [u8]],
+    policy: Policy,
+    now: i64,
+) -> Result<Validated<'a>, ChainError> {
+    let set: Vec<TrustAnchor<'a>> =
+        anchors.iter().map(|der| TrustAnchor::new(der, "test")).collect();
+    pki::validate(chain, &TrustAnchors::new(&set), policy, now, &Backend)
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +136,7 @@ fn a_well_formed_secc_chain_validates_to_its_root() {
     let chain = secc_chain();
     let root = der("root");
     let validated =
-        pki::validate(&refs(&chain), &[&root], Profile::SeccCertificate, IN_2030, &Backend)
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::SeccCertificate), IN_2030)
             .expect("the chain is exactly what Table F.2 describes");
 
     assert_eq!(validated.subject_common_name(), Some("DE*ABC*E00001"));
@@ -134,7 +149,7 @@ fn a_contract_chain_validates_and_names_the_emaid() {
     let chain = [der("contract"), der("sub2"), der("sub1")];
     let root = der("root");
     let validated =
-        pki::validate(&refs(&chain), &[&root], Profile::ContractCertificate, IN_2030, &Backend)
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::ContractCertificate), IN_2030)
             .expect("Table F.4's contract certificate");
 
     // \[V2G2-108\]: "The EMAID shall be encoded in the subject of the
@@ -150,13 +165,13 @@ fn a_chain_to_an_anchor_this_side_does_not_hold_is_refused() {
     let chain = secc_chain();
     let other = der("other");
     assert_eq!(
-        pki::validate(&refs(&chain), &[&other], Profile::SeccCertificate, IN_2030, &Backend),
+        validate(&refs(&chain), &[&other], Policy::iso2(Profile::SeccCertificate), IN_2030),
         Err(ChainError::NoTrustAnchor),
     );
     // ...and with no anchors at all, which is the configuration mistake that
     // would otherwise validate everything.
     assert_eq!(
-        pki::validate(&refs(&chain), &[], Profile::SeccCertificate, IN_2030, &Backend),
+        validate(&refs(&chain), &[], Policy::iso2(Profile::SeccCertificate), IN_2030),
         Err(ChainError::NoTrustAnchor),
     );
 }
@@ -173,7 +188,7 @@ fn one_flipped_bit_anywhere_in_the_chain_breaks_it() {
         let last = chain[position].len() - 1;
         chain[position][last] ^= 0x01;
         let result =
-            pki::validate(&refs(&chain), &[&root], Profile::SeccCertificate, IN_2030, &Backend);
+            validate(&refs(&chain), &[&root], Policy::iso2(Profile::SeccCertificate), IN_2030);
         assert!(
             matches!(result, Err(ChainError::BadSignature { .. } | ChainError::Certificate { .. })),
             "certificate {position} with a flipped bit: {result:?}"
@@ -189,13 +204,13 @@ fn a_certificate_outside_its_validity_window_is_refused() {
     let chain = [der("expired"), der("sub2"), der("sub1")];
     let root = der("root");
     assert_eq!(
-        pki::validate(&refs(&chain), &[&root], Profile::SeccCertificate, IN_2022, &Backend),
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::SeccCertificate), IN_2022),
         Err(ChainError::Expired { index: 0 }),
     );
     // The same chain inside the window is fine, so the test is about the date
     // and not about the certificate.
     assert!(
-        pki::validate(&refs(&chain), &[&root], Profile::SeccCertificate, 1_600_000_000, &Backend)
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::SeccCertificate), 1_600_000_000)
             .is_ok()
     );
 }
@@ -208,7 +223,7 @@ fn a_leaf_that_claims_to_be_a_ca_is_refused() {
     let chain = [der("rogue"), der("sub2"), der("sub1")];
     let root = der("root");
     assert_eq!(
-        pki::validate(&refs(&chain), &[&root], Profile::SeccCertificate, IN_2030, &Backend),
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::SeccCertificate), IN_2030),
         Err(ChainError::Profile { wanted: "a leaf that is not a CA" }),
     );
 }
@@ -223,12 +238,12 @@ fn the_domain_component_a_profile_requires_is_a_validity_condition() {
     let root = der("root");
     // The contract certificate carries no `DC`, which Table F.4 permits.
     assert!(
-        pki::validate(&refs(&chain), &[&root], Profile::ContractCertificate, IN_2030, &Backend)
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::ContractCertificate), IN_2030)
             .is_ok()
     );
     // Checked as an SECC certificate, the same bytes are not one.
     assert_eq!(
-        pki::validate(&refs(&chain), &[&root], Profile::SeccCertificate, IN_2030, &Backend),
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::SeccCertificate), IN_2030),
         Err(ChainError::Profile { wanted: "the Domain Component its profile requires" }),
     );
 }
@@ -242,7 +257,7 @@ fn a_profile_that_needs_a_key_usage_bit_refuses_a_leaf_without_it() {
     let chain = secc_chain();
     let root = der("root");
     assert_eq!(
-        pki::validate(&refs(&chain), &[&root], Profile::ContractCertificate, IN_2030, &Backend),
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::ContractCertificate), IN_2030),
         Err(ChainError::Profile { wanted: "the KeyUsage bits its profile requires" }),
     );
 }
@@ -256,7 +271,7 @@ fn a_path_longer_than_the_standard_allows_is_refused() {
     chain.push(der("sub1"));
     let root = der("root");
     assert_eq!(
-        pki::validate(&refs(&chain), &[&root], Profile::SeccCertificate, IN_2030, &Backend),
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::SeccCertificate), IN_2030),
         Err(ChainError::TooLong { len: 4 }),
     );
 }
@@ -270,7 +285,7 @@ fn a_chain_in_the_wrong_order_is_refused_rather_than_sorted() {
     let chain = [der("secc"), der("sub1"), der("sub2")];
     let root = der("root");
     assert_eq!(
-        pki::validate(&refs(&chain), &[&root], Profile::SeccCertificate, IN_2030, &Backend),
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::SeccCertificate), IN_2030),
         Err(ChainError::NoTrustAnchor),
     );
 }
@@ -283,7 +298,7 @@ fn a_chain_with_a_missing_link_is_refused() {
     let chain = [der("secc"), der("sub1")];
     let root = der("root");
     assert_eq!(
-        pki::validate(&refs(&chain), &[&root], Profile::SeccCertificate, IN_2030, &Backend),
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::SeccCertificate), IN_2030),
         Err(ChainError::NoTrustAnchor),
     );
 }
@@ -304,20 +319,14 @@ fn an_anchor_is_chosen_by_what_verifies_not_by_what_matches_by_name() {
     // The decoy alone establishes nothing, which is the check the ordering
     // could otherwise hide.
     assert_eq!(
-        pki::validate(&refs(&chain), &[&decoy], Profile::SeccCertificate, IN_2030, &Backend),
+        validate(&refs(&chain), &[&decoy], Policy::iso2(Profile::SeccCertificate), IN_2030),
         Err(ChainError::NoTrustAnchor),
     );
 
     // With the decoy listed *first*, the real root is still found.
     assert!(
-        pki::validate(
-            &refs(&chain),
-            &[&decoy, &root],
-            Profile::SeccCertificate,
-            IN_2030,
-            &Backend,
-        )
-        .is_ok(),
+        validate(&refs(&chain), &[&decoy, &root], Policy::iso2(Profile::SeccCertificate), IN_2030)
+            .is_ok(),
         "a name collision in the anchor list must not shadow the anchor that works",
     );
 }
@@ -338,22 +347,20 @@ fn a_pinned_intermediate_is_a_trust_anchor_like_any_other() {
     let sub1 = der("sub1");
 
     // Pinning Sub-CA 2 stops the walk one step up from the leaf...
-    let pinned =
-        pki::validate(&refs(&chain), &[&sub2], Profile::SeccCertificate, IN_2030, &Backend)
-            .expect("an anchor is an anchor wherever it sits");
+    let pinned = validate(&refs(&chain), &[&sub2], Policy::iso2(Profile::SeccCertificate), IN_2030)
+        .expect("an anchor is an anchor wherever it sits");
     assert_eq!(pinned.anchor, Certificate::parse(&sub2).unwrap());
 
     // ...and pinning Sub-CA 1 stops it one step later, without the root.
-    let pinned =
-        pki::validate(&refs(&chain), &[&sub1], Profile::SeccCertificate, IN_2030, &Backend)
-            .expect("valid");
+    let pinned = validate(&refs(&chain), &[&sub1], Policy::iso2(Profile::SeccCertificate), IN_2030)
+        .expect("valid");
     assert_eq!(pinned.anchor, Certificate::parse(&sub1).unwrap());
 
     // A chain that stops short of its own pinned anchor still fails: the
     // shortcut is about where the anchor may be, not about skipping links.
     let short = [der("secc")];
     assert_eq!(
-        pki::validate(&refs(&short), &[&sub1], Profile::SeccCertificate, IN_2030, &Backend),
+        validate(&refs(&short), &[&sub1], Policy::iso2(Profile::SeccCertificate), IN_2030),
         Err(ChainError::NoTrustAnchor),
     );
 }
@@ -367,12 +374,11 @@ fn a_leaf_configured_as_a_trust_anchor_issues_nothing() {
     let chain = secc_chain();
     let leaf_as_anchor = der("secc");
     assert_eq!(
-        pki::validate(
+        validate(
             &refs(&chain),
             &[&leaf_as_anchor],
-            Profile::SeccCertificate,
-            IN_2030,
-            &Backend,
+            Policy::iso2(Profile::SeccCertificate),
+            IN_2030
         ),
         Err(ChainError::NoTrustAnchor),
     );
@@ -382,7 +388,7 @@ fn a_leaf_configured_as_a_trust_anchor_issues_nothing() {
 fn an_empty_chain_is_refused() {
     let root = der("root");
     assert_eq!(
-        pki::validate(&[], &[&root], Profile::SeccCertificate, IN_2030, &Backend),
+        validate(&[], &[&root], Policy::iso2(Profile::SeccCertificate), IN_2030),
         Err(ChainError::Empty),
     );
 }
@@ -397,11 +403,169 @@ fn the_validated_key_is_the_one_a_signature_is_checked_against() {
     let chain = [der("contract"), der("sub2"), der("sub1")];
     let root = der("root");
     let validated =
-        pki::validate(&refs(&chain), &[&root], Profile::ContractCertificate, IN_2030, &Backend)
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::ContractCertificate), IN_2030)
             .expect("valid");
 
     // The point out of the certificate is one the backend can build a key from,
     // which is the seam between the two halves.
     let key = VerifyingKey::p256_sec1(validated.public_key()).expect("a usable public key");
     assert_eq!(key.suite(), iso15118::pnc::Suite::EcdsaSha256);
+}
+
+// ---------------------------------------------------------------------------
+// ISO 15118-20 Amd 1 — tests/fixtures/pki/amd1, minted by
+// `scripts/make-test-pki.sh amd1` under roots of their own
+// ---------------------------------------------------------------------------
+
+fn amd1(name: &str) -> Vec<u8> {
+    der(&format!("amd1/{name}"))
+}
+
+/// The baseline: a chain whose every window nests inside its issuer's is valid
+/// under both generations' rules, and the anchor it reached says where it came
+/// from.
+#[test]
+fn a_nested_chain_validates_under_both_rules_and_names_its_anchor() {
+    let chain = [amd1("leaf"), amd1("sub")];
+    let root = amd1("root-a");
+    let anchors = [TrustAnchor::new(&root, "Amd1 test store")];
+    for policy in [Policy::iso2(Profile::SeccCertificate), Policy::iso20(Profile::SeccCertificate)]
+    {
+        let path =
+            pki::validate(&refs(&chain), &TrustAnchors::new(&anchors), policy, IN_2030, &Backend)
+                .unwrap_or_else(|e| panic!("{policy:?}: {e}"));
+        assert_eq!(path.anchor_source, "Amd1 test store");
+    }
+}
+
+/// \[V2G20-3000\]/\[V2G20-3001\]: a certificate is valid only within its
+/// issuer's validity. The leaf here runs to 2055 and its sub-CA to 2050 — and at
+/// an instant inside both, so the window check passes and only the nesting rule
+/// can be what refuses it.
+#[test]
+fn under_iso20_a_leaf_that_outlives_its_issuer_is_refused() {
+    let chain = [amd1("outlives-sub"), amd1("sub")];
+    let root = amd1("root-a");
+    assert_eq!(
+        validate(&refs(&chain), &[&root], Policy::iso20(Profile::SeccCertificate), IN_2030),
+        Err(ChainError::OutlivesIssuer { index: 0 }),
+    );
+    // -2 has no such rule, and a -2 chain is not refused for it.
+    assert!(
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::SeccCertificate), IN_2030).is_ok()
+    );
+}
+
+/// The same rule on the link to the anchor. A sub-CA that outlives the root
+/// fails at anchor *selection* — and the error says why rather than "no trust
+/// anchor", which would send a deployment looking for a missing root.
+#[test]
+fn under_iso20_a_sub_ca_that_outlives_the_anchor_is_refused_by_name() {
+    let chain = [amd1("under-long"), amd1("long-sub")];
+    let root = amd1("root-a");
+    assert_eq!(
+        validate(&refs(&chain), &[&root], Policy::iso20(Profile::SeccCertificate), IN_2030),
+        Err(ChainError::OutlivesIssuer { index: 1 }),
+    );
+    assert!(
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::SeccCertificate), IN_2030).is_ok()
+    );
+}
+
+/// ISO 15118-20 Amd 1: at most 1 600 bytes. The fixture is the valid leaf with
+/// a non-critical comment the parser skips, so it parses and validates under
+/// -2 — and under -20 it is refused before parsing, naming its size.
+#[test]
+fn under_iso20_a_certificate_over_1600_bytes_is_refused_before_parsing() {
+    let chain = [amd1("oversize"), amd1("sub")];
+    let root = amd1("root-a");
+    let len = chain[0].len();
+    assert!(len > pki::ISO20_MAX_CERTIFICATE_LEN, "the fixture is {len} bytes");
+    assert_eq!(
+        validate(&refs(&chain), &[&root], Policy::iso20(Profile::SeccCertificate), IN_2030),
+        Err(ChainError::TooLarge { index: 0, len }),
+    );
+    assert!(
+        validate(&refs(&chain), &[&root], Policy::iso2(Profile::SeccCertificate), IN_2030).is_ok()
+    );
+    // Before parsing means before *anything*: a size that fails is refused even
+    // when the bytes are not a certificate at all.
+    let junk = vec![0u8; pki::ISO20_MAX_CERTIFICATE_LEN + 1];
+    assert_eq!(
+        validate(&[&junk], &[&root], Policy::iso20(Profile::SeccCertificate), IN_2030),
+        Err(ChainError::TooLarge { index: 0, len: junk.len() }),
+    );
+}
+
+/// RFC 5280 §7.1: root B's name and key, certified by root A. A side that holds
+/// only root A validates B's leaf through the cross-certificate; without it, it
+/// cannot; and a side that holds root B needs no cross-certificate. OpenSSL
+/// agrees: `openssl verify` accepts the same path.
+#[test]
+fn a_cross_certificate_reaches_an_anchor_from_another_ecosystem() {
+    let root_a = amd1("root-a");
+    let root_b = amd1("root-b");
+    let anchors = [TrustAnchor::new(&root_a, "ecosystem A")];
+    let set = TrustAnchors::new(&anchors);
+
+    let cross = [amd1("leaf-b"), amd1("sub-b"), amd1("cross-b")];
+    for policy in [Policy::iso2(Profile::SeccCertificate), Policy::iso20(Profile::SeccCertificate)]
+    {
+        let path = pki::validate(&refs(&cross), &set, policy, IN_2030, &Backend)
+            .unwrap_or_else(|e| panic!("{policy:?}: {e}"));
+        assert_eq!(path.anchor, Certificate::parse(&root_a).unwrap());
+        assert_eq!(path.anchor_source, "ecosystem A");
+    }
+
+    let plain = [amd1("leaf-b"), amd1("sub-b")];
+    let policy = Policy::iso20(Profile::SeccCertificate);
+    assert_eq!(
+        pki::validate(&refs(&plain), &set, policy, IN_2030, &Backend),
+        Err(ChainError::NoTrustAnchor),
+    );
+    assert!(validate(&refs(&plain), &[&root_b], policy, IN_2030).is_ok());
+}
+
+/// \[V2G20-3373\]..\[V2G20-3385\]: the holder of several chains sends the one
+/// that reaches an authority its peer lists, and the validator's list comes
+/// from what it holds. The two halves of the rule, run against each other.
+#[test]
+fn a_chain_is_selected_by_the_authorities_the_peer_holds() {
+    let root_a = amd1("root-a");
+    let root_b = amd1("root-b");
+    let base_root = der("root");
+    let (leaf, sub, cross) = (amd1("leaf-b"), amd1("sub-b"), amd1("cross-b"));
+    let direct: [&[u8]; 2] = [&leaf, &sub];
+    let via_cross: [&[u8]; 3] = [&leaf, &sub, &cross];
+    let candidates: [&[&[u8]]; 2] = [&direct, &via_cross];
+
+    let holds = |root: &[u8]| -> Vec<Vec<u8>> {
+        let anchors = [TrustAnchor::new(root, "peer")];
+        TrustAnchors::new(&anchors).authorities().map(<[u8]>::to_vec).collect()
+    };
+    let pick = |authorities: &[Vec<u8>]| {
+        let names: Vec<&[u8]> = authorities.iter().map(Vec::as_slice).collect();
+        pki::select_chain(&candidates, &names)
+    };
+
+    assert_eq!(pick(&holds(&root_b)), Some(0), "a peer holding B gets the direct chain");
+    assert_eq!(
+        pick(&holds(&root_a)),
+        Some(1),
+        "a peer holding only A gets the cross-certified one"
+    );
+    assert_eq!(pick(&holds(&base_root)), None, "a peer holding neither gets nothing");
+    assert_eq!(pki::select_chain(&candidates, &[]), None);
+}
+
+/// An anchor that does not parse anchors nothing, so it is not advertised.
+#[test]
+fn only_anchors_that_parse_are_advertised() {
+    let root_a = amd1("root-a");
+    let anchors =
+        [TrustAnchor::new(&root_a, "real"), TrustAnchor::new(b"not a certificate", "junk")];
+    let set = TrustAnchors::new(&anchors);
+    assert_eq!(set.len(), 2);
+    let advertised: Vec<&[u8]> = set.authorities().collect();
+    assert_eq!(advertised, [Certificate::parse(&root_a).unwrap().subject.encoded]);
 }

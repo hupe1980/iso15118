@@ -1,35 +1,19 @@
 //! The charging station's side of a session — sans I/O.
 //!
-//! [`Secc`] owns everything about a V2G session that is *protocol*: framing,
-//! decoding, the `supportedAppProtocol` handshake, session-id checking, the
-//! message-ordering rules and the spec's timers. It owns nothing that is
-//! *policy*: whether to authorize a vehicle, which schedule to offer, how much
-//! current to deliver. Those arrive as [`Event::Request`] and are answered with
+//! [`Secc`] owns the protocol: framing, decoding, the `supportedAppProtocol`
+//! handshake, session-id checking, message ordering and the spec timers.
+//! Policy — whether to authorize, which schedule to offer, how much current to
+//! deliver — arrives as [`Event::Request`] and is answered with
 //! [`Secc::respond`].
-//!
-//! That line is where it is because everything above it is a decision a
-//! charging station operator makes, and everything below it is a decision ISO
-//! made. Only the second kind belongs in a library.
 //!
 //! # One request at a time
 //!
-//! V2G is half-duplex: the vehicle may not send again until it has been
-//! answered. So [`Secc`] surfaces one [`Event::Request`] and reads nothing
-//! further until [`Secc::respond`] has been called — anything the vehicle sent
-//! early waits, bounded by
-//! [`MAX_PENDING_FRAMES`](crate::session::MAX_PENDING_FRAMES). That is the
-//! protocol, and it is also what stops one unauthenticated peer from queueing
-//! work without bound: several requests are legal over and over — a charge loop
-//! turns, an authorization retries — so an engine that decoded everything
-//! already framed would build an event queue as large as the peer cared to make
-//! it.
-//!
-//! The rule runs the other way too, which is why [`Secc::respond`] knows what
-//! it is answering: a response with no request outstanding, or one that does
-//! not pair with the request that is, is the station's own bug and is refused
-//! here rather than sent. And because there is exactly one session, its id is
-//! stamped into every response rather than rebuilt in thirty places by the
-//! application.
+//! V2G is half-duplex, so [`Secc`] surfaces one [`Event::Request`] and reads
+//! nothing further until [`Secc::respond`]; anything sent early waits, bounded
+//! by [`MAX_PENDING_FRAMES`](crate::session::MAX_PENDING_FRAMES). An
+//! unauthenticated peer therefore cannot queue work without bound.
+//! [`Secc::respond`] refuses a response that pairs with no outstanding request,
+//! and stamps the session id into every response.
 //!
 //! # The loop
 //!
@@ -67,35 +51,26 @@
 //! ```
 //!
 //! The caller also arms its own timer for [`Secc::poll_timeout`] and calls
-//! [`Secc::handle_timeout`] when it fires. Nothing else is required.
+//! [`Secc::handle_timeout`] when it fires.
 //!
-//! # Two ways a request is refused, and they are not the same fault
+//! # Two ways a request is refused
 //!
-//! [`Event::Refused`] is the vehicle's fault: it sent a request the flow does
-//! not allow, and `FAILED_SequenceError` says so. [`Event::Overdue`] is the
-//! *station's*: a phase it kept answering `..._Ongoing` ran past
-//! `V2G_SECC_Ongoing_Performance_Time`, and \[V2G2-713\] has it answer plain
-//! `FAILED` and stop. Both hand over a request to answer and end the session on
-//! the answer; they differ in what the response code tells the vehicle about
-//! whose problem this was.
+//! [`Event::Refused`] is the vehicle's fault: a request the flow does not
+//! allow, answered `FAILED_SequenceError`. [`Event::Overdue`] is the station's:
+//! a phase it kept answering `..._Ongoing` ran past
+//! `V2G_SECC_Ongoing_Performance_Time`, answered plain `FAILED` \[V2G2-713\].
+//! Both end the session on the answer. The station's budgets are shorter than
+//! the vehicle's for the same loop — 55 s against 60, 38 against 40 for the
+//! isolation test — so the station answers while the vehicle still listens.
 //!
-//! The station's budgets are deliberately shorter than the vehicle's for the
-//! same loop — 55 s against 60, 38 against 40 for the DC isolation test — and
-//! that gap is what makes the second event possible at all. A station carrying
-//! the vehicle's number would reach its deadline only after the vehicle had
-//! given up, which is the same as having none.
+//! # One check the engine leaves to you
 //!
-//! # One check the engine cannot make for you
-//!
-//! ISO 15118-2 obliges a station to check the `ChargingProfile` in
-//! `PowerDeliveryReq` against the `SAScheduleList` it offered, and prescribes
-//! the response code either way \[V2G2-224\], \[V2G2-225\]. That is protocol,
-//! so it is in this crate — as
-//! [`session::iso2::schedule`](crate::session::iso2::schedule) — but not in
-//! this engine: keeping the schedule would hold up to three tuples of a
-//! thousand entries for the life of every session, costing the session state
-//! the property that makes pause and resume cheap. Your application built the
-//! list, so it already has it; one call at `PowerDeliveryReq` closes it.
+//! ISO 15118-2 has the station check the `ChargingProfile` in
+//! `PowerDeliveryReq` against the `SAScheduleList` it offered \[V2G2-224\],
+//! \[V2G2-225\]. The application built that list, so it calls
+//! [`session::iso2::schedule`](crate::session::iso2::schedule) at
+//! `PowerDeliveryReq`; the engine does not keep up to three thousand-entry
+//! schedules in every session's state.
 
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
@@ -105,8 +80,8 @@ use core::fmt;
 use crate::app_protocol::SupportedAppProtocolRes;
 use crate::message::Message;
 use crate::session::{
-    Connection, ConnectionError, Flow, FlowError, Instant, Millis, Role, Security, SequenceError,
-    SessionId, Timer, Timers,
+    Connection, ConnectionError, Flow, FlowError, Instant, LoopBudgets, Millis, Role, Security,
+    SequenceError, SessionId, Timer, Timers,
 };
 use crate::trace::{trace_close, trace_event};
 use crate::{MAX_EXI_PAYLOAD_LEN, Protocol, Protocols};
@@ -175,6 +150,15 @@ pub struct SeccConfig {
     ///
     /// Defaults to `V2G_SECC_Sequence_Timeout`, 60 s in both generations.
     pub sequence_timeout: Millis,
+    /// The deployment's own bounds for the authorization loop and the other
+    /// `..._Ongoing` loops. Defaults to none, which keeps the generation's
+    /// figures. Keep each shorter than the vehicle's; see [`LoopBudgets`].
+    pub loop_budgets: LoopBudgets,
+    /// The ISO 15118-20 message sets this station agrees to in the handshake.
+    ///
+    /// Defaults to every set this build can run; narrow it to what the hardware
+    /// can deliver, so the vehicle's usable entry wins the negotiation.
+    pub iso20_sets: alloc::vec::Vec<crate::Iso20Set>,
     /// How long from the connection opening to a `SessionSetupReq`.
     ///
     /// Defaults to the station's own parameter,
@@ -193,6 +177,8 @@ impl Default for SeccConfig {
             max_payload_len: MAX_EXI_PAYLOAD_LEN,
             max_pending_frames: crate::session::MAX_PENDING_FRAMES,
             sequence_timeout: crate::session::timers::iso2::SECC_SEQUENCE_TIMEOUT,
+            loop_budgets: LoopBudgets::default(),
+            iso20_sets: crate::Iso20Set::ALL.into_iter().filter(|s| s.is_compiled()).collect(),
             setup_timeout: crate::session::timers::iso2::SECC_COMMUNICATION_SETUP_PERFORMANCE_TIME,
         }
     }
@@ -219,8 +205,10 @@ pub enum Event {
     /// A request arrived that the protocol does not allow here.
     ///
     /// The spec's reaction is fixed: answer with `response_code` and end the
-    /// session. The response still has to be built by the application, because
-    /// which of the thirty-odd response types to use depends on the request.
+    /// session. [`Message::refusal`] builds the matching response with
+    /// `response_code` and every other field at the schema's minimum, so it
+    /// always encodes — including the responses whose schema demands a
+    /// non-empty list.
     Refused {
         /// The request, so the right response type can be built for it.
         message: Box<Message>,
@@ -344,6 +332,8 @@ pub struct Secc {
     conn: Connection,
     timers: Timers,
     flow: Option<Flow>,
+    /// The ISO 15118-20 message set the handshake agreed, if it agreed one.
+    iso20_set: Option<crate::Iso20Set>,
     events: VecDeque<Event>,
     /// True once `SessionSetupReq` has been answered, after which every request
     /// must carry the assigned session id.
@@ -381,6 +371,7 @@ impl Secc {
             conn,
             timers: Timers::new(),
             flow: None,
+            iso20_set: None,
             events: VecDeque::new(),
             established: false,
             outstanding: None,
@@ -411,6 +402,14 @@ impl Secc {
     #[must_use]
     pub const fn is_closed(&self) -> bool {
         self.closed
+    }
+
+    /// The ISO 15118-20 message set the handshake agreed — which entry of the
+    /// vehicle's offer won — or `None` before the handshake and for the other
+    /// generations.
+    #[must_use]
+    pub const fn iso20_set(&self) -> Option<crate::Iso20Set> {
+        self.iso20_set
     }
 
     /// Feeds bytes read from the transport.
@@ -472,7 +471,7 @@ impl Secc {
             // `Sequencer` at `Phase::Start`, discarding the payment option, the
             // transfer mode and the failure latch — so a peer just answered
             // `FAILED_*` would be back at the top of the graph. `Connection`
-            // makes it unreachable (D12); this makes it local (D26).
+            // already makes it unreachable; this makes the rule local.
             if self.flow.is_some() {
                 return Err(SeccError::HandshakeRepeated);
             }
@@ -490,7 +489,7 @@ impl Secc {
             let mut speakable = self.config.protocols;
             speakable.retain(Flow::supports);
             let agreed = req
-                .negotiate(speakable)
+                .negotiate_with(speakable, &self.config.iso20_sets)
                 .and_then(|a| Flow::new(a.protocol, self.config.security).map(|flow| (a, flow)));
             let Some((agreed, flow)) = agreed else {
                 self.conn
@@ -502,6 +501,7 @@ impl Secc {
                 agreed,
             ))))?;
             self.conn.set_protocol(agreed.protocol);
+            self.iso20_set = agreed.iso20_set;
             self.flow = Some(flow);
             trace_event!(protocol = %agreed.protocol, "protocol agreed");
             self.events.push_back(Event::ProtocolAgreed(agreed.protocol));
@@ -638,17 +638,26 @@ impl Secc {
     /// [`Secc::join_session`] plus the part that is -20's: the flow restarts at
     /// parameter discovery, because authorization and the selected service
     /// survived the pause and re-running them would be out of sequence.
+    ///
+    /// # Errors
+    ///
+    /// [`ResumeError::NotNegotiated`](crate::session::ResumeError::NotNegotiated) before the handshake has settled, and
+    /// [`ResumeError::NotIso20`](crate::session::ResumeError::NotIso20) in an ISO 15118-2 session — use
+    /// [`Secc::join_session`] there. The session id is not taken on either
+    /// error.
     #[cfg(feature = "iso20-common")]
     #[cfg_attr(docsrs, doc(cfg(feature = "iso20-common")))]
     pub fn resume(
         &mut self,
         session_id: SessionId,
         energy_transfer: crate::session::iso20::EnergyTransfer,
-    ) {
+    ) -> Result<(), crate::session::ResumeError> {
+        self.flow
+            .as_mut()
+            .ok_or(crate::session::ResumeError::NotNegotiated)?
+            .resume(energy_transfer)?;
         self.join_session(session_id);
-        if let Some(flow) = self.flow.as_mut() {
-            flow.resume(energy_transfer);
-        }
+        Ok(())
     }
 
     /// Answers the outstanding request.
@@ -793,7 +802,7 @@ impl Secc {
             return;
         }
         self.phase = Some(phase);
-        match flow.loop_timeout(Role::Secc) {
+        match flow.loop_timeout(Role::Secc, self.config.loop_budgets) {
             Some(budget) => self.timers.arm(Timer::Ongoing, now, budget),
             None => self.timers.disarm(Timer::Ongoing),
         }

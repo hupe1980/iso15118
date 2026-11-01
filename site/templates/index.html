@@ -16,8 +16,9 @@
         <p class="lead">
           <strong>iso15118</strong> is the ISO 15118 protocol suite in pure Rust:
           a schema-informed EXI codec generated from the official schemas, both
-          message sets, the SLAC link-setup and SECC discovery state machines, and
-          sans-I/O session engines for the vehicle and the charging station alike.
+          generations' message sets including ISO 15118-20 Amd 1, SLAC and SECC
+          discovery, the V2G PKI, and sans-I/O session engines for the vehicle and
+          the charging station alike.
           No sockets, no clock, no async runtime — those are yours.
         </p>
 
@@ -67,13 +68,11 @@
 <section class="band">
   <div class="wrap">
     <div class="band-head">
-      <h2>Why another implementation</h2>
+      <h2>Four decisions</h2>
       <p>
-        ISO 15118 is what your car and a DC fast charger speak while deciding
-        whether to move 350&nbsp;kW between them. The implementations that exist are
-        C, C++ or Python, and none of them runs unchanged on both a charge-point
-        back end and a bare-metal microcontroller. This one is built on four
-        decisions that make that possible.
+        ISO 15118 is what a car and a DC fast charger speak while deciding whether
+        to move 350&nbsp;kW between them. One codebase for both roles and both
+        generations, on a charge-point back end and a bare-metal controller alike.
       </p>
     </div>
 
@@ -82,10 +81,8 @@
         <span class="num">01</span>
         <h3>Sans-I/O</h3>
         <p>
-          Nothing opens a socket or reads a clock. Bytes and a timestamp in;
-          bytes, events and deadlines out. The pattern behind <code>quinn-proto</code>
-          and <code>rustls</code> — and the reason a whole DC charging session runs
-          as a unit test in microseconds, with time as a variable.
+          Bytes and a timestamp in; bytes, events and deadlines out. A whole DC
+          charging session runs as a unit test, with time as a variable.
         </p>
       </article>
 
@@ -93,10 +90,9 @@
         <span class="num">02</span>
         <h3><code>no_std</code> + <code>alloc</code></h3>
         <p>
-          The protocol core builds for <code>thumbv7em-none-eabihf</code>. Feature
-          flags are additive and every one gates real code, so a DC-only embedded
-          vehicle controller compiles the DC message set and nothing else —
-          grammar tables included.
+          The core builds for <code>thumbv7em-none-eabihf</code>. Every feature flag
+          gates real code, so a DC-only vehicle controller compiles the DC message
+          set and nothing else.
         </p>
       </article>
 
@@ -104,10 +100,9 @@
         <span class="num">03</span>
         <h3>A wire format someone else agrees with</h3>
         <p>
-          Round-tripping your own encoder through your own decoder proves they
-          agree with each other and nothing more. Every grammar and every message
-          here is diffed against the EXI reference implementation, as documents
-          <em>and</em> as signature fragments.
+          Every grammar and message is diffed against the EXI reference
+          implementation, as documents <em>and</em> signature fragments, and
+          captured sessions from real equipment re-encode byte for byte.
         </p>
       </article>
 
@@ -115,10 +110,9 @@
         <span class="num">04</span>
         <h3>A decoder you can point at the internet</h3>
         <p>
-          The EXI parser is the first thing to touch unauthenticated bytes from a
-          cable a stranger plugged in. Every length is bounded by its schema facet
-          before anything is allocated, nesting is capped, and the layers above
-          hold the same line.
+          Every length is bounded by its schema facet before anything is allocated,
+          nesting is capped, every decoder is fuzzed, and there is no
+          <code>unsafe</code>.
         </p>
       </article>
     </div>
@@ -130,10 +124,9 @@
     <div class="band-head">
       <h2>Protocol, not policy</h2>
       <p>
-        The engines own framing, decoding, the handshake, session-id checking,
-        message ordering and the spec timers. They own nothing about charging:
-        whether to authorize a vehicle, which schedule to offer, how much current
-        to deliver. Those arrive as events and are answered with a message you build.
+        The engines own framing, decoding, the handshake, session ids, message
+        ordering and the spec timers. Whether to authorize, which schedule to offer
+        and how much current to deliver arrive as events you answer.
       </p>
     </div>
 
@@ -145,8 +138,8 @@
               <code>poll_timeout</code> — the same five calls for the charger, the
               vehicle, discovery and SLAC.</li>
           <li><strong>The ordering rules are data.</strong> One graph per protocol
-              generation, shared by both roles, so the two sides cannot disagree
-              about what is legal next.</li>
+              generation, shared by both roles. An ISO 15118-20 session speaks only
+              the message set of the service it selected.</li>
           <li><strong>Including the rules about failing.</strong> A
               <code>FAILED_*</code> response ends the session and leaves only
               <code>SessionStopReq</code>; the drivers enter that state on their own.</li>
@@ -169,7 +162,7 @@
   <div class="wrap">
     <div class="band-head">
       <h2>What is implemented</h2>
-      <p>Everything from the powerline link coming up to the charge loop turning.</p>
+      <p>From the powerline link coming up to the charge loop turning.</p>
     </div>
 
     <div class="table-wrap">
@@ -189,15 +182,15 @@
           <tr><td><strong>ISO 15118-2</strong> message set</td>
               <td>All 34 body messages, <code>ds:Signature</code> included</td></tr>
           <tr><td><strong>ISO 15118-20</strong> message sets</td>
-              <td><code>CommonMessages</code>, AC, DC, WPT, ACDP</td></tr>
+              <td><code>CommonMessages</code>, AC, DC, WPT, ACDP, and Amd 1's <code>AC_DER_IEC</code> / <code>AC_DER_SAE</code>; MCS on the DC flow</td></tr>
           <tr><td><strong>Session layer</strong></td>
-              <td>Clock, spec timers and loop budgets, ordering graphs for both generations, the ISO 15118-2 charging-profile rule</td></tr>
+              <td>Clock, spec timers and configurable loop budgets, ordering graphs for both generations, the message-set rule, the ISO 15118-2 charging-profile rule</td></tr>
           <tr><td><strong>EVCC / SECC drivers</strong></td>
               <td>Handshake, sequencing, session-id checks, half-duplex enforcement, pause and resume</td></tr>
           <tr><td><strong>Plug &amp; Charge signatures</strong></td>
               <td>XMLDSig over EXI fragments, build and verify, algorithm restrictions enforced</td></tr>
           <tr><td><strong>V2G PKI</strong></td>
-              <td>DER/X.509 reader, RFC 5280 path validation, the Annex F certificate profiles, and the encrypted contract-key envelope</td></tr>
+              <td>DER/X.509 reader, RFC 5280 path validation, the Annex F profiles, the ISO 15118-20 Amd 1 rules, and the encrypted contract-key envelope</td></tr>
         </tbody>
       </table>
     </div>
@@ -210,44 +203,37 @@
   <div class="wrap">
     <div class="band-head">
       <h2>And what is not</h2>
-      <p>
-        Named rather than implied. A library that is vague about its edges is one
-        you find the edges of in the field.
-      </p>
+      <p>Named rather than implied.</p>
     </div>
 
     <div class="cards">
       <article class="card">
         <h3>Certificate revocation</h3>
         <p>
-          Chains validate — signatures, validity windows, path length, key usage,
-          the Annex F profiles — but nothing here asks whether a certificate was
-          withdrawn. No OCSP, no CRL. The standard makes OCSP a recommendation
-          because a charging vehicle cannot be assumed to reach a responder, and
-          the answer belongs in the back end your station already talks to.
+          Chains validate, but nothing here asks whether a certificate was
+          withdrawn — no OCSP, no CRL. That answer belongs in the back end your
+          station already talks to.
         </p>
       </article>
       <article class="card">
         <h3>Transport bindings</h3>
         <p>
-          No TCP, no TLS, no raw sockets, by design. The examples show the twenty
-          lines of glue for each, so you bring <code>rustls</code> on a server and
-          <code>embedded-tls</code> on an ECU without this crate choosing.
+          No TCP, TLS or raw sockets. Bring <code>rustls</code> on a server and
+          <code>embedded-tls</code> on an ECU; the examples show the glue.
         </p>
       </article>
       <article class="card">
-        <h3>DIN SPEC 70121</h3>
+        <h3>DIN/TS 70121</h3>
         <p>
-          Its <em>message set</em> is not here: the schemas are behind a paywall,
-          and hand-transcribing them would produce a codec with no reference to
-          check against. The handshake, the framing and the timers below it are
-          generation-agnostic, so a DIN codec of your own can ride them.
+          Its <em>message set</em> is not included: there is no schema licence that
+          permits generating from them. The handshake declines DIN by name, and the
+          framing and timers carry a DIN codec of your own.
         </p>
       </article>
     </div>
 
     <p style="margin-top:1.5rem">
-      <a href="{{ get_url(path='@/docs/roadmap.md') | safe }}">The full list of what is not here →</a>
+      <a href="{{ get_url(path='@/docs/faq.md') | safe }}#limitations">All limitations →</a>
     </p>
   </div>
 </section>

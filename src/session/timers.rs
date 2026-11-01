@@ -67,12 +67,14 @@ pub mod iso2 {
     /// reports operators and equipment makers finding 60 s too short for an
     /// authorization a person has to complete, with drivers routinely needing
     /// more than 140 s to find their phone. That is a real observation and it is
-    /// not this crate's to decide: the constant is what Table 109 says, and a
-    /// deployment that has measured its own drivers overrides the loop budget
-    /// rather than having a library quietly disagree with the standard on its
-    /// behalf. ISO 15118-20 is where this is fixed properly — see
-    /// [`iso20::EIM_ONGOING_TIMEOUT`], which is three minutes for exactly this
-    /// reason.
+    /// not this crate's to decide: the constant is what Table 109 says, rather
+    /// than a library quietly disagreeing with the standard on a deployment's
+    /// behalf. A deployment that has measured its own drivers sets
+    /// [`LoopBudgets::authorization`]. For ISO 15118-20 this crate's own
+    /// policy, [`iso20::EIM_ONGOING_TIMEOUT`], is three minutes for exactly this
+    /// reason — a judgement, not a quoted figure.
+    ///
+    /// [`LoopBudgets::authorization`]: crate::session::LoopBudgets::authorization
     ///
     /// [`iso20::EIM_ONGOING_TIMEOUT`]: super::iso20::EIM_ONGOING_TIMEOUT
     pub const EVCC_ONGOING_TIMEOUT: Millis = Millis::from_secs(60);
@@ -156,14 +158,16 @@ pub mod iso2 {
 /// ISO 15118-20 timing.
 ///
 /// ISO 15118-20 has a timing table of its own (§8.5) and this crate does not
-/// have that text — the standard is a paid document. So the two values -20
-/// shares with -2 are cited, and the two loop budgets are **this crate's
-/// policy**, derived below rather than quoted. They are named as such because a
-/// constant that says "§8.5" when nobody checked §8.5 is worse than one that
-/// says where it really came from: the first cannot be questioned, the second
-/// can be replaced. [`EvccConfig::message_timeout`] and
-/// [`SeccConfig::sequence_timeout`] override them for a caller that has the
-/// table.
+/// have that text — the standard is a paid document. So the values -20 shares
+/// with -2 are cited, and the loop budgets — the two `ONGOING` constants, the
+/// two `EIM_ONGOING` constants and the vehicle's sequence performance time —
+/// are **this crate's policy**, derived below rather than quoted. They are
+/// named as such because a constant that says "§8.5" when nobody checked §8.5
+/// is worse than one that says where it really came from: the first cannot be
+/// questioned, the second can be replaced. [`EvccConfig::message_timeout`] and
+/// [`SeccConfig::sequence_timeout`] override the per-message and sequence
+/// timeouts for a caller that has the table, and
+/// [`LoopBudgets`](crate::session::LoopBudgets) overrides the loop budgets.
 ///
 /// [`EvccConfig::message_timeout`]: crate::evcc::EvccConfig::message_timeout
 /// [`SeccConfig::sequence_timeout`]: crate::secc::SeccConfig::sequence_timeout

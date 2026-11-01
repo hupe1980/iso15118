@@ -24,7 +24,7 @@ use iso15118::iso20::{dc, messages as cm};
 use iso15118::message::Message;
 use iso15118::secc::{self, Secc, SeccConfig};
 use iso15118::session::{Instant, Millis, SessionId};
-use iso15118::{Protocol, Protocols};
+use iso15118::{Iso20Set, Protocol, Protocols};
 
 const SESSION_ID: SessionId = SessionId::new([0x3D, 0x4C, 0xBF, 0x93, 0x37, 0x4E, 0xD8, 0x9B]);
 const TIMESTAMP: u64 = 1_725_456_343;
@@ -466,4 +466,29 @@ fn a_dc_message_before_the_service_is_selected_is_refused() {
         matches!(refusal, Some(secc::Refusal::Sequence(_))),
         "expected a sequence refusal, got {refusal:?}"
     );
+}
+
+/// An AC-only station facing a vehicle that offers DC first and AC second
+/// agrees to AC — the entry both can run — and both ends know which set won.
+#[test]
+fn a_station_agrees_only_to_a_message_set_it_can_run() {
+    let mut evcc = Evcc::new(EvccConfig {
+        protocols: Protocols::only(Protocol::Iso20),
+        iso20_sets: vec![Iso20Set::Dc, Iso20Set::Ac],
+        ..Default::default()
+    });
+    let mut secc = Secc::new(SeccConfig {
+        protocols: Protocols::only(Protocol::Iso20),
+        session_id: SESSION_ID,
+        iso20_sets: vec![Iso20Set::Ac],
+        ..Default::default()
+    });
+    let now = Instant::ZERO;
+    secc.opened(now);
+    evcc.start(now).expect("start");
+    secc.handle_input(now, &evcc.take_transmit()).expect("SECC input");
+    evcc.handle_input(now, &secc.take_transmit()).expect("EVCC input");
+
+    assert_eq!(secc.iso20_set(), Some(Iso20Set::Ac), "the station took the entry it can run");
+    assert_eq!(evcc.iso20_set(), Some(Iso20Set::Ac), "and the vehicle learned which");
 }

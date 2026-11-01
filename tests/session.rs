@@ -979,7 +979,7 @@ fn a_charger_that_answers_nothing_closes_the_vehicles_session() {
 /// back at the top of the flow.
 ///
 /// It is not reachable through `Connection` — once a generation has won,
-/// payload type `0x8001` is read as that generation's message set (D12) — which
+/// payload type `0x8001` is read as that generation's message set — which
 /// is exactly why the clause is here: that argument lives in another file.
 #[test]
 fn the_handshake_cannot_be_replayed_to_reset_the_flow() {

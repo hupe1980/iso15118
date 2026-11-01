@@ -1,55 +1,32 @@
-//! Session state: the clock, the spec timers, and the message-ordering rules.
-//!
-//! This is the layer between the message codecs and a working EVCC or SECC, and
-//! it is deliberately the part with no I/O in it at all. Three pieces:
+//! Session state: the clock, the spec timers, and the message-ordering rules —
+//! the layer between the codecs and a working EVCC or SECC, with no I/O.
 //!
 //! * [`Instant`] and [`Millis`] — the caller's monotonic clock, injected.
-//! * [`Connection`] — V2GTP framing over a byte stream, in both directions,
-//!   bounded in bytes *and* in frames.
-//! * [`Timers`] — the V2G deadlines, armed and disarmed against that clock, with
-//!   every constant tied to the requirement it comes from.
-//! * [`iso2::Sequencer`] and [`iso20::Sequencer`] — the message-ordering graphs,
-//!   one per protocol generation.
-//! * [`iso2::schedule`] — whether the vehicle's charging profile fits the
-//!   schedule the station offered, and which `ResponseCode` says so.
+//! * [`Connection`] — V2GTP framing over a byte stream, bounded in bytes and in
+//!   frames.
+//! * [`Timers`] — the V2G deadlines, each constant tied to its requirement.
+//! * [`iso2::Sequencer`] and [`iso20::Sequencer`] — the ordering graphs, shared
+//!   by both roles so the two cannot disagree about the flow. ISO 15118-20 also
+//!   admits only the message set of the selected service
+//!   ([`iso20::Sequencer::admits`]).
+//! * [`iso2::schedule`] — whether a charging profile fits the offered schedule,
+//!   and which `ResponseCode` says so.
 //!
 //! # Two kinds of deadline
 //!
-//! A per-message timeout ([`Timer::Message`]) bounds the answer to one request.
-//! A *loop* budget ([`Timer::Ongoing`]) bounds a whole phase: several phases are
-//! not one exchange but a repetition the peer keeps making while the answer is
-//! `..._Ongoing` — authorization waiting on a driver, the DC isolation test,
-//! schedule exchange waiting on a tariff. The per-message timeout does not cover
-//! that case, because it restarts on every repeat: a station that answers
-//! `Ongoing` promptly for ever is never late. [`Flow::loop_timeout`] is the
-//! second kind, it starts on the first request of a phase, and the repeats do
-//! not restart it.
+//! A per-message timeout ([`Timer::Message`]) bounds one answer. A *loop*
+//! budget ([`Timer::Ongoing`], from [`Flow::loop_timeout`]) bounds a phase the
+//! peer repeats while the answer is `..._Ongoing` — authorization, the DC
+//! isolation test, schedule exchange. It starts on the first request of the
+//! phase; repeats do not restart it.
 //!
-//! Each loop budget is a *pair* rather than a number, and [`Role`] picks the
-//! half that applies. The standard's two halves differ on purpose — 55 s for the
-//! station against the vehicle's 60 s for the same loop \[V2G2-713\] — so that a
-//! station which cannot decide answers `FAILED` while the vehicle is still
-//! listening.
-//!
-//! # Why sequencing is its own thing
-//!
-//! ISO 15118's ordering rules are not decoration. `FAILED_SequenceError` is a
-//! defined response code and terminating the session is the defined reaction,
-//! so "which requests are legal right now" is protocol logic that both sides
-//! need and that neither should re-derive from prose. Keeping it in one place,
-//! shared by the EVCC and the SECC, means the two cannot disagree about the
-//! flow — and it makes each ordering rule a unit test rather than a field
-//! observation.
+//! Each budget is a pair, and [`Role`] picks the half: the station's is shorter
+//! (55 s against 60 \[V2G2-713\]) so it answers `FAILED` while the vehicle still
+//! listens. [`LoopBudgets`] lets a deployment set the authorization and other
+//! patience loops; the DC safety phases keep their bounds.
 //!
 //! The sequencers hold no buffers and no keys, so a session snapshot is small,
-//! `Clone`, and (with the `serde` feature) serialisable — which is what
-//! pause/resume across a power cycle needs.
-//!
-//! # What is *not* here
-//!
-//! Policy. Whether to authorize, which schedule to offer, how much current to
-//! deliver — none of that is protocol, and none of it is decided here. The role
-//! drivers surface those as decisions for the application to answer.
+//! `Clone` and, with `serde`, serialisable — what pause and resume need.
 
 use core::fmt;
 
@@ -259,6 +236,12 @@ impl Flow {
             #[cfg(feature = "iso20-common")]
             Self::Iso20(s) => {
                 let request = iso20::Request::of(message).ok_or(FlowError::NotARequest)?;
+                // A request from a message set the session did not select is out
+                // of sequence however legal the same request would be in the
+                // right set — an AC charge loop in a DC session.
+                if !s.admits(message.payload_type()) {
+                    return Err(FlowError::Sequence(s.refusal(request)));
+                }
                 s.accept(request)?;
             }
         }
@@ -284,7 +267,7 @@ impl Flow {
             #[cfg(feature = "iso20-common")]
             Self::Iso20(s) => {
                 let request = iso20::Request::of(message).ok_or(FlowError::NotARequest)?;
-                if !s.permits(request) {
+                if !s.admits(message.payload_type()) || !s.permits(request) {
                     return Err(FlowError::Sequence(s.refusal(request)));
                 }
             }
@@ -356,13 +339,13 @@ impl Flow {
     /// [`EnergyTransfer`]: iso20::EnergyTransfer
     #[cfg(feature = "iso20-common")]
     #[cfg_attr(docsrs, doc(cfg(feature = "iso20-common")))]
-    pub fn resume(&mut self, energy_transfer: iso20::EnergyTransfer) -> bool {
+    pub fn resume(&mut self, energy_transfer: iso20::EnergyTransfer) -> Result<(), ResumeError> {
         match self {
             #[cfg(feature = "iso2")]
-            Self::Iso2(_) => false,
+            Self::Iso2(_) => Err(ResumeError::NotIso20),
             Self::Iso20(s) => {
                 s.resume(energy_transfer);
-                true
+                Ok(())
             }
         }
     }
@@ -377,13 +360,40 @@ impl Flow {
     /// The role drivers arm [`Timer::Ongoing`] from it.
     ///
     /// The answer depends on `role` because the standard's does: see [`Role`].
+    /// `budgets` is the deployment's override — see [`LoopBudgets`] for which
+    /// loops it reaches and which it deliberately does not.
     #[must_use]
-    pub const fn loop_timeout(&self, role: Role) -> Option<Millis> {
+    pub const fn loop_timeout(&self, role: Role, budgets: LoopBudgets) -> Option<Millis> {
+        let (default, authorizing) = match self {
+            #[cfg(feature = "iso2")]
+            Self::Iso2(s) => (s.loop_timeout(role), matches!(s.phase(), iso2::Phase::Authorized)),
+            #[cfg(feature = "iso20-common")]
+            Self::Iso20(s) => (s.loop_timeout(role), matches!(s.phase(), iso20::Phase::Authorized)),
+        };
+        let Some(default) = default else { return None };
+        let overridden = if authorizing {
+            budgets.authorization
+        } else if self.is_dc_safety_phase() {
+            None
+        } else {
+            budgets.ongoing
+        };
+        Some(match overridden {
+            Some(budget) => budget,
+            None => default,
+        })
+    }
+
+    /// The isolation test and the pre-charge: loops whose budget is a safety
+    /// bound rather than a patience bound, and which no override reaches.
+    const fn is_dc_safety_phase(&self) -> bool {
         match self {
             #[cfg(feature = "iso2")]
-            Self::Iso2(s) => s.loop_timeout(role),
+            Self::Iso2(s) => matches!(s.phase(), iso2::Phase::CableCheck | iso2::Phase::PreCharge),
             #[cfg(feature = "iso20-common")]
-            Self::Iso20(s) => s.loop_timeout(role),
+            Self::Iso20(s) => {
+                matches!(s.phase(), iso20::Phase::CableCheck | iso20::Phase::PreCharge)
+            }
         }
     }
 
@@ -398,6 +408,53 @@ impl Flow {
         }
     }
 }
+
+/// A deployment's own bounds for the loops a peer repeats while the answer is
+/// `..._Ongoing`.
+///
+/// `None` keeps the generation's figure: Table 109 for ISO 15118-2, this
+/// crate's labelled policy for ISO 15118-20 (see [`timers`]).
+///
+/// * **`authorization`** — while a driver presents a card or confirms in an
+///   app. `ChargeX`'s *Timeouts Best Practices* (March 2025) found drivers
+///   needing more than 140 s where ISO 15118-2 gives 60.
+/// * **`ongoing`** — every other `Ongoing` loop: parameter discovery, schedule
+///   exchange, welding detection.
+///
+/// The DC isolation test and pre-charge are safety bounds and not reachable
+/// from here. On the station, keep each value shorter than the vehicle's — the
+/// station cannot see the vehicle's configuration, so this is not checked.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct LoopBudgets {
+    /// The authorization loop.
+    pub authorization: Option<Millis>,
+    /// Every other `..._Ongoing` loop except the DC safety phases.
+    pub ongoing: Option<Millis>,
+}
+
+/// Why a paused session could not be picked back up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ResumeError {
+    /// The `supportedAppProtocol` handshake has not settled, so there is no
+    /// flow to resume yet.
+    NotNegotiated,
+    /// The negotiated generation is ISO 15118-2, which keeps only the session
+    /// id across a pause; there is no flow state to restore.
+    NotIso20,
+}
+
+impl fmt::Display for ResumeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::NotNegotiated => "no protocol has been negotiated yet",
+            Self::NotIso20 => "only an ISO 15118-20 flow can be resumed",
+        })
+    }
+}
+
+impl core::error::Error for ResumeError {}
 
 /// Why a message was not accepted into the flow.
 #[cfg(any(feature = "iso2", feature = "iso20-common"))]
@@ -546,6 +603,102 @@ impl std::error::Error for SessionIdError {}
 mod tests {
     use super::*;
 
+    /// The deployment's budgets reach the authorization loop and the other
+    /// patience loops, and never the DC safety phases.
+    #[cfg(feature = "iso2")]
+    #[test]
+    fn a_configured_loop_budget_is_the_one_enforced() {
+        use crate::iso2::{EnergyTransferMode, PaymentOption};
+        use iso2::Request as R;
+        let budgets = LoopBudgets {
+            authorization: Some(Millis::from_secs(140)),
+            ongoing: Some(Millis::from_secs(90)),
+        };
+        let mut flow = Flow::new(crate::Protocol::Iso2, Security::None).unwrap();
+        let Flow::Iso2(s) = &mut flow else { unreachable!() };
+        for r in [
+            R::SessionSetup,
+            R::ServiceDiscovery,
+            R::PaymentServiceSelection(PaymentOption::ExternalPayment),
+            R::Authorization,
+        ] {
+            s.accept(r).unwrap();
+        }
+        // Table 109's 60 s by default; ChargeX's 140 s when the deployment says so.
+        assert_eq!(
+            flow.loop_timeout(Role::Evcc, LoopBudgets::default()),
+            Some(Millis::from_secs(60))
+        );
+        assert_eq!(flow.loop_timeout(Role::Evcc, budgets), Some(Millis::from_secs(140)));
+        assert_eq!(flow.loop_timeout(Role::Secc, budgets), Some(Millis::from_secs(140)));
+
+        let Flow::Iso2(s) = &mut flow else { unreachable!() };
+        s.accept(R::ChargeParameterDiscovery(EnergyTransferMode::DCExtended)).unwrap();
+        assert_eq!(flow.loop_timeout(Role::Evcc, budgets), Some(Millis::from_secs(90)));
+
+        // The isolation test keeps its 40 s whatever the deployment asks for.
+        let Flow::Iso2(s) = &mut flow else { unreachable!() };
+        s.accept(R::CableCheck).unwrap();
+        assert_eq!(flow.loop_timeout(Role::Evcc, budgets), Some(Millis::from_secs(40)));
+        assert_eq!(
+            flow.loop_timeout(Role::Evcc, LoopBudgets::default()),
+            Some(Millis::from_secs(40))
+        );
+    }
+
+    /// The same for ISO 15118-20, where the authorization loop's default is this
+    /// crate's three-minute policy rather than a quoted figure.
+    #[cfg(feature = "iso20-common")]
+    #[test]
+    fn a_configured_loop_budget_reaches_the_iso20_loops_too() {
+        use iso20::Request as R;
+        let budgets = LoopBudgets {
+            authorization: Some(Millis::from_secs(240)),
+            ongoing: Some(Millis::from_secs(90)),
+        };
+        let mut flow = Flow::new(crate::Protocol::Iso20, Security::Tls).unwrap();
+        let Flow::Iso20(s) = &mut flow else { unreachable!() };
+        for r in [R::SessionSetup, R::AuthorizationSetup, R::Authorization] {
+            s.accept(r).unwrap();
+        }
+        assert_eq!(
+            flow.loop_timeout(Role::Evcc, LoopBudgets::default()),
+            Some(Millis::from_secs(180))
+        );
+        assert_eq!(flow.loop_timeout(Role::Evcc, budgets), Some(Millis::from_secs(240)));
+
+        let Flow::Iso20(s) = &mut flow else { unreachable!() };
+        for r in [
+            R::ServiceDiscovery,
+            R::ServiceSelection(iso20::EnergyTransfer::unidirectional(iso20::Service::Dc)),
+            R::ChargeParameterDiscovery,
+        ] {
+            s.accept(r).unwrap();
+        }
+        assert_eq!(flow.loop_timeout(Role::Secc, budgets), Some(Millis::from_secs(90)));
+
+        let Flow::Iso20(s) = &mut flow else { unreachable!() };
+        s.accept(R::ScheduleExchange).unwrap();
+        s.accept(R::CableCheck).unwrap();
+        assert_eq!(
+            flow.loop_timeout(Role::Evcc, budgets),
+            flow.loop_timeout(Role::Evcc, LoopBudgets::default()),
+            "the isolation test keeps its own bound"
+        );
+    }
+
+    /// ISO 15118-2 keeps only the session id across a pause; asking it to
+    /// resume a flow is a mistake the caller hears about.
+    #[cfg(all(feature = "iso2", feature = "iso20-common"))]
+    #[test]
+    fn a_two_flow_cannot_be_resumed_and_says_so() {
+        let mut flow = Flow::new(crate::Protocol::Iso2, Security::None).unwrap();
+        assert_eq!(
+            flow.resume(iso20::EnergyTransfer::unidirectional(iso20::Service::Dc)),
+            Err(ResumeError::NotIso20)
+        );
+    }
+
     #[test]
     fn a_fresh_session_has_no_id() {
         assert!(SessionId::NONE.is_none());
@@ -606,7 +759,7 @@ mod tests {
 
         // The -20 flow too, where a paused session keeps the most state.
         let mut flow = Flow::new(crate::Protocol::Iso20, Security::Tls).unwrap();
-        flow.resume(iso20::EnergyTransfer::unidirectional(iso20::Service::Dc));
+        flow.resume(iso20::EnergyTransfer::unidirectional(iso20::Service::Dc)).unwrap();
         let restored: Flow = serde_json::from_str(&serde_json::to_string(&flow).unwrap()).unwrap();
         let Flow::Iso20(after) = &restored else { unreachable!() };
         assert_eq!(after.service(), Some(iso20::Service::Dc));

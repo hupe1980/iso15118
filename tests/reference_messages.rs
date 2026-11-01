@@ -57,6 +57,8 @@ macro_rules! sets {
                 ("iso20_dc", reencode::<iso15118::iso20::dc::Document>),
                 ("iso20_wpt", reencode::<iso15118::iso20::wpt::Document>),
                 ("iso20_acdp", reencode::<iso15118::iso20::acdp::Document>),
+                ("iso20_ac_der_iec", reencode::<iso15118::iso20::ac_der_iec::Document>),
+                ("iso20_ac_der_sae", reencode::<iso15118::iso20::ac_der_sae::Document>),
             ]
         }
 
@@ -74,6 +76,8 @@ macro_rules! sets {
                 ("iso20_dc", f!(iso15118::iso20::dc::Document)),
                 ("iso20_wpt", f!(iso15118::iso20::wpt::Document)),
                 ("iso20_acdp", f!(iso15118::iso20::acdp::Document)),
+                ("iso20_ac_der_iec", f!(iso15118::iso20::ac_der_iec::Document)),
+                ("iso20_ac_der_sae", f!(iso15118::iso20::ac_der_sae::Document)),
             ]
         }
     };

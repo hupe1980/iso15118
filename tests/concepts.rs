@@ -16,7 +16,12 @@
 //! * the counts the prose states — "twenty-seven things", "Six rules" — agree
 //!   with the number of entries, because a list that grows and a sentence that
 //!   does not is the cheapest wrong thing to write;
-//! * every relative link between the documents resolves.
+//! * every relative link between the documents resolves;
+//! * every open roadmap item names exactly one feature specification under
+//!   `specs/`, and every specification there is named by exactly one item;
+//! * nothing published cites `concepts/`, `specs/` or `.specify/` — a reader of
+//!   the crate, the site or the README cannot open any of them. This one needs
+//!   no notes to run, so it is the one check here CI does see.
 //!
 //! Each of those has already been wrong here at least once. The sibling `emob`
 //! workspace added the same guard after the same failure, which is the strongest
@@ -223,4 +228,92 @@ fn every_link_between_the_documents_resolves() {
         }
     }
     assert!(broken.is_empty(), "dangling links between concepts documents: {broken:?}");
+}
+
+/// The roadmap is the spec of specs: an open item is a `` ### `#anchor` ``
+/// heading naming one folder on a `**Specified as:**` line, and a folder under
+/// `specs/` that no item names is work nobody has scheduled.
+#[test]
+fn every_roadmap_item_names_its_specification() {
+    let Some(dir) = concepts() else { return };
+    let specs = Path::new(env!("CARGO_MANIFEST_DIR")).join("specs");
+    if !specs.is_dir() {
+        return;
+    }
+    let roadmap = fs::read_to_string(dir.join("ROADMAP.md")).expect("read ROADMAP.md");
+
+    let items = roadmap.lines().filter(|l| l.starts_with("### `#")).count();
+    let named: Vec<&str> = roadmap
+        .lines()
+        .filter_map(|l| l.strip_prefix("**Specified as:** `")?.split('`').next())
+        .collect();
+    assert_eq!(
+        items,
+        named.len(),
+        "ROADMAP.md: {items} items but {} **Specified as:** lines",
+        named.len()
+    );
+
+    let unique: BTreeSet<&str> = named.iter().copied().collect();
+    assert_eq!(unique.len(), named.len(), "ROADMAP.md names a specification twice: {named:?}");
+
+    let missing: Vec<_> =
+        unique.iter().filter(|s| !specs.join(s).join("spec.md").is_file()).collect();
+    assert!(missing.is_empty(), "ROADMAP.md names specifications that do not exist: {missing:?}");
+
+    // Folders are `NNN-slug`; `archive/` holds the shipped, superseded and refused.
+    let orphans: Vec<_> = fs::read_dir(&specs)
+        .expect("read specs/")
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.as_bytes().first().is_some_and(u8::is_ascii_digit))
+        .filter(|name| !unique.contains(name.as_str()))
+        .collect();
+    assert!(orphans.is_empty(), "specs/ holds specifications no roadmap item names: {orphans:?}");
+}
+
+/// The published tree stands on its own. A path into the internal notes, the
+/// specifications or the Spec Kit machinery renders as a reference and leads
+/// nowhere for every reader who is not a maintainer.
+#[test]
+fn nothing_published_cites_the_internal_tree() {
+    fn walk(path: &Path, out: &mut Vec<PathBuf>) {
+        if path.is_dir() {
+            for entry in fs::read_dir(path).expect("read dir").flatten() {
+                walk(&entry.path(), out);
+            }
+        } else if path.extension().is_some_and(|e| e == "rs" || e == "md") {
+            out.push(path.to_path_buf());
+        }
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    for published in ["src", "examples", "tests", "site/content", "README.md"] {
+        walk(&root.join(published), &mut files);
+    }
+    // This file is the guard, and has to name what it guards.
+    files.retain(|f| !f.ends_with("tests/concepts.rs"));
+
+    let mut leaks = Vec::new();
+    for file in &files {
+        let text = fs::read_to_string(file).expect("read published file");
+        for (n, line) in text.lines().enumerate() {
+            let cites = ["concepts/", "specs/", ".specify/"].iter().any(|internal| {
+                line.match_indices(internal).any(|(at, _)| {
+                    // `concepts/` as a path, not the tail of `some-concepts/`.
+                    !line[..at]
+                        .chars()
+                        .next_back()
+                        .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                })
+            });
+            if cites {
+                let file = file.strip_prefix(root).unwrap_or(file).display();
+                leaks.push(format!("{file}:{}", n + 1));
+            }
+        }
+    }
+    assert!(leaks.is_empty(), "published files cite a path their reader does not have: {leaks:?}");
 }

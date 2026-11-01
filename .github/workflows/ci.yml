@@ -53,6 +53,22 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # The weekly run also lints on beta, so a lint that lands in the next stable
+  # is a scheduled failure here rather than a red pull request for whoever
+  # touches the code first. 0.5's clippy job went red that way on 1.99.
+  lint-beta:
+    name: clippy (beta, weekly)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@beta
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --all-features
+      - run: cargo clippy --all-targets --no-default-features
+
   features:
     name: feature powerset
     runs-on: ubuntu-latest

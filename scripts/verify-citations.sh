@@ -52,9 +52,10 @@ if [ ! -s "$WORK/iso15118-2.txt" ]; then
 fi
 
 # Every requirement number the repository cites, and every one the standard
-# defines. `V2G2-ED2-nnnn` is deliberately excluded: those belong to the second
-# edition, which is not this document and is not freely readable — see
-# RISKS.md.
+# defines. `V2G2-ED2-nnnn` never matches the pattern — a digit must follow
+# `V2G2-` — and that is the right outcome rather than an exclusion anyone wrote:
+# those numbers belong to the second edition, which is not this document and is
+# not freely readable, so this script could not check them.
 grep -rhoE 'V2G2-[0-9]+' \
     "$BASE_DIR/src" "$BASE_DIR/tests" "$BASE_DIR/examples" "$BASE_DIR/codegen/src" \
     "$BASE_DIR/site/content" "$BASE_DIR/README.md" \

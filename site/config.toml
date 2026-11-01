@@ -58,13 +58,12 @@ crate = "https://crates.io/crates/iso15118"
 docsrs = "https://docs.rs/iso15118"
 tagline = "Vehicle-to-grid, from the ECU to the back end."
 
-# The claims on the front page are numbers, and numbers go stale. They live here
-# so there is one place to update them when the verification scripts report a
-# different figure.
+# The front page's numbers. scripts/verify-grammars.sh and verify-messages.sh
+# check `grammars` and `messages`; tests/claims.rs checks `fuzz_targets`.
 [extra.numbers]
-messages = "121"
-grammars = "298"
-features = "129"
+messages = "166"
+grammars = "395"
+features = "160"
 fuzz_targets = "10"
 
 # The documentation sidebar, in reading order. Keeping it here rather than
@@ -100,6 +99,5 @@ items = [
 [[extra.nav]]
 title = "Reference"
 items = [
-  "docs/roadmap.md",
   "docs/faq.md",
 ]

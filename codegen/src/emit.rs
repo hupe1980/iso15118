@@ -1387,6 +1387,26 @@ impl Emitter<'_> {
                     let _ = writeln!(out, "            _ => return None,");
                     let _ = writeln!(out, "        }})");
                     let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out);
+                    // The list `refusal` is defined over, generated from the same
+                    // pairing, so "every request" cannot be a hand-kept count.
+                    let request_types: BTreeMap<String, &String> =
+                        roots.iter().map(|(_, name, rust)| (pascal(&name.local), rust)).collect();
+                    let _ = writeln!(out, "    /// Every request of this schema set, each at the");
+                    let _ = writeln!(
+                        out,
+                        "    /// schema's minimum — the set [`Document::refusal`] answers."
+                    );
+                    let _ = writeln!(out, "    #[must_use]");
+                    let _ = writeln!(out, "    pub fn requests() -> Vec<Self> {{");
+                    let _ = writeln!(out, "        alloc::vec![");
+                    for (req, _, _) in &pairs {
+                        if let Some(ty) = request_types.get(req) {
+                            let _ = writeln!(out, "            Self::{req}({ty}::minimal()),");
+                        }
+                    }
+                    let _ = writeln!(out, "        ]");
+                    let _ = writeln!(out, "    }}");
                     let _ = writeln!(out, "}}");
                     let _ = writeln!(out);
                 }
@@ -2015,6 +2035,25 @@ impl Emitter<'_> {
         }
         let _ = writeln!(out, "            _ => return None,");
         let _ = writeln!(out, "        }})");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        // The list `refusal` is defined over, from the same pairing.
+        let _ = writeln!(out, "    /// Every request among these alternatives, each at the");
+        let _ =
+            writeln!(out, "    /// schema's minimum — the set [`{enum_name}::refusal`] answers.");
+        let _ = writeln!(out, "    #[must_use]");
+        let _ = writeln!(out, "    pub fn requests() -> Vec<Self> {{");
+        let _ = writeln!(out, "        alloc::vec![");
+        for (req, _, _) in &pairs {
+            let ty = variants.iter().find_map(|(v, _, kind)| match kind {
+                Kind::Struct(inner) if v == req => Some(inner.as_str()),
+                _ => None,
+            });
+            if let Some(ty) = ty {
+                let _ = writeln!(out, "            Self::{req}({ty}::minimal()),");
+            }
+        }
+        let _ = writeln!(out, "        ]");
         let _ = writeln!(out, "    }}");
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);

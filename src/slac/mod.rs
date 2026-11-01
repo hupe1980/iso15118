@@ -1,40 +1,12 @@
 //! SLAC — Signal Level Attenuation Characterization (ISO 15118-3).
 //!
-//! Before there is an IP link to run [`sdp`](crate::sdp) over, the vehicle and
-//! the charger have to work out *which* of the possibly many stations sharing
-//! the powerline medium are actually plugged into each other. They do it by
-//! measuring signal attenuation: the vehicle sends a burst of sounding packets,
-//! every charger in earshot measures how loud they arrive, and the quietest
-//! link loses. The winner hands over a network key and the two form a private
-//! `HomePlug` Green PHY network.
-//!
-//! These messages are `HomePlug` AV management messages (MMEs) carried directly
-//! in Ethernet frames with `EtherType` `0x88E1` — below IP, so a raw socket
-//! (`AF_PACKET`, or BPF) is required. This module is the codec and the timing
-//! constants; the socket is the caller's, like every other transport here.
-//!
-//! # Message flow
-//!
-//! ```text
-//!   EV                                                     EVSE
-//!    |------------------ CM_SLAC_PARM.REQ ------------------>|
-//!    |<----------------- CM_SLAC_PARM.CNF -------------------|
-//!    |-------------- CM_START_ATTEN_CHAR.IND --------------->|  (x3)
-//!    |----------------- CM_MNBC_SOUND.IND ------------------>|  (x10, sounding)
-//!    |<---------------- CM_ATTEN_CHAR.IND -------------------|  (measurement)
-//!    |----------------- CM_ATTEN_CHAR.RSP ------------------>|
-//!    |----------------- CM_SLAC_MATCH.REQ ------------------>|
-//!    |<---------------- CM_SLAC_MATCH.CNF -------------------|  (carries NMK + NID)
-//!    |------------------ CM_SET_KEY.REQ ------------------->[modem]
-//! ```
-//!
-//! # Scope
-//!
-//! [`matching`] is the state machine on top of this codec — one engine per side
-//! of the plug, sans I/O like everything else here. It is also where the run is
-//! held together: nothing in ISO 15118-3 authenticates these frames, and the run
-//! id travels in the clear in a broadcast, so both engines bind every frame to
-//! the run it claims to belong to rather than taking its word for it.
+//! Before there is an IP link for [`sdp`](crate::sdp), vehicle and charger
+//! measure signal attenuation to find which of the stations sharing the
+//! powerline medium they are plugged into, then form a private `HomePlug` Green
+//! PHY network. These are `HomePlug` AV management messages carried directly in
+//! Ethernet frames (`EtherType` `0x88E1`), so a raw socket is needed — the
+//! caller's, like every transport here. This module is the codec and the
+//! timers; [`matching`] is the state machine for each side, with the flow.
 //!
 //! `security_type` is fixed at `0x00` ("no security"), which is what
 //! ISO 15118-3 prescribes and every deployment uses; the cipher-suite fields

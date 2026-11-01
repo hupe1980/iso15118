@@ -13,7 +13,7 @@
 use alloc::vec::Vec;
 
 use super::cert::{Certificate, KeyUsage};
-use super::{Profile, VerifyWith};
+use super::{Policy, Rules, TrustAnchors, VerifyWith};
 use crate::pnc::PncError;
 
 /// Maximum number of non-self-signed certificates in a path.
@@ -29,6 +29,14 @@ use crate::pnc::PncError;
 /// from a message never passed through that schema.
 pub const MAX_PATH_LEN: usize = 3;
 
+/// The largest certificate ISO 15118-20 permits, in bytes of DER.
+///
+/// ISO 15118-20 Amd 1 raises -2's 800 bytes \[V2G2-010\] to 1 600. Under
+/// [`Rules::Iso20`] a larger certificate is refused before anything inside it is
+/// parsed: the length of a slice is the cheapest fact about it, and the bytes
+/// arrive before anything about the peer is established.
+pub const ISO20_MAX_CERTIFICATE_LEN: usize = 1600;
+
 /// A validated path, from the leaf to the anchor it was validated against.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Validated<'a> {
@@ -38,6 +46,10 @@ pub struct Validated<'a> {
     pub intermediates: Vec<Certificate<'a>>,
     /// The trust anchor the path reached.
     pub anchor: Certificate<'a>,
+    /// Where that anchor came from — its [`TrustAnchor::source`].
+    ///
+    /// [`TrustAnchor::source`]: super::TrustAnchor::source
+    pub anchor_source: &'a str,
 }
 
 impl<'a> Validated<'a> {
@@ -107,6 +119,25 @@ pub enum ChainError {
         /// What the profile wanted and did not get.
         wanted: &'static str,
     },
+    /// Under [`Rules::Iso20`], a certificate is larger than
+    /// [`ISO20_MAX_CERTIFICATE_LEN`].
+    TooLarge {
+        /// Position in the path, leaf first.
+        index: usize,
+        /// Its length in bytes.
+        len: usize,
+    },
+    /// Under [`Rules::Iso20`], a certificate is valid outside its issuer's
+    /// validity period \[V2G20-3000\]/\[V2G20-3001\].
+    ///
+    /// A certificate that outlives the certificate that vouches for it claims a
+    /// trust nobody granted for that long. -2 does not have the rule, and a -2
+    /// chain is not refused for it.
+    OutlivesIssuer {
+        /// Position in the path, leaf first, of the certificate that outlives
+        /// its issuer.
+        index: usize,
+    },
     /// Two certificates in the path are on different curves.
     ///
     /// Every Annex F profile fixes one curve for a whole cluster, and a path
@@ -114,35 +145,32 @@ pub enum ChainError {
     MixedCurves,
 }
 
-/// Checks that `chain` leads from a leaf to one of `anchors`, at time `now`.
+/// Checks that `chain` leads from a leaf to one of `anchors`, at time `now`,
+/// under `policy`.
 ///
 /// `chain` is leaf-first, as both generations put it on the wire: the
 /// `Certificate` of a `CertificateChainType` followed by its `SubCertificates`,
 /// in order. `anchors` are the trust anchors this side holds — the V2G Roots,
-/// the MO Root, or a Private Operator Root \[V2G2-927\] — as DER.
+/// the MO Root, or a Private Operator Root \[V2G2-927\]. `policy` names the
+/// leaf's Annex F profile and the generation whose rules apply ([`Rules`]).
 ///
-/// `now` is seconds since the Unix epoch, supplied by the caller. This crate
-/// reads no clock, and the choice matters more here than elsewhere:
-/// \[V2G2-886\] lets a vehicle pick its own time accuracy and warns about the
-/// consequences, and a vehicle with no trustworthy time cannot check a validity
-/// period at all. Passing a time this side does not actually know is worse than
-/// saying so.
+/// A chain may end in a **cross-certificate** (RFC 5280 §7.1): another
+/// ecosystem's root, certified by an anchor this side holds. It is validated as
+/// the intermediate it is, and counts toward [`MAX_PATH_LEN`] — so it fits only
+/// beneath a single Sub-CA; leaf, two Sub-CAs and a cross-certificate are four
+/// certificates and are refused.
 ///
-/// # What this establishes
+/// `now` is wall-clock seconds since the Unix epoch; a vehicle without
+/// trustworthy time must not invent one \[V2G2-886\].
 ///
-/// That the leaf's key is certified, by an unbroken chain of signatures this
-/// side checked, up to a certificate the caller decided to trust — and that
-/// every certificate on the way meets its Annex F profile.
-///
-/// # What it does not
-///
-/// That no certificate on the path has been **revoked**. There is no OCSP and
-/// no CRL here; see [`super`] for why, and for what a deployment has to do
-/// about it.
+/// `Ok` means the leaf's key is certified by an unbroken chain of checked
+/// signatures up to an anchor the caller trusts, every certificate meeting its
+/// Annex F profile. It does not mean no certificate was **revoked** — see
+/// [`super`].
 pub fn validate<'a>(
     chain: &[&'a [u8]],
-    anchors: &[&'a [u8]],
-    profile: Profile,
+    anchors: &TrustAnchors<'_, 'a>,
+    policy: Policy,
     now: i64,
     verifier: &impl VerifyWith,
 ) -> Result<Validated<'a>, ChainError> {
@@ -153,10 +181,17 @@ pub fn validate<'a>(
     if chain.len() > MAX_PATH_LEN {
         return Err(ChainError::TooLong { len: chain.len() });
     }
+    // Amd 1's size bound, also before anything is parsed — for the same reason.
+    if policy.rules == Rules::Iso20
+        && let Some((index, der)) =
+            chain.iter().enumerate().find(|(_, der)| der.len() > ISO20_MAX_CERTIFICATE_LEN)
+    {
+        return Err(ChainError::TooLarge { index, len: der.len() });
+    }
     let parsed = parse_all(chain)?;
     let (leaf, intermediates) = parsed.split_first().ok_or(ChainError::Empty)?;
 
-    profile.check_leaf(leaf)?;
+    policy.profile.check_leaf(leaf)?;
 
     // Every certificate in one Annex F cluster is on one curve. Checking it
     // here rather than per-signature makes "the chain changed curve halfway" a
@@ -186,16 +221,30 @@ pub fn validate<'a>(
     // length.
     for (index, cert) in parsed.iter().enumerate() {
         let below = index;
-        if let Ok(anchor) = find_anchor(anchors, cert, below, now, verifier, index) {
-            return Ok(Validated { leaf: *leaf, intermediates: intermediates.to_vec(), anchor });
+        let at_anchor = find_anchor(anchors, cert, below, now, policy.rules, verifier, index);
+        if let Ok((anchor, anchor_source)) = at_anchor {
+            return Ok(Validated {
+                leaf: *leaf,
+                intermediates: intermediates.to_vec(),
+                anchor,
+                anchor_source,
+            });
         }
-        // Not an anchor's, so the chain has to carry the issuer itself.
-        let issuer = parsed.get(index + 1).copied().ok_or(ChainError::NoTrustAnchor)?;
+        // Not an anchor's, so the chain has to carry the issuer itself. When it
+        // does not, the anchor search's own reason is the answer: an anchor that
+        // matched and was refused (say, because this certificate outlives it) is
+        // a different failure from no anchor at all.
+        let Some(issuer) = parsed.get(index + 1).copied() else {
+            return Err(at_anchor.err().unwrap_or(ChainError::NoTrustAnchor));
+        };
         if issuer.subject.encoded != cert.issuer.encoded {
             return Err(ChainError::NoTrustAnchor);
         }
         check_issuer(&issuer, below, index + 1)?;
         verify_signature(cert, &issuer, verifier, index)?;
+        if !nests(policy.rules, cert, &issuer) {
+            return Err(ChainError::OutlivesIssuer { index });
+        }
     }
     // Every certificate that arrived was consumed and none of them reached an
     // anchor: the chain is well-formed and ends somewhere this side does not
@@ -228,15 +277,17 @@ fn parse_all<'a>(chain: &[&'a [u8]]) -> Result<Vec<Certificate<'a>>, ChainError>
 /// cheap ones exclude most candidates. It is verified **once**: the anchor comes
 /// back already checked.
 fn find_anchor<'a>(
-    anchors: &[&'a [u8]],
+    anchors: &TrustAnchors<'_, 'a>,
     cert: &Certificate<'a>,
     below: usize,
     now: i64,
+    rules: Rules,
     verifier: &impl VerifyWith,
     index: usize,
-) -> Result<Certificate<'a>, ChainError> {
-    for der in anchors {
-        let Ok(anchor) = Certificate::parse(der) else { continue };
+) -> Result<(Certificate<'a>, &'a str), ChainError> {
+    let mut outlived = false;
+    for entry in anchors {
+        let Ok(anchor) = Certificate::parse(entry.der) else { continue };
         if anchor.subject.encoded != cert.issuer.encoded {
             continue;
         }
@@ -254,11 +305,63 @@ fn find_anchor<'a>(
         if check_issuer(&anchor, below, index).is_err() {
             continue;
         }
+        // Amd 1's nesting rule is part of the selection too: across a rollover
+        // the anchor whose window contains this certificate is the one that
+        // vouches for it, and an earlier one sharing its name does not.
+        if !nests(rules, cert, &anchor) {
+            outlived = true;
+            continue;
+        }
         if verify_signature(cert, &anchor, verifier, index).is_ok() {
-            return Ok(anchor);
+            return Ok((anchor, entry.source));
         }
     }
+    // A matching anchor existed and the certificate outlives it: that is the
+    // reason, and "no trust anchor" would hide it.
+    if outlived {
+        return Err(ChainError::OutlivesIssuer { index });
+    }
     Err(ChainError::NoTrustAnchor)
+}
+
+/// Whether `cert`'s validity lies within `issuer`'s, as the rules require.
+///
+/// \[V2G20-3000\]/\[V2G20-3001\] under [`Rules::Iso20`]; -2 has no such rule.
+const fn nests(rules: Rules, cert: &Certificate<'_>, issuer: &Certificate<'_>) -> bool {
+    match rules {
+        Rules::Iso2 => true,
+        Rules::Iso20 => issuer.not_before <= cert.not_before && cert.not_after <= issuer.not_after,
+    }
+}
+
+/// Picks, from several candidate chains, the first that reaches one of the
+/// authorities a peer listed.
+///
+/// ISO 15118-20 Amd 1 has the holder of more than one chain — one per
+/// ecosystem, or one through a cross-certificate — send the chain that reaches
+/// the certificate authorities its peer names \[V2G20-3373\]..\[V2G20-3385\],
+/// which TLS carries as `certificate_authorities` (RFC 8446 §4.2.4): a list of
+/// DER-encoded distinguished names. [`TrustAnchors::authorities`] produces that
+/// list on the validating side.
+///
+/// `candidates` are leaf-first chains in order of preference. A chain matches
+/// when any of its certificates is *issued by* a listed name, or *is* one —
+/// so a listed root and a listed intermediate both select. A candidate whose
+/// certificates do not parse is skipped, not chosen. Returns the index of the
+/// chosen candidate, or `None` when no chain reaches any listed authority.
+///
+/// Selection only: the chosen chain still has to validate at the peer.
+#[must_use]
+pub fn select_chain(candidates: &[&[&[u8]]], authorities: &[&[u8]]) -> Option<usize> {
+    let listed = |name: &[u8]| authorities.contains(&name);
+    candidates.iter().position(|chain| {
+        let mut reaches = false;
+        for der in *chain {
+            let Ok(cert) = Certificate::parse(der) else { return false };
+            reaches |= listed(cert.issuer.encoded) || listed(cert.subject.encoded);
+        }
+        reaches
+    })
 }
 
 /// Whether `issuer` was allowed to sign the certificate `below` positions under
@@ -323,6 +426,14 @@ impl core::fmt::Display for ChainError {
                 write!(f, "certificate {index} is not signed by the certificate above it")
             }
             Self::Profile { wanted } => write!(f, "the leaf certificate is missing {wanted}"),
+            Self::TooLarge { index, len } => write!(
+                f,
+                "certificate {index} is {len} bytes; ISO 15118-20 allows at most \
+                 {ISO20_MAX_CERTIFICATE_LEN}"
+            ),
+            Self::OutlivesIssuer { index } => {
+                write!(f, "certificate {index} is valid outside its issuer's validity period")
+            }
             Self::MixedCurves => f.write_str("the chain changes elliptic curve partway"),
         }
     }

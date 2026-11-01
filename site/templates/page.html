@@ -37,6 +37,9 @@
     <div class="toc-inner">
       <p class="toc-title">On this page</p>
       <ul>
+        {%- for h in page.toc %}
+        <li><a href="#{{ h.id }}">{{ h.title }}</a></li>
+        {%- endfor %}
         {%- for item in page.extra.faq %}
         <li><a href="#{{ item.q | slugify }}">{{ item.q }}</a></li>
         {%- endfor %}

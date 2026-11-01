@@ -406,7 +406,7 @@ mod atten_profile_tests {
     #[test]
     fn no_groups_is_no_measurement_rather_than_zero_decibels() {
         let profile = AttenProfile::default();
-        assert!(profile.groups().is_empty());
+        assert_eq!(profile.groups().len(), 0);
         assert_eq!(profile.mean_attenuation(), None, "silence is not a loud link");
     }
 }

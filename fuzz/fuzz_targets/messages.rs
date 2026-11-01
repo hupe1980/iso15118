@@ -33,4 +33,6 @@ fuzz_target!(|data: &[u8]| {
     check!(iso15118::iso20::dc::Document, data);
     check!(iso15118::iso20::wpt::Document, data);
     check!(iso15118::iso20::acdp::Document, data);
+    check!(iso15118::iso20::ac_der_iec::Document, data);
+    check!(iso15118::iso20::ac_der_sae::Document, data);
 });

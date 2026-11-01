@@ -1,14 +1,10 @@
 //! A `RustCrypto` binding for the [`Hash`], [`Sign`] and [`Verify`] traits.
 //!
-//! The rest of `pnc` deliberately contains no cryptography: ISO 15118-20
-//! expects contract keys to live in a secure element, and an ECU with a
-//! hardware key store must be able to sign without the private key ever
-//! reaching this crate. That is why the three traits exist.
-//!
-//! It does mean that the obvious case — a charging station on a general-purpose
-//! CPU, or a test — had to write the obvious binding itself. This module is
-//! that binding, behind the `pnc-rustcrypto` feature: `sha2` for the digests,
-//! `p256` and `p521` for the curves. It adds no policy of its own.
+//! The rest of `pnc` contains no cryptography, so a secure element can hold the
+//! contract key. This module is the binding for a key in memory — a station on
+//! a general-purpose CPU, or a test — behind the `pnc-rustcrypto` feature:
+//! `sha2` for the digests, `p256` and `p521` for the curves, `aes` and `cbc`
+//! for the contract-key [`envelope`](super::envelope). It adds no policy.
 //!
 //! ```
 //! use iso15118::pnc::rustcrypto::{Sha2, SigningKey};
@@ -35,10 +31,8 @@
 //! certificate rather than being configured, so the verification takes the
 //! point rather than a key object.
 //!
-//! What none of it does is **revocation**. A `VerifyingKey` here is a public
-//! key; `pnc::pki` will tell you it is certified up to a root you chose; and
-//! neither says whether that certificate was withdrawn this morning. See
-//! [`pnc::pki`](super::pki) for where that answer belongs.
+//! Neither this nor `pnc::pki` checks **revocation**; see
+//! [`pnc::pki`](super::pki).
 
 use alloc::vec::Vec;
 
@@ -210,10 +204,12 @@ impl Verify for VerifyingKey {
 /// every key in a chain above the trust anchor the caller configured.
 ///
 /// ```no_run
-/// use iso15118::pnc::pki::{Profile, chain};
+/// use iso15118::pnc::pki::{Policy, Profile, TrustAnchor, TrustAnchors, chain};
 /// use iso15118::pnc::rustcrypto::Backend;
 /// # fn f(leaf: &[u8], sub: &[u8], root: &[u8], now: i64) -> Result<(), chain::ChainError> {
-/// let path = chain::validate(&[leaf, sub], &[root], Profile::ContractCertificate, now, &Backend)?;
+/// let anchors = [TrustAnchor::new(root, "V2G Root")];
+/// let policy = Policy::iso2(Profile::ContractCertificate);
+/// let path = chain::validate(&[leaf, sub], &TrustAnchors::new(&anchors), policy, now, &Backend)?;
 /// # let _ = path;
 /// # Ok(())
 /// # }

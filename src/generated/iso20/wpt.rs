@@ -5718,6 +5718,20 @@ impl Document {
             _ => return None,
         })
     }
+
+    /// Every request of this schema set, each at the
+    /// schema's minimum — the set [`Document::refusal`] answers.
+    #[must_use]
+    pub fn requests() -> Vec<Self> {
+        alloc::vec![
+            Self::WPTAlignmentCheckReq(WPTAlignmentCheckReq::minimal()),
+            Self::WPTChargeLoopReq(WPTChargeLoopReq::minimal()),
+            Self::WPTChargeParameterDiscoveryReq(WPTChargeParameterDiscoveryReq::minimal()),
+            Self::WPTFinePositioningReq(WPTFinePositioningReq::minimal()),
+            Self::WPTFinePositioningSetupReq(WPTFinePositioningSetupReq::minimal()),
+            Self::WPTPairingReq(WPTPairingReq::minimal()),
+        ]
+    }
 }
 
 impl Document {

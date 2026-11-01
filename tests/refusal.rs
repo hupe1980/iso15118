@@ -15,128 +15,71 @@
 
 use iso15118::exi::ExiDocument;
 use iso15118::iso2;
-use iso15118::iso20::{ac, acdp, dc, messages as cm, wpt};
+use iso15118::iso20::{ac, ac_der_iec, ac_der_sae, acdp, dc, messages as cm, wpt};
 
+/// One check for any schema set's requests: each has a refusal, the refusal
+/// carries the code, and it encodes. Returns how many requests it checked.
+macro_rules! refuse_all {
+    ($set:literal, $requests:expr, $code:expr, $wrap:expr) => {{
+        let mut checked = 0usize;
+        for request in $requests {
+            let refusal = request
+                .refusal($code)
+                .unwrap_or_else(|| panic!("{} {} has no refusal", $set, request.name()));
+            assert_eq!(refusal.response_code(), Some($code), "{} {}", $set, request.name());
+            $wrap(refusal).to_vec().unwrap_or_else(|e| {
+                panic!("{} {} refusal does not encode: {e:?}", $set, request.name())
+            });
+            checked += 1;
+        }
+        checked
+    }};
+}
+
+/// Every request of every schema set this crate generates — taken from the
+/// generated `requests()` lists, so a request type the schema adds is checked
+/// the day it is generated rather than the day somebody remembers to list it.
 #[test]
-fn every_iso2_request_has_a_refusal_that_encodes() {
-    let code = iso2::ResponseCode::FAILEDSequenceError;
-    let mut checked = 0;
-    for request in iso2_requests() {
-        let refusal =
-            request.refusal(code).unwrap_or_else(|| panic!("{} has no refusal", request.name()));
-        assert_eq!(refusal.response_code(), Some(code), "{}", request.name());
-
-        let message = iso2::Document::V2GMessage(iso2::V2GMessage {
+fn every_request_of_every_set_has_a_refusal_that_encodes() {
+    let code2 = iso2::ResponseCode::FAILEDSequenceError;
+    let code20 = iso15118::iso20::common::ResponseCode::FAILEDSequenceError;
+    let in_v2g_message = |body: iso2::BodyChoice| {
+        iso2::Document::V2GMessage(iso2::V2GMessage {
             header: iso2::MessageHeader {
                 session_id: vec![1, 2, 3, 4, 5, 6, 7, 8],
                 notification: None,
                 signature: None,
             },
-            body: iso2::Body { choice: Some(refusal.clone()) },
-        });
-        message
-            .to_vec()
-            .unwrap_or_else(|e| panic!("{} refusal does not encode: {e:?}", request.name()));
-        checked += 1;
-    }
-    assert_eq!(checked, 17, "every ISO 15118-2 request");
-}
-
-/// One of each ISO 15118-2 request, minimally built.
-fn iso2_requests() -> Vec<iso2::BodyChoice> {
-    use iso2::BodyChoice as B;
-    vec![
-        B::SessionSetupReq(iso2::SessionSetupReq::minimal()),
-        B::ServiceDiscoveryReq(iso2::ServiceDiscoveryReq::minimal()),
-        B::ServiceDetailReq(iso2::ServiceDetailReq::minimal()),
-        B::PaymentServiceSelectionReq(iso2::PaymentServiceSelectionReq::minimal()),
-        B::PaymentDetailsReq(iso2::PaymentDetailsReq::minimal()),
-        B::AuthorizationReq(iso2::AuthorizationReq::minimal()),
-        B::CertificateInstallationReq(iso2::CertificateInstallationReq::minimal()),
-        B::CertificateUpdateReq(iso2::CertificateUpdateReq::minimal()),
-        B::ChargeParameterDiscoveryReq(iso2::ChargeParameterDiscoveryReq::minimal()),
-        B::PowerDeliveryReq(iso2::PowerDeliveryReq::minimal()),
-        B::ChargingStatusReq(iso2::ChargingStatusReq::minimal()),
-        B::MeteringReceiptReq(iso2::MeteringReceiptReq::minimal()),
-        B::CableCheckReq(iso2::CableCheckReq::minimal()),
-        B::PreChargeReq(iso2::PreChargeReq::minimal()),
-        B::CurrentDemandReq(iso2::CurrentDemandReq::minimal()),
-        B::WeldingDetectionReq(iso2::WeldingDetectionReq::minimal()),
-        B::SessionStopReq(iso2::SessionStopReq::minimal()),
-    ]
-}
-
-macro_rules! iso20_set {
-    ($name:literal, $module:ident, $expected:expr, [$($variant:ident),* $(,)?]) => {
-        let code = iso15118::iso20::common::ResponseCode::FAILEDSequenceError;
-        let mut checked = 0;
-        $(
-            {
-                let request = $module::Document::$variant($module::$variant::minimal());
-                let refusal = request
-                    .refusal(code)
-                    .unwrap_or_else(|| panic!("{} has no refusal", stringify!($variant)));
-                refusal.to_vec().unwrap_or_else(|e| {
-                    panic!("{} refusal does not encode: {e:?}", stringify!($variant))
-                });
-                assert_eq!(refusal.response_code(), Some(code));
-                checked += 1;
-            }
-        )*
-        assert_eq!(checked, $expected, "every {} request", $name);
+            body: iso2::Body { choice: Some(body) },
+        })
     };
-}
-
-#[test]
-fn every_iso20_common_request_has_a_refusal_that_encodes() {
-    iso20_set!(
-        "ISO 15118-20 CommonMessages",
-        cm,
-        10,
-        [
-            SessionSetupReq,
-            AuthorizationSetupReq,
-            AuthorizationReq,
-            ServiceDiscoveryReq,
-            ServiceDetailReq,
-            ServiceSelectionReq,
-            ScheduleExchangeReq,
-            PowerDeliveryReq,
-            SessionStopReq,
-            MeteringConfirmationReq,
-        ]
-    );
-}
-
-#[test]
-fn every_iso20_energy_transfer_request_has_a_refusal_that_encodes() {
-    iso20_set!("AC", ac, 2, [ACChargeParameterDiscoveryReq, ACChargeLoopReq]);
-    iso20_set!(
-        "DC",
-        dc,
-        5,
-        [
-            DCChargeParameterDiscoveryReq,
-            DCCableCheckReq,
-            DCPreChargeReq,
-            DCChargeLoopReq,
-            DCWeldingDetectionReq,
-        ]
-    );
-    iso20_set!(
-        "WPT",
-        wpt,
-        6,
-        [
-            WPTChargeParameterDiscoveryReq,
-            WPTPairingReq,
-            WPTAlignmentCheckReq,
-            WPTChargeLoopReq,
-            WPTFinePositioningSetupReq,
-            WPTFinePositioningReq,
-        ]
-    );
-    iso20_set!("ACDP", acdp, 3, [ACDPVehiclePositioningReq, ACDPConnectReq, ACDPSystemStatusReq,]);
+    let counts = [
+        ("ISO 15118-2", refuse_all!("-2", iso2::BodyChoice::requests(), code2, in_v2g_message)),
+        (
+            "CommonMessages",
+            refuse_all!("-20", cm::Document::requests(), code20, core::convert::identity),
+        ),
+        ("AC", refuse_all!("AC", ac::Document::requests(), code20, core::convert::identity)),
+        ("DC", refuse_all!("DC", dc::Document::requests(), code20, core::convert::identity)),
+        ("WPT", refuse_all!("WPT", wpt::Document::requests(), code20, core::convert::identity)),
+        ("ACDP", refuse_all!("ACDP", acdp::Document::requests(), code20, core::convert::identity)),
+        (
+            "AC_DER_IEC",
+            refuse_all!("IEC", ac_der_iec::Document::requests(), code20, core::convert::identity),
+        ),
+        (
+            "AC_DER_SAE",
+            refuse_all!("SAE", ac_der_sae::Document::requests(), code20, core::convert::identity),
+        ),
+    ];
+    // An independent count, so a generator that silently dropped a pairing
+    // would show here rather than make every list shorter in agreement: the
+    // schemas define 17 + 13 + 2 + 5 + 6 + 4 + 2 + 2 requests.
+    let expected = [17, 13, 2, 5, 6, 4, 2, 2];
+    for ((set, checked), want) in counts.iter().zip(expected) {
+        assert_eq!(*checked, want, "requests with a refusal in {set}");
+    }
+    assert_eq!(counts.iter().map(|(_, n)| n).sum::<usize>(), 51);
 }
 
 /// The ten response types that cannot be built from nothing — a required list
@@ -155,8 +98,8 @@ fn the_responses_with_mandatory_content_are_filled_not_empty() {
     );
 
     let r = iso2::ServiceDiscoveryRes::minimal();
-    assert!(!r.payment_option_list.payment_option.is_empty());
-    assert!(!r.charge_service.supported_energy_transfer_mode.energy_transfer_mode.is_empty());
+    assert_ne!(r.payment_option_list.payment_option.len(), 0);
+    assert_ne!(r.charge_service.supported_energy_transfer_mode.energy_transfer_mode.len(), 0);
 
     let r = iso2::PaymentDetailsRes::minimal();
     assert_eq!(r.gen_challenge.len(), 16, "GenChallenge is an exact length, not a maximum");

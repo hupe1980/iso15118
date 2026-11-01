@@ -20,50 +20,33 @@
 
 ---
 
-ISO 15118 is the protocol your car and a DC fast charger speak while deciding
-whether to move 350 kW between them. This crate is the whole of it that runs on a
-CPU: a schema-informed EXI codec generated from the official schemas, the
-ISO 15118-2 and -20 message sets, HomePlug link setup, SECC discovery, V2GTP
-framing, the message-ordering rules and spec timers of both generations,
-sans-I/O session engines for either role, and the Plug & Charge signature profile.
+The protocol an electric vehicle and a charging station speak over the CCS
+cable, in one crate: a schema-informed EXI codec generated from the official
+schemas, the ISO 15118-2 and -20 message sets, HomePlug link setup (SLAC), SECC
+discovery, V2GTP framing, the ordering rules and timers of both generations,
+session engines for both roles, and the Plug & Charge signature profile and PKI.
 
 No sockets, no clock, no async runtime, no cryptography in the core — those are
-the caller's, and that is the point.
+the caller's.
 
-> 🚧 **Status: pre-1.0, but the protocol is real.** All 121 message types round-trip
-> byte-for-byte against the EXI reference implementation, as documents *and* as
-> signature fragments, and 3 538 messages from captured charging sessions do the
-> same against real equipment. `examples/` completes an AC charging session over a
-> real socket. What is missing is [named rather than
-> implied](https://hupe1980.github.io/iso15118/docs/roadmap/) — certificate
-> revocation above all.
+> 🚧 **Pre-1.0.** All 166 message types — both generations and ISO 15118-20
+> Amd 1's AC_DER sets — round-trip byte for byte against the EXI reference
+> implementation, as documents and as signature fragments, and
+> 3 760 messages from captured charging sessions do the same against real equipment.
 
 ## 💡 Why
 
-The implementations that exist are C ([OpenV2G], unmaintained), C++
-([EVerest/libiso15118], tied to its runtime) or Python ([Josev], unusable on an
-ECU). None lets you run the same protocol logic on a charge-point back end and on
-a bare-metal microcontroller.
-
-1. **Sans-I/O.** Bytes and a timestamp in; bytes, events and deadlines out. The
-   pattern behind `quinn-proto` and `rustls` — and why a whole DC charging session
-   runs as a unit test in microseconds, with time as a variable.
-2. **`no_std` + `alloc`.** The core builds for `thumbv7em-none-eabihf`. Features
-   are additive and every one gates real code, grammar tables included.
-3. **A wire format someone else agrees with.** Round-tripping your own encoder
-   through your own decoder proves they agree with each other and nothing more.
-   Checked against the EXI reference implementation *and* against captured
-   sessions, because those are different claims.
-4. **A decoder you can point at the internet.** Every length bounded by *both* its
-   schema facets before anything is allocated — `xs:length` is not
-   `xs:maxLength` — plus `#![forbid(unsafe_code)]` and ten fuzz targets. The
-   layers above hold the same line: half-duplex enforced in both directions, a
-   SLAC engine that treats a malformed frame as weather rather than an error, and
-   a Plug & Charge signature that has to name the session it arrived in.
-
-[OpenV2G]: https://sourceforge.net/projects/openv2g/
-[EVerest/libiso15118]: https://github.com/EVerest/libiso15118
-[Josev]: https://github.com/SwitchEV/iso15118
+- **Sans-I/O.** Bytes and a timestamp in; bytes, events and deadlines out. A
+  whole DC charging session runs as a unit test in microseconds.
+- **`no_std` + `alloc`.** The core builds for `thumbv7em-none-eabihf`; every
+  feature flag gates real code, grammar tables included.
+- **Both roles, both generations.** The vehicle and the station share one
+  ordering graph, one timer table and one codec.
+- **Hostile input is the normal case.** Every length is bounded by its schema
+  facets before anything is allocated; `#![forbid(unsafe_code)]` and ten fuzz targets.
+- **Evidence from outside.** Differential against `exificient`, replayed against
+  captured sessions, PKI checked against a published test pool, citations
+  checked against the standard's text.
 
 ## 📦 Install
 
@@ -81,8 +64,8 @@ Rust 1.88 or newer.
 
 ## 🔌 A charging station, without a socket
 
-The engine owns framing, decoding, the handshake, session-id checking, message
-ordering and every spec timer. Your code owns the charging decisions.
+The engine owns framing, decoding, the handshake, session ids, ordering and
+every spec timer. Your code owns the charging decisions.
 
 ```rust,no_run
 use iso15118::message::Message;
@@ -108,9 +91,7 @@ loop {
 
     while let Some(event) = secc.poll_event() {
         match event {
-            // The handshake is pure protocol; the answer is already queued.
             Event::ProtocolAgreed(p) => println!("speaking {p}"),   // "iso15118-20"
-            // This is where your charging station lives.
             Event::Request(req) => secc.respond(now(), my_logic(&req)?)?,
             // Out of sequence: `refusal` builds the answer, and it always encodes.
             Event::Refused { message, response_code, .. } => {
@@ -127,10 +108,9 @@ loop {
 # }
 ```
 
-Arm your own timer for `secc.poll_timeout()` and call `secc.handle_timeout(now)`
-when it fires. That is the whole integration surface. `evcc::Evcc` is driven the
-same way from the vehicle's side — it answers with `request` rather than
-`respond`, because the vehicle chooses what to send rather than replying to it.
+Arm a timer for `secc.poll_timeout()` and call `secc.handle_timeout(now)` when
+it fires. `evcc::Evcc` is driven the same way from the vehicle's side, with
+`request` instead of `respond`.
 
 ```sh
 cargo run --example secc_tcp     # a minimal charging station
@@ -139,36 +119,24 @@ cargo run --example evcc_tcp     # ...and a car that charges from it
 
 ## 🏷️ Which generation
 
-"ISO 15118" names two incompatible protocols, and the vocabularies around it are
-careless about which — DATEX II's `VehicleToGridCommunicationTypeEnum`, which
-European operators publish for AFIR compliance, spells its literal `iso15118`,
-means ISO 15118-**20** by it, and has no literal for ISO 15118-2 at all.
-
-So every name this crate emits says the generation, and it will not parse one that
-does not.
+"ISO 15118" names two incompatible protocols. Every name this crate emits says
+which, and it refuses to parse one that does not.
 
 ```rust
 use iso15118::{Protocol, Protocols};
 
-// A short stable name for a CDR, a log line, a metric label, a database column.
 assert_eq!(Protocol::Iso20.as_str(), "iso15118-20");
 assert_eq!(Protocol::Iso20.title(), "ISO 15118-20:2022");
 assert_eq!("iso15118-2".parse(), Ok(Protocol::Iso2));
 
-// ...and it round-trips, so a value written under one release parses under the next.
 let speaks: Protocols = "iso15118-20,iso15118-2".parse()?;
 assert_eq!(speaks, Protocols::ISO);
-assert_eq!(speaks.best(), Some(Protocol::Iso20));   // the newest it implements
+assert_eq!(speaks.best(), Some(Protocol::Iso20));
 
-// A bare "iso15118" is refused rather than guessed at, and says why.
-let err = "iso15118".parse::<Protocol>().unwrap_err();
-assert!(err.generation_omitted());
+// A bare "iso15118" is refused rather than guessed at.
+assert!("iso15118".parse::<Protocol>().unwrap_err().generation_omitted());
 # Ok::<_, iso15118::ParseProtocolError>(())
 ```
-
-`Protocol` is what a session negotiated; `Protocols` is what a piece of equipment
-*implements* — a `Copy`, allocation-free set, and also what an EVCC offers and an
-SECC accepts. A regulation binds a charge point by the second, whoever plugs in.
 
 ## 📨 Messages
 
@@ -179,9 +147,7 @@ use iso15118::iso20::messages::{ChargingSession, SessionStopReq};
 
 let req = SessionStopReq {
     header: MessageHeader {
-        // ISO 15118-20 types SessionID as `length = 8` — exactly eight bytes,
-        // not at most eight. A shorter one is a message a conforming charger
-        // must reject, and this crate will not encode one.
+        // ISO 15118-20 SessionID is exactly eight bytes; a shorter one is refused.
         session_id: vec![0x3D, 0x4C, 0xBF, 0x93, 0x37, 0x4E, 0xD8, 0x9B],
         time_stamp: 1_725_456_343,
         signature: None,
@@ -197,128 +163,90 @@ assert_eq!(SessionStopReq::from_bytes(&bytes)?, req);
 
 ## ✅ What works
 
-| Layer | State |
+| Layer | |
 |---|---|
-| **EXI** codec — schema-informed, bit-packed | primitives, value string table, grammars, header, documents **and fragments**, every length facet enforced both ways. Writes the form the field can read and accepts both — see [`ValueCoding`](https://docs.rs/iso15118/latest/iso15118/exi/enum.ValueCoding.html) |
-| **V2GTP** framing · **SDP** discovery | all payload types, hostile-length handling, bounded reassembly, an unsupported payload type *ignored* rather than fatal \[V2G2-800\]; discovery for **both** sides — the vehicle's retry engine with TLS-downgrade and off-link rejection, and the station's answer as the table \[V2G2-625\]–\[V2G2-627\] determine |
-| **SLAC** (ISO 15118-3) | frame codec with every layout pinned byte for byte, timers, and the matching state machine for both roles |
-| **ISO 15118-2** message set | all 34 body messages, `ds:Signature` included |
-| **ISO 15118-20** message sets | `CommonMessages`, AC, DC, WPT, ACDP |
-| **Session layer** | Plug & Charge refused on an unsecured transport \[V2G2-634\]; clock, spec timers and loop budgets **per role** — the station's half of every pair is the shorter one, so it answers `FAILED` while the vehicle is still listening — ordering graphs for both generations, and the ISO 15118-2 rule that a charging profile must fit the schedule it was offered, with the `ResponseCode` the standard prescribes |
-| **EVCC / SECC drivers** | handshake, sequencing, session-id stamping and checking, half-duplex in both directions, pause and resume — with a whole DC session per generation as an end-to-end test |
-| **Refusing a request** | `Message::refusal()` returns the response that refuses it, with every other field at the schema's minimum — so a station that has nothing to say can still *say* it. Every request in both generations is covered, and each refusal is asserted to encode |
-| **Reading the battery** | `Message::ev_energy_status()` — state of charge, capacity, energy request and departure out of *either* generation, in exact integer milliwatt-hours, without the caller naming an EXI type |
-| **Protocol identity** | `Protocol` / `Protocols` with stable short names, `Display`, `FromStr` and serde that all agree on one spelling |
-| **Plug & Charge signatures** | XMLDSig over EXI fragments, build and verify, algorithm restrictions enforced, and the two bindings that make a signature mean something: the `GenChallenge` for authorization and the echoed reading for metering. Real captured **RiseV2G** authorizations verify |
-| **V2G PKI** | `pnc::pki` — an allocation-free DER/X.509 reader and RFC 5280 path validation under ISO 15118's own Annex F profiles: the depth limit \[V2G2-009\], `BasicConstraints` and `pathLenConstraint`, the key-usage bits each leaf row requires, and the `Domain Component` \[V2G2-925\] makes a validity condition |
-| **Contract key delivery** | `pnc::envelope` — the one place a secret crosses the wire: one-pass ECDH \[V2G2-818\], the concatenation KDF, AES-128-CBC \[V2G2-815\], and \[V2G2-823\]'s check that the delivered key belongs to the certificate it came with, with no call that skips it |
+| **EXI** | Schema-informed, bit-packed: primitives, value string table, grammars, documents **and fragments**, every length facet enforced both ways. Writes the coding deployed decoders read and accepts both ([`ValueCoding`](https://docs.rs/iso15118/latest/iso15118/exi/enum.ValueCoding.html)) |
+| **V2GTP** · **SDP** | All payload types, hostile-length handling, bounded reassembly; discovery for both sides, with TLS-downgrade and off-link rejection |
+| **SLAC** (ISO 15118-3) | Frame codec with every layout pinned, timers, the matching state machine for both roles |
+| **ISO 15118-2** | All 34 body messages, `ds:Signature` included |
+| **ISO 15118-20** | `CommonMessages`, AC, DC, WPT, ACDP, and Amd 1's `AC_DER_IEC` / `AC_DER_SAE`; MCS runs the DC set. The handshake uses the per-set namespaces deployed peers use ([`Iso20Set`](https://docs.rs/iso15118/latest/iso15118/enum.Iso20Set.html)) |
+| **Sessions** | Ordering graphs and spec timers for both generations and both roles; a -20 session admits only the message set of the service it selected; Plug & Charge refused without TLS; loop budgets a deployment can set (`LoopBudgets`), the DC safety phases excepted |
+| **EVCC / SECC drivers** | Handshake, sequencing, session-id stamping and checking, half-duplex both ways, pause and resume |
+| **Refusals** | `Message::refusal()` builds the response that refuses a request, and it always encodes. All 51 requests across the eight schema sets are covered |
+| **Battery view** | `Message::ev_energy_status()` — state of charge, capacity, energy request and departure from either generation, in exact milliwatt-hours |
+| **Plug & Charge** | XMLDSig over EXI fragments, build and verify, the algorithm profile enforced, bound to the session's `GenChallenge` and to the metered reading |
+| **V2G PKI** | `pnc::pki` — allocation-free X.509 reader and RFC 5280 path validation under the Annex F profiles, plus the Amd 1 rules (1 600-byte bound, validity nested in the issuer's, trust anchors with provenance, cross-certificates) |
+| **Contract key delivery** | `pnc::envelope` — ECDH, the concatenation KDF, AES-128-CBC, and the check that the key belongs to its certificate |
 
-⚠️ Not here: **certificate revocation** (no OCSP, no CRL — the standard makes it
-a recommendation, and the answer belongs in the back end your station already
-talks to), transport bindings, and the DIN SPEC 70121 *message set* — though the
-handshake, the framing and the timers below it are generation-agnostic and
-public, so a DIN codec of your own can ride them. See
-[what is not here](https://hupe1980.github.io/iso15118/docs/roadmap/).
+**Not included:** certificate revocation (no OCSP or CRL; the station's back end
+answers it), transport and TLS, and the DIN/TS 70121 message set —
+`session::Connection` carries a caller's own DIN codec over the same framing.
 
 ## 🔬 Verification
 
-Five passes, each asking a question the others cannot. Only the last two say
-anything about other implementations, and they ask different things.
-
 ```text
-scripts/verify-grammars.sh   all 2 / 80 / 54 / 42 / 48 / 38 / 34 element
-                             grammars agree with the reference  (298 total)
-scripts/verify-messages.sh   all 121 documents round-trip against the reference
-                             all 121 fragments round-trip against the reference
+scripts/verify-grammars.sh   all 2 / 80 / 54 / 42 / 48 / 38 / 34 / 48 / 49 element
+                             grammars agree with the reference  (395 total)
+scripts/verify-messages.sh   all 166 documents round-trip against the reference
+                             all 166 fragments round-trip against the reference
+scripts/verify-captures.sh   3760 messages decoded, 3760 re-encoded byte-identical,
+                             198 DIN frames declined by name,
+                             4/4 Plug & Charge authorizations verify
 ```
 
-**Differential, against `exificient`.** The scripts above prove the encoding, and
-catch what no round-trip can: a dropped substitution-group head, mixed content on
-the wrong side of `EE`, a string-table partition populated on a global hit. The
-same principle covers the two structures that are not EXI: the certificate chains
-`pnc::pki` validates and the contract-key envelope `pnc::envelope` opens are both
-built by **OpenSSL**, from the requirement text — and all ten OEM provisioning
-leaves of Hubject's published test PKI validate to its real V2G Root.
-
-**Replayed against real hardware.** 3 538 messages from captured charging
-sessions — dSPACE DS5366 equipment against **Josev** and **RiseV2G** — decode and
-re-encode **byte for byte, every one**: full ISO 15118-2 AC and DC sessions, a
-pause, a renegotiation, a sales-tariff schedule, a multi-EVSE SLAC run, an
-ISO 15118-20 AC bidirectional session, a DIN 70121 session declined by name, and
-four Plug & Charge sessions over TLS whose signatures verify.
-
-It is a separate pass because the two claims are different: `exificient` and
-Canonical EXI want a repeated string value written as a table reference, and
-`libcbv2g` — the codec EVerest ships — cannot decode one at all. The encoder
-writes what the field reads; the decoder accepts both.
-
-**Read against the standards**, and against what EVerest and Josev do — because
-the scripts prove the encoding and nothing above it. `xs:length` is not
-`xs:maxLength` on the six types where a truncated value is a security problem, a
-DC renegotiation must not deadlock, ISO 15118-20 service ids belong to particular
-flows. Each rule is a test.
-
-**Adversarial**, for the engines on a shared, unauthenticated medium: not "is this
-frame well-formed" but "what can a frame nobody can authenticate make this engine
-*do*". Dropping a bad frame is half of not being steered by one; the other half is
-that such a frame must set neither a deadline nor a queue length. So a refused SDP
-answer does not end discovery, a forged attenuation report cannot postpone a SLAC
-choice, and every queue an unauthenticated peer can reach is bounded.
-
-**Citations checked against the text**, not against memory: every `[V2G2-nnn]`
-names the requirement that states the rule it is attached to, and every timing
-constant matches Table 109 and Table 111 — *both halves* of Table 109, the
-timeouts each side enforces and the performance times each side owes.
-`scripts/verify-citations.sh` does the mechanical half, confirming that each of
-the 101 requirement numbers cited here exists among the standard's 852:
-ISO 15118-2:2014(E) is a paid document that a US FHWA rulemaking docket publishes
-in full, so this is checkable rather than asserted.
-
-SLAC is the one wire format with no reference implementation to differ against,
-so its thirteen message layouts are pinned byte for byte instead — checked field
-for field against [EVerest's libslac], because "our encoder agrees with our
-decoder" is not evidence and this crate says so on every other page.
-
-[EVerest's libslac]: https://github.com/EVerest/libslac
-
-[The full account →](https://hupe1980.github.io/iso15118/docs/verification/)
+- **Differential, against `exificient`** — every grammar and every message, as
+  document and as fragment. Certificate chains and the contract-key envelope are
+  checked against **OpenSSL**, and all ten OEM provisioning leaves of Hubject's
+  public test PKI validate to its real V2G Root.
+- **Replayed against real hardware** — 3 760 messages from sixteen captured
+  charging sessions (dSPACE DS5366 against Josev and RiseV2G), ISO 15118-2 and
+  -20 over TLS 1.3 included, decode and re-encode byte for byte.
+- **Citations checked against the text** — `scripts/verify-citations.sh`
+  confirms that each of the 101 requirement numbers cited here exists among the
+  852 ISO 15118-2:2014 defines.
+- **Fuzzed** — ten targets, run in CI on every push.
 
 ```sh
 cargo test --workspace --all-features
-cargo hack check -p iso15118 --feature-powerset --depth 2 --no-dev-deps
-cargo +nightly fuzz run session fuzz/corpus/session fuzz/seeds/session
-
 scripts/generate.sh && git diff --exit-code src/generated   # codegen has not drifted
-scripts/verify-grammars.sh              # every grammar vs. the reference
-scripts/verify-messages.sh              # every message, as document and fragment
-scripts/verify-citations.sh             # every [V2G2-nnn] vs. the standard's text
+scripts/verify-grammars.sh && scripts/verify-messages.sh    # need a JDK and the schemas
+scripts/verify-captures.sh                                  # needs tshark
 ```
 
-Three of those need a JDK and the ISO schemas, which `scripts/fetch-schemas.sh`
-downloads; the last needs `pdftotext` and network access. Building or using the
-crate never needs any of them — `src/generated/` is committed.
+The schemas are fetched by `scripts/fetch-schemas.sh` and pinned by SHA-256.
+Building or using the crate needs none of this — `src/generated/` is committed.
+[The full account →](https://hupe1980.github.io/iso15118/docs/verification/)
+
+## 🔐 Security
+
+Report vulnerabilities privately — see [SECURITY.md](SECURITY.md). Each release
+carries a CycloneDX SBOM and a build-provenance attestation for the published
+`.crate`:
+
+```sh
+gh attestation verify iso15118-X.Y.Z.crate --repo hupe1980/iso15118
+```
 
 ## 📚 Documentation
 
 | | |
 |---|---|
-| [Getting started](https://hupe1980.github.io/iso15118/docs/getting-started/) | Install, the five steps, a session end to end |
+| [Getting started](https://hupe1980.github.io/iso15118/docs/getting-started/) | Install, and a session end to end |
 | [Architecture](https://hupe1980.github.io/iso15118/docs/architecture/) | The layers, and why each is separate |
-| [Sessions and ordering](https://hupe1980.github.io/iso15118/docs/sessions/) | Which request is legal when, and what happens when one is not |
-| [The EXI profile](https://hupe1980.github.io/iso15118/docs/exi/) | Every coding option ISO 15118 pins out of band |
-| [Plug & Charge](https://hupe1980.github.io/iso15118/docs/plug-and-charge/) | What gets signed, and what a valid signature does not prove |
+| [Sessions and ordering](https://hupe1980.github.io/iso15118/docs/sessions/) | Which request is legal when |
+| [The EXI profile](https://hupe1980.github.io/iso15118/docs/exi/) | Every coding option ISO 15118 pins |
+| [Plug & Charge](https://hupe1980.github.io/iso15118/docs/plug-and-charge/) | What gets signed, and what a signature does not prove |
 | [SLAC](https://hupe1980.github.io/iso15118/docs/slac/) | Which station this cable is plugged into |
-| [Embedded and `no_std`](https://hupe1980.github.io/iso15118/docs/embedded/) | Shipping it on a microcontroller |
-| [FAQ](https://hupe1980.github.io/iso15118/docs/faq/) | Short answers to the common questions |
+| [Embedded and `no_std`](https://hupe1980.github.io/iso15118/docs/embedded/) | Running it on a microcontroller |
+| [FAQ](https://hupe1980.github.io/iso15118/docs/faq/) | Short answers |
 
-The API reference is on [docs.rs](https://docs.rs/iso15118), and what changed
-between releases is in [CHANGELOG.md](CHANGELOG.md).
+API reference on [docs.rs](https://docs.rs/iso15118); release history in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## 🤝 Contributing
 
-Issues and pull requests welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). A
-change to any wire format needs a golden vector or a spec citation; "it
-round-trips with itself" is not evidence that it matches what a charger will send.
+See [CONTRIBUTING.md](CONTRIBUTING.md). A change to any wire format needs a
+golden vector or a spec citation — "it round-trips with itself" is not evidence.
 
 ## ⚖️ License
 
@@ -327,4 +255,4 @@ option.
 
 ISO 15118 is a standard published by the International Organization for
 Standardization. This is an independent implementation, not affiliated with or
-endorsed by ISO, and no part of the standard is redistributed here.
+endorsed by ISO; no part of the standard is redistributed here.

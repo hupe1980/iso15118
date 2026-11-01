@@ -38,10 +38,9 @@
 //! point, and multiplication of the base point with this value must generate a
 //! key matching the public key of the contract certificate".
 //!
-//! So [`open`] takes the certificate's public key and does that comparison, and
-//! there is no call that skips it. A vehicle that installs an unchecked key has
-//! a contract it can never use and cannot diagnose — every later signature it
-//! makes is valid, over the wrong key, and every station refuses it.
+//! [`open`] takes the certificate's public key and does that comparison; no call
+//! skips it. An unchecked wrong key signs validly and is refused by every
+//! station, with nothing on the vehicle to say why.
 //!
 //! # What is still the caller's
 //!

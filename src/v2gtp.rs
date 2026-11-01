@@ -50,6 +50,14 @@ pub enum PayloadType {
     Part20Acdp,
     /// `0x8006` — ISO 15118-20 WPT (wireless) mainstream.
     Part20Wpt,
+    /// `0x8010` — ISO 15118-20 Amd 1 `AC_DER`, IEC variant.
+    ///
+    /// Amd 1's revised payload-type table is not read here; the value is the one
+    /// `EVerest`'s implementation of Amd 1 uses.
+    Part20AcDerIec,
+    /// `0x8011` — ISO 15118-20 Amd 1 `AC_DER`, SAE variant. Sourced as
+    /// [`Part20AcDerIec`](Self::Part20AcDerIec) is.
+    Part20AcDerSae,
     /// `0x9000` — SDP request.
     SdpRequest,
     /// `0x9001` — SDP response.
@@ -65,8 +73,8 @@ pub enum PayloadType {
     /// [`Connection`](crate::session::Connection) does — a vendor extension on
     /// the wire must not end a charging session.
     ManufacturerSpecific(u16),
-    /// A code Table 10 marks reserved: `0x0000..=0x8000`, `0x8007..=0x8FFF`
-    /// and `0x9004..=0x9FFF`.
+    /// A code Table 10 marks reserved: `0x0000..=0x8000`, `0x8007..=0x800F`,
+    /// `0x8012..=0x8FFF` and `0x9004..=0x9FFF`.
     ///
     /// Not a legitimate code, and still not a framing error. \[V2G2-092\] and
     /// \[V2G2-094\] have a receiver check the payload *type* and then the
@@ -89,6 +97,8 @@ impl PayloadType {
             Self::Part20Dc => 0x8004,
             Self::Part20Acdp => 0x8005,
             Self::Part20Wpt => 0x8006,
+            Self::Part20AcDerIec => 0x8010,
+            Self::Part20AcDerSae => 0x8011,
             Self::SdpRequest => 0x9000,
             Self::SdpResponse => 0x9001,
             Self::SdpWirelessRequest => 0x9002,
@@ -113,6 +123,8 @@ impl PayloadType {
             0x8004 => Self::Part20Dc,
             0x8005 => Self::Part20Acdp,
             0x8006 => Self::Part20Wpt,
+            0x8010 => Self::Part20AcDerIec,
+            0x8011 => Self::Part20AcDerSae,
             0x9000 => Self::SdpRequest,
             0x9001 => Self::SdpResponse,
             0x9002 => Self::SdpWirelessRequest,
@@ -163,7 +175,9 @@ impl PayloadType {
                 | Self::Part20Ac
                 | Self::Part20Dc
                 | Self::Part20Acdp
-                | Self::Part20Wpt,
+                | Self::Part20Wpt
+                | Self::Part20AcDerIec
+                | Self::Part20AcDerSae,
                 Some(P::Iso20),
             ) => true,
             // Everything else, including every SDP type: SDP is a datagram
@@ -185,6 +199,8 @@ impl PayloadType {
                 | Self::Part20Dc
                 | Self::Part20Acdp
                 | Self::Part20Wpt
+                | Self::Part20AcDerIec
+                | Self::Part20AcDerSae
         )
     }
 
@@ -375,6 +391,8 @@ mod tests {
             PayloadType::Part20Dc,
             PayloadType::Part20Acdp,
             PayloadType::Part20Wpt,
+            PayloadType::Part20AcDerIec,
+            PayloadType::Part20AcDerSae,
             PayloadType::SdpRequest,
             PayloadType::SdpResponse,
             PayloadType::SdpWirelessRequest,
@@ -401,7 +419,7 @@ mod tests {
     /// only thing that makes ignoring it possible.
     #[test]
     fn reserved_payload_types_classify_rather_than_fail() {
-        for value in [0x0000, 0x8000, 0x8007, 0x8FFF, 0x9004, 0x9FFF] {
+        for value in [0x0000, 0x8000, 0x8007, 0x800F, 0x8012, 0x8FFF, 0x9004, 0x9FFF] {
             let ty = PayloadType::from_u16(value);
             assert_eq!(ty, PayloadType::Reserved(value));
             assert!(ty.is_ignorable());
@@ -426,7 +444,7 @@ mod tests {
         let (header, payload, rest) = split_frame(&buf[..n], 1024).unwrap();
         assert_eq!(header.payload_type, PayloadType::Reserved(0x8007));
         assert_eq!(payload, &[1, 2, 3]);
-        assert!(rest.is_empty());
+        assert_eq!(rest, &[] as &[u8]);
     }
 
     #[test]

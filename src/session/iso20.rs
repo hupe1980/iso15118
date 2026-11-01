@@ -1,18 +1,15 @@
 //! ISO 15118-20 message sequencing.
 //!
-//! The -20 flow is longer than -2's and reordered: authorization moves to the
-//! front, service selection follows it rather than preceding it, and schedule
-//! exchange becomes a phase of its own. Charging itself collapses into a single
-//! `ChargeLoop` message per energy transfer mode, with the mode chosen at
-//! service selection rather than inferred from a transfer-mode enumeration.
+//! Authorization comes first, service selection follows it, and schedule
+//! exchange is a phase of its own; charging is one `ChargeLoop` message per
+//! service. All services share this flow — DC-like ones ([`Service::is_dc`])
+//! add the isolation test, pre-charge and weld check — and each speaks only its
+//! own message set ([`Sequencer::admits`]): AC, DC, WPT and the two `AC_DER`
+//! sets have one each, MCS runs the DC set, and `DC_ACDP` uses ACDP to connect
+//! and DC for the rest.
 //!
-//! Each of the four energy transfer services — AC, DC, WPT, ACDP — is a
-//! separate schema with its own V2GTP payload type, but they share this one
-//! flow; only which parameter-discovery and charge-loop messages are legal
-//! differs.
-//!
-//! Same contract as [`super::iso2`]: no I/O, no timers, no policy, just the
-//! graph and the response code a departure from it earns.
+//! No I/O, no timers, no policy: the graph and the response code a departure
+//! from it earns.
 //!
 //! ```
 //! use iso15118::session::iso20::{EnergyTransfer, Request, Sequencer, Service};
@@ -58,9 +55,23 @@ pub enum Service {
     Dc,
     /// Wireless power transfer, `V2G_CI_WPT.xsd`, payload type `0x8006`.
     Wpt,
-    /// Automated connection device (pantograph), `V2G_CI_ACDP.xsd`, payload
-    /// type `0x8005`.
+    /// DC through an automated connection device (pantograph): `V2G_CI_ACDP.xsd`
+    /// (payload type `0x8005`) for positioning and connecting, and the DC set
+    /// for everything else — see [`Service::admits`]. The DC flow, safety phases
+    /// included.
     Acdp,
+    /// AC with Amd 1's distributed-energy-resource control, IEC variant —
+    /// `V2G_CI_AC_DER_IEC.xsd`, payload type `0x8010`. The AC flow.
+    AcDerIec,
+    /// AC with Amd 1's distributed-energy-resource control, SAE variant —
+    /// `V2G_CI_AC_DER_SAE.xsd`, payload type `0x8011`. The AC flow.
+    AcDerSae,
+    /// The megawatt charging system (Amd 1): the **DC** message set and flow
+    /// (payload type `0x8004`) over an ISO 15118-10 single-pair Ethernet link,
+    /// not SLAC. Its own rules are the caller's: no ISO 15118-2 fallback means
+    /// leaving -2 out of `SeccConfig::protocols`, and the data-link pause on
+    /// `SessionStop` happens below this crate.
+    Mcs,
 }
 
 impl Service {
@@ -70,17 +81,39 @@ impl Service {
         use crate::v2gtp::PayloadType as T;
         match self {
             Self::Ac => T::Part20Ac,
-            Self::Dc => T::Part20Dc,
+            // MCS has no message set of its own: it runs the DC one.
+            Self::Dc | Self::Mcs => T::Part20Dc,
             Self::Wpt => T::Part20Wpt,
             Self::Acdp => T::Part20Acdp,
+            Self::AcDerIec => T::Part20AcDerIec,
+            Self::AcDerSae => T::Part20AcDerSae,
         }
     }
 
     /// True for the services that need an isolation check and a pre-charge
     /// before power flows, and a weld check afterwards.
+    ///
+    /// `DC_ACDP` is one of them: a pantograph moves DC, and the automated
+    /// connection changes how the contact is made, not what flows through it.
     #[must_use]
     pub const fn is_dc(self) -> bool {
-        matches!(self, Self::Dc)
+        matches!(self, Self::Dc | Self::Mcs | Self::Acdp)
+    }
+
+    /// Whether a request that travelled under `payload_type` belongs to this
+    /// service.
+    ///
+    /// One set per service, except the pantograph: the `ACDP` schema holds only
+    /// positioning, connecting and status, so a `DC_ACDP` session discovers its
+    /// parameters and runs its charge loop in the **DC** message set.
+    #[must_use]
+    pub const fn admits(self, payload_type: crate::v2gtp::PayloadType) -> bool {
+        use crate::v2gtp::PayloadType as T;
+        match (self, payload_type) {
+            (Self::Acdp, T::Part20Dc | T::Part20Acdp) => true,
+            (Self::Acdp, _) => false,
+            _ => self.payload_type().as_u16() == payload_type.as_u16(),
+        }
     }
 }
 
@@ -186,6 +219,24 @@ impl Request {
             M::Iso20Wpt(doc) => Self::of_wpt(doc),
             #[cfg(feature = "iso20-acdp")]
             M::Iso20Acdp(doc) => Self::of_acdp(doc),
+            #[cfg(feature = "iso20-ac-der-iec")]
+            M::Iso20AcDerIec(doc) => {
+                use crate::iso20::ac_der_iec::Document as D;
+                Some(match &**doc {
+                    D::ACChargeParameterDiscoveryReq(_) => Self::ChargeParameterDiscovery,
+                    D::ACChargeLoopReq(_) => Self::ChargeLoop,
+                    _ => return None,
+                })
+            }
+            #[cfg(feature = "iso20-ac-der-sae")]
+            M::Iso20AcDerSae(doc) => {
+                use crate::iso20::ac_der_sae::Document as D;
+                Some(match &**doc {
+                    D::ACChargeParameterDiscoveryReq(_) => Self::ChargeParameterDiscovery,
+                    D::ACChargeLoopReq(_) => Self::ChargeLoop,
+                    _ => return None,
+                })
+            }
             _ => None,
         }
     }
@@ -333,7 +384,7 @@ impl Service {
     /// Maps an ISO 15118-20 service id to the flow it selects.
     ///
     /// The assignment is the standard's own — the same numbers `EVerest`'s
-    /// `ServiceCategory` and Josev's `ServiceV20` both use:
+    /// `ServiceCategory` uses. Ids 8 to 11 were added by ISO 15118-20 Amd 1:
     ///
     /// | Id | Service | Maps to |
     /// |---|---|---|
@@ -344,23 +395,15 @@ impl Service {
     /// | 5 | `AC_BPT` | [`Service::Ac`] |
     /// | 6 | `DC_BPT` | [`Service::Dc`] |
     /// | 7 | `DC_ACDP_BPT` | [`Service::Acdp`] |
-    /// | 8, 9 | `MCS`, `MCS_BPT` | `None` — no schema set here |
-    /// | 10 | `AC_DER` | `None` — no schema set here |
+    /// | 8, 9 | `MCS`, `MCS_BPT` | [`Service::Mcs`] |
+    /// | 10 | `AC_DER_IEC` | [`Service::AcDerIec`] |
+    /// | 11 | `AC_DER_SAE` | [`Service::AcDerSae`] |
     /// | 65, 66 | `Internet`, `ParkingStatus` | `None` — value-added |
     ///
-    /// The `_BPT` variants are bidirectional power transfer. Power flowing the
-    /// other way changes the parameters, not the message flow, so each maps to
-    /// the same [`Service`] as its unidirectional twin — which is also why
-    /// there is no `iso20-bpt` feature.
-    ///
-    /// `None` means "not an energy transfer service this crate has a message set
-    /// for", and it covers two different situations. 65 and 66 are *value-added*
-    /// services: a session may select one alongside an energy transfer service,
-    /// and it changes no part of the flow. 8, 9 and 10 — the megawatt charging
-    /// system and the AC distributed-energy-resource service — are energy
-    /// transfer services whose schemas are not in this crate, so a session that
-    /// selects one has no flow here to follow. Both come back as `None`, and the
-    /// sequencer refuses whatever follows either way.
+    /// A `_BPT` variant changes parameters, not the flow, so it maps to the same
+    /// [`Service`] as its unidirectional twin; [`EnergyTransfer`] keeps the bit.
+    /// `None` — a value-added service or an unassigned id — is not an energy
+    /// transfer, and the sequencer refuses a `ServiceSelectionReq` naming one.
     #[must_use]
     pub const fn from_service_id(id: u16) -> Option<Self> {
         Some(match id {
@@ -368,6 +411,9 @@ impl Service {
             2 | 6 => Self::Dc,
             3 => Self::Wpt,
             4 | 7 => Self::Acdp,
+            8 | 9 => Self::Mcs,
+            10 => Self::AcDerIec,
+            11 => Self::AcDerSae,
             _ => return None,
         })
     }
@@ -389,8 +435,10 @@ impl Service {
 pub struct EnergyTransfer {
     /// The flow the rest of the session follows.
     pub service: Service,
-    /// True for the `_BPT` service ids — 5 (`AC_BPT`), 6 (`DC_BPT`) and 7
-    /// (`DC_ACDP_BPT`).
+    /// True for the `_BPT` service ids — 5 (`AC_BPT`), 6 (`DC_BPT`), 7
+    /// (`DC_ACDP_BPT`) and 9 (`MCS_BPT`) — and for the two `AC_DER` services, 10
+    /// and 11, which `ElaadNL`'s V2G guide and Vector's Amd 1 material both call
+    /// "AC BPT DER": grid-code control exists for a charger that feeds back.
     ///
     /// It says the *service* permits power in both directions. It does not say
     /// power will flow that way, which is a schedule and a decision, not a
@@ -407,9 +455,9 @@ impl EnergyTransfer {
     #[must_use]
     pub const fn from_service_id(id: u16) -> Option<Self> {
         let Some(service) = Service::from_service_id(id) else { return None };
-        // 5 `AC_BPT`, 6 `DC_BPT`, 7 `DC_ACDP_BPT` — the standard assigned them
-        // contiguously, which is why this reads as a range rather than three ids.
-        Some(Self { service, bidirectional: matches!(id, 5..=7) })
+        // 5 `AC_BPT`, 6 `DC_BPT`, 7 `DC_ACDP_BPT` were assigned contiguously;
+        // Amd 1 added 9 `MCS_BPT` and the two AC_DER services 10 and 11.
+        Some(Self { service, bidirectional: matches!(id, 5..=7 | 9..=11) })
     }
 
     /// Reads the selected energy transfer out of a `ServiceSelectionReq`.
@@ -699,6 +747,24 @@ impl Sequencer {
         }
     }
 
+    /// Whether a request that travelled under `payload_type` may be sequenced
+    /// in this session at all.
+    ///
+    /// ISO 15118-20 gives each energy transfer service its own message set and
+    /// payload type, and a session selects exactly one. The ordering graph is
+    /// written in terms of requests — "a charge loop" — and so cannot tell an AC
+    /// charge loop from a DC one; this can. Before a service is selected no
+    /// energy-transfer message belongs here, and after it only the selected
+    /// one's does. `CommonMessages` belongs to every session.
+    #[must_use]
+    pub fn admits(&self, payload_type: crate::v2gtp::PayloadType) -> bool {
+        use crate::v2gtp::PayloadType as T;
+        match payload_type {
+            T::Part20Main => true,
+            other => self.service().is_some_and(|s| s.admits(other)),
+        }
+    }
+
     /// The whole of the ISO 15118-20 flow, as one table.
     #[allow(
         clippy::match_same_arms,
@@ -794,6 +860,11 @@ impl Sequencer {
             (F::WeldingDetection, R::WeldingDetection) => F::WeldingDetection,
             (F::PowerStopped, R::VehicleCheckOut) if acdp => F::PowerStopped,
             (F::PowerStopped, R::AcdpControl) if acdp => F::PowerStopped,
+            // A pantograph is DC, so it checks for welded contactors before it
+            // lifts — and checks out afterwards.
+            (F::WeldingDetection, R::VehicleCheckOut | R::AcdpControl) if acdp => {
+                F::WeldingDetection
+            }
 
             // `SessionStopReq` is legal from any established phase, not only
             // at the end of a completed charge. A vehicle aborts — a fault, a
@@ -1180,12 +1251,17 @@ mod tests {
         let mut s = run(&PREAMBLE);
         s.accept(Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Acdp))).unwrap();
         s.accept(Request::VehicleCheckIn).unwrap();
+        s.accept(Request::ChargeParameterDiscovery).unwrap();
+        s.accept(Request::ScheduleExchange).unwrap();
+        // A pantograph moves DC: no power before the isolation test.
+        assert!(!s.permits(Request::PowerDelivery(ChargeProgress::Start)));
         for r in [
-            Request::ChargeParameterDiscovery,
-            Request::ScheduleExchange,
+            Request::CableCheck,
+            Request::PreCharge,
             Request::PowerDelivery(ChargeProgress::Start),
             Request::ChargeLoop,
             Request::PowerDelivery(ChargeProgress::Stop),
+            Request::WeldingDetection,
         ] {
             s.accept(r).unwrap();
         }
@@ -1305,11 +1381,13 @@ mod tests {
             (6, Some(Service::Dc)),    // DC_BPT
             (7, Some(Service::Acdp)),  // DC_ACDP_BPT
             (0, None),
-            (8, None),  // MCS — an energy transfer service with no schema set here
-            (9, None),  // MCS_BPT — likewise
-            (10, None), // AC_DER — likewise
-            (65, None), // Internet — value-added
-            (66, None), // ParkingStatus — value-added
+            (8, Some(Service::Mcs)),       // MCS — the DC message set
+            (9, Some(Service::Mcs)),       // MCS_BPT
+            (10, Some(Service::AcDerIec)), // AC_DER_IEC
+            (11, Some(Service::AcDerSae)), // AC_DER_SAE
+            (12, None),                    // unassigned
+            (65, None),                    // Internet — value-added
+            (66, None),                    // ParkingStatus — value-added
             (u16::MAX, None),
         ] {
             assert_eq!(Service::from_service_id(id), expected, "service id {id}");
@@ -1370,6 +1448,11 @@ mod tests {
         assert_eq!(Service::Dc.payload_type(), PayloadType::Part20Dc);
         assert_eq!(Service::Wpt.payload_type(), PayloadType::Part20Wpt);
         assert_eq!(Service::Acdp.payload_type(), PayloadType::Part20Acdp);
+        assert_eq!(Service::AcDerIec.payload_type(), PayloadType::Part20AcDerIec);
+        assert_eq!(Service::AcDerSae.payload_type(), PayloadType::Part20AcDerSae);
+        // MCS has no message set of its own: it is the DC one.
+        assert_eq!(Service::Mcs.payload_type(), PayloadType::Part20Dc);
+        assert!(Service::Mcs.is_dc(), "MCS runs the DC safety phases");
     }
     /// `hems` read `Service`'s four variants and concluded that "the schedule
     /// negotiation a BPT session turns on has no path through the sequencer".
@@ -1405,6 +1488,115 @@ mod tests {
         assert!(s.is_bidirectional(), "the session must still know it may discharge");
     }
 
+    /// Amd 1's `AC_DER` services walk the AC flow: no isolation test, no
+    /// pre-charge, no weld check — power on, charge loop, power off.
+    #[test]
+    fn a_whole_ac_der_session_walks_the_ac_flow() {
+        for id in [10, 11] {
+            let der = EnergyTransfer::from_service_id(id).expect("an AC_DER service");
+            let mut s = Sequencer::new();
+            for r in [
+                Request::SessionSetup,
+                Request::AuthorizationSetup,
+                Request::Authorization,
+                Request::ServiceDiscovery,
+                Request::ServiceSelection(der),
+                Request::ChargeParameterDiscovery,
+                Request::ScheduleExchange,
+                Request::PowerDelivery(ChargeProgress::Start),
+                Request::ChargeLoop,
+                Request::PowerDelivery(ChargeProgress::Stop),
+                Request::SessionStop(ChargingSession::Terminate),
+            ] {
+                s.accept(r).unwrap_or_else(|e| panic!("{r:?} in service {id}: {e}"));
+            }
+            assert_eq!(s.phase(), Phase::Stopped);
+        }
+    }
+
+    /// MCS is the DC flow, safety phases included: a megawatt connector is not
+    /// exempt from the isolation test.
+    #[test]
+    fn an_mcs_session_demands_the_dc_safety_phases() {
+        let mcs = EnergyTransfer::from_service_id(8).expect("MCS");
+        let mut s = Sequencer::new();
+        for r in [
+            Request::SessionSetup,
+            Request::AuthorizationSetup,
+            Request::Authorization,
+            Request::ServiceDiscovery,
+            Request::ServiceSelection(mcs),
+            Request::ChargeParameterDiscovery,
+            Request::ScheduleExchange,
+        ] {
+            s.accept(r).unwrap();
+        }
+        assert!(
+            !s.permits(Request::PowerDelivery(ChargeProgress::Start)),
+            "power before the isolation test"
+        );
+        assert!(s.permits(Request::CableCheck));
+    }
+
+    /// A whole megawatt session, unidirectional and bidirectional: the DC flow
+    /// from setup to stop, isolation test and weld check included.
+    #[test]
+    fn a_whole_mcs_session_walks_the_dc_flow() {
+        for id in [8, 9] {
+            let mcs = EnergyTransfer::from_service_id(id).expect("an MCS service");
+            assert_eq!(mcs.service, Service::Mcs);
+            assert_eq!(mcs.bidirectional, id == 9);
+            let mut s = Sequencer::new();
+            for r in [
+                Request::SessionSetup,
+                Request::AuthorizationSetup,
+                Request::Authorization,
+                Request::ServiceDiscovery,
+                Request::ServiceSelection(mcs),
+                Request::ChargeParameterDiscovery,
+                Request::ScheduleExchange,
+                Request::CableCheck,
+                Request::PreCharge,
+                Request::PowerDelivery(ChargeProgress::Start),
+                Request::ChargeLoop,
+                Request::PowerDelivery(ChargeProgress::Stop),
+                Request::WeldingDetection,
+                Request::SessionStop(ChargingSession::Terminate),
+            ] {
+                s.accept(r).unwrap_or_else(|e| panic!("{r:?} in service {id}: {e}"));
+            }
+            assert_eq!(s.phase(), Phase::Stopped);
+        }
+    }
+
+    /// The graph speaks of "a charge loop"; which message set it came from is
+    /// a separate rule, and it is checked here.
+    #[test]
+    fn only_the_selected_service_s_message_set_is_admitted() {
+        use crate::v2gtp::PayloadType as T;
+        let mut s = Sequencer::new();
+        assert!(s.admits(T::Part20Main), "CommonMessages belong to every session");
+        assert!(!s.admits(T::Part20Dc), "no energy transfer set before a service is selected");
+        for r in [
+            Request::SessionSetup,
+            Request::AuthorizationSetup,
+            Request::Authorization,
+            Request::ServiceDiscovery,
+            Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Dc)),
+        ] {
+            s.accept(r).unwrap();
+        }
+        assert!(s.admits(T::Part20Dc));
+        for other in
+            [T::Part20Ac, T::Part20Wpt, T::Part20Acdp, T::Part20AcDerIec, T::Part20AcDerSae]
+        {
+            assert!(!s.admits(other), "{other:?} in a DC session");
+        }
+        // A service renegotiation forgets the service, and with it the set.
+        s.accept(Request::SessionStop(ChargingSession::ServiceRenegotiation)).unwrap();
+        assert!(!s.admits(T::Part20Dc));
+    }
+
     /// The bit the flow does not need and a load manager does.
     #[test]
     fn the_service_id_says_which_way_power_may_move() {
@@ -1416,13 +1608,16 @@ mod tests {
             (5, Service::Ac, true),
             (6, Service::Dc, true),
             (7, Service::Acdp, true),
+            (8, Service::Mcs, false),
+            (9, Service::Mcs, true),
+            (10, Service::AcDerIec, true),
+            (11, Service::AcDerSae, true),
         ] {
             let t = EnergyTransfer::from_service_id(id).expect("an energy transfer service");
             assert_eq!(t, EnergyTransfer { service, bidirectional }, "service id {id}");
         }
-        // The megawatt charging system and AC_DER have no message set here, so
-        // they are not energy transfers this crate can sequence.
-        for id in [8, 9, 10, 65, 66, 0] {
+        // Value-added services and unassigned ids are not energy transfers.
+        for id in [65, 66, 0, 12] {
             assert_eq!(EnergyTransfer::from_service_id(id), None, "service id {id}");
         }
     }

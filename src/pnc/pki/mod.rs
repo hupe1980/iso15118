@@ -1,64 +1,63 @@
 //! The V2G PKI: reading ISO 15118 certificates and validating a chain to a
 //! trust anchor.
 //!
-//! A signature that verifies proves *the key that signed these bytes made this
-//! signature*, and nothing about **whose** key that was. The `GenChallenge`
-//! binding in [`super`] narrows *which session*; this module is the other half.
-//! Without both, a signature verified against a key from an unvalidated
-//! certificate proves only that whoever sent the certificate also made it.
+//! A verified signature says nothing about **whose** key made it. The
+//! `GenChallenge` binding in [`super`] answers *which session*; this module
+//! answers whose key.
 //!
 //! # What ISO 15118 fixes
 //!
-//! X.509 is a large grammar and RFC 5280 §6.1 a large algorithm. ISO 15118 pins
-//! almost every input to both, which is what makes this tractable in a `no_std`
-//! crate with no dependencies:
+//! ISO 15118 pins almost every input to X.509 and RFC 5280 §6.1, which keeps
+//! this small enough for a `no_std` crate with no dependencies:
 //!
 //! | | |
 //! |---|---|
 //! | Signature algorithm | `ecdsa-with-SHA256` \[V2G2-006\] (`-SHA512` for -20's higher level) |
 //! | Curve | `secp256r1` \[V2G2-007\], `secp521r1` in -20 |
 //! | Path length | at most 3 non-self-signed certificates \[V2G2-009\] |
-//! | Certificate size | at most 800 bytes DER \[V2G2-010\]; the schema enforces it |
+//! | Certificate size | at most 800 bytes DER \[V2G2-010\], which the -2 schema enforces on the wire; at most 1 600 for -20 (Amd 1), which [`validate`] enforces under [`Rules::Iso20`] |
 //! | Extensions | the set in Annex F, `KeyUsage` and `BasicConstraints` critical in every profile |
 //! | Name constraints, policy mapping | not used |
 //!
 //! What is implemented is basic path validation — signatures, validity periods,
 //! `BasicConstraints`, `pathLenConstraint`, `KeyUsage`, the critical-extension
-//! rule — plus the Annex F profile of whichever leaf the caller names. A trust
-//! anchor may sit anywhere in the path: \[V2G2-927\] makes a Private Operator
-//! Root an anchor for SECC certificates and \[V2G2-868\] has it sign leaves
-//! directly.
+//! rule — plus the Annex F profile of whichever leaf the caller names, plus the
+//! rules of the generation the caller names ([`Rules`]).
 //!
-//! # What is **not** here: revocation
+//! # ISO 15118-20 Amd 1
 //!
-//! No OCSP, no CRL. A revoked contract certificate validates here exactly as a
-//! live one does, and that is a limitation to plan around.
+//! [`Rules::Iso20`] applies the rules the amendment's public text shows: a
+//! certificate is at most 1 600 bytes, refused before it is read; a certificate
+//! is valid only within its issuer's validity, on every link
+//! \[V2G20-3000\]/\[V2G20-3001\]; and a holder of several chains sends the one
+//! reaching the authorities its peer lists — [`select_chain`] and
+//! [`TrustAnchors::authorities`] \[V2G20-3373\]..\[V2G20-3385\]. A
+//! cross-certificate (RFC 5280 §7.1) is an intermediate whose issuer is an
+//! anchor this side holds; it counts toward [`MAX_PATH_LEN`], so it fits only
+//! beneath a single Sub-CA. A trust anchor may sit anywhere in the path: a
+//! Private Operator Root anchors SECC certificates \[V2G2-927\] and may sign
+//! leaves directly \[V2G2-868\].
 //!
-//! The standard says why it is hard rather than merely undone — Annex F's note
-//! that "as access to OCSP services can not be guaranteed during charging, the
-//! usage of OCSP can only be recommended but not be mandatory", and
-//! \[V2G2-868\] dropping it from private environments. A vehicle in a basement
-//! has no path to a responder; a station has one and a clearing house behind it.
+//! # Not here: revocation
 //!
-//! So the answer belongs where it already exists. That back end is asking
-//! whether to authorize this contract at all, and
-//! [`Validated::subject_common_name`] is the `EMAID` to ask about. An OCSP
-//! client inside a sans-I/O crate would put a network round trip in a charge
-//! loop with a 25 ms budget.
+//! No OCSP, no CRL: a revoked certificate validates like a live one. Annex F
+//! makes OCSP a recommendation because a vehicle cannot be assumed to reach a
+//! responder while charging, and \[V2G2-868\] drops it in private
+//! environments. A station's back end already asks a clearing house whether to
+//! authorize the contract; [`Validated::subject_common_name`] is the `EMAID` to
+//! ask about.
 //!
 //! # Time is a real input
 //!
-//! [`chain::validate`] takes seconds since the Unix epoch — deliberately not
-//! [`session::Instant`](crate::session::Instant), which is a monotonic count for
-//! measuring timeouts where a validity period needs a wall clock. \[V2G2-886\]
-//! lets a vehicle choose its own time accuracy and \[V2G2-910\] makes checking
-//! validity periods a *should*, so a vehicle with no trustworthy time has to say
-//! so rather than pass a number it does not have.
+//! [`chain::validate`] takes wall-clock seconds since the Unix epoch, not
+//! [`session::Instant`](crate::session::Instant). \[V2G2-886\] lets a vehicle
+//! choose its own time accuracy and \[V2G2-910\] makes checking validity a
+//! *should*; a vehicle with no trustworthy time must not invent one.
 //!
 //! # Example
 //!
 //! ```no_run
-//! use iso15118::pnc::pki::{Profile, chain};
+//! use iso15118::pnc::pki::{Policy, Profile, TrustAnchor, TrustAnchors, chain};
 //! # use iso15118::pnc::{PncError, Suite};
 //! # struct Backend;
 //! # impl iso15118::pnc::pki::VerifyWith for Backend {
@@ -66,10 +65,11 @@
 //! # }
 //! # fn f(leaf: &[u8], sub_ca: &[u8], v2g_root: &[u8], now: i64) -> Result<(), chain::ChainError> {
 //! // Leaf first, as both generations put it on the wire.
+//! let anchors = [TrustAnchor::new(v2g_root, "V2G Root")];
 //! let validated = chain::validate(
 //!     &[leaf, sub_ca],
-//!     &[v2g_root],
-//!     Profile::ContractCertificate,
+//!     &TrustAnchors::new(&anchors),
+//!     Policy::iso2(Profile::ContractCertificate),
 //!     now,
 //!     &Backend,
 //! )?;
@@ -88,7 +88,9 @@ mod der;
 mod oid;
 
 pub use cert::{BasicConstraints, CertError, Certificate, Curve, KeyUsage, Name};
-pub use chain::{ChainError, MAX_PATH_LEN, Validated, validate};
+pub use chain::{
+    ChainError, ISO20_MAX_CERTIFICATE_LEN, MAX_PATH_LEN, Validated, select_chain, validate,
+};
 pub use der::DerError;
 
 use crate::pnc::{PncError, Suite};
@@ -114,6 +116,137 @@ pub trait VerifyWith {
         data: &[u8],
         signature: &[u8],
     ) -> Result<(), PncError>;
+}
+
+/// Which generation's PKI rules apply, on top of RFC 5280 basic path
+/// validation and the leaf's Annex F profile.
+///
+/// A separate axis from [`Profile`], because a contract certificate is a
+/// contract certificate in both generations: what differs is the rules around
+/// it. It is chosen per call, never globally — one station validates -2 and -20
+/// chains in the same process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
+pub enum Rules {
+    /// ISO 15118-2: Annex F as published in 2014. The 800-byte certificate
+    /// bound \[V2G2-010\] is the schema's, on the wire, and not repeated here.
+    Iso2,
+    /// ISO 15118-20 with Amd 1:2026: certificates of at most
+    /// [`ISO20_MAX_CERTIFICATE_LEN`] bytes, and every certificate valid only
+    /// within its issuer's validity \[V2G20-3000\]/\[V2G20-3001\].
+    Iso20,
+}
+
+/// What a chain is validated *for*: the leaf's Annex F profile, and the
+/// generation whose rules apply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Policy {
+    /// The profile the leaf must meet.
+    pub profile: Profile,
+    /// The generation's rules.
+    pub rules: Rules,
+}
+
+impl Policy {
+    /// `profile` under ISO 15118-2's rules.
+    #[must_use]
+    pub const fn iso2(profile: Profile) -> Self {
+        Self { profile, rules: Rules::Iso2 }
+    }
+
+    /// `profile` under ISO 15118-20's rules, Amd 1 included.
+    #[must_use]
+    pub const fn iso20(profile: Profile) -> Self {
+        Self { profile, rules: Rules::Iso20 }
+    }
+}
+
+/// A trust anchor, and where it came from.
+///
+/// `source` is provenance: the list or store this anchor was taken from — a
+/// pool's root store, a deployment's private root, an entry of a certificate
+/// trust list. [`Validated::anchor_source`] reports it back, so a caller can
+/// apply \[V2G2-925\]'s "the specific root certificate required for a certain
+/// use" by where an anchor came from and not only by its name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrustAnchor<'a> {
+    /// The anchor certificate, DER.
+    pub der: &'a [u8],
+    /// Where the anchor came from.
+    pub source: &'a str,
+}
+
+impl<'a> TrustAnchor<'a> {
+    /// An anchor and its provenance.
+    #[must_use]
+    pub const fn new(der: &'a [u8], source: &'a str) -> Self {
+        Self { der, source }
+    }
+}
+
+/// The set of trust anchors one side holds.
+///
+/// A set rather than a file: the European Certificate Trust List the EU's
+/// Sustainable Transport Forum is working towards has no published format yet,
+/// and whatever carries the anchors in — a trust list, a pool's root store, a
+/// deployment's configuration — ends up as this. Borrowed, so it costs nothing
+/// on a target without a heap to spare.
+///
+/// Two lifetimes, on purpose: `'s` is the slice of entries, `'a` the DER and
+/// provenance they point at. A [`Validated`] path borrows only `'a`, so it can
+/// outlive a set the caller built on the stack for one call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrustAnchors<'s, 'a> {
+    anchors: &'s [TrustAnchor<'a>],
+}
+
+impl<'s, 'a> TrustAnchors<'s, 'a> {
+    /// A set over `anchors`.
+    #[must_use]
+    pub const fn new(anchors: &'s [TrustAnchor<'a>]) -> Self {
+        Self { anchors }
+    }
+
+    /// The anchors, in the order given.
+    pub fn iter(&self) -> core::slice::Iter<'s, TrustAnchor<'a>> {
+        self.anchors.iter()
+    }
+
+    /// How many anchors the set holds.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.anchors.len()
+    }
+
+    /// True when the set holds none — and then nothing validates.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.anchors.is_empty()
+    }
+
+    /// The DER subject name of every anchor that parses, in order.
+    ///
+    /// This is the list a TLS `certificate_authorities` extension carries, and
+    /// the other half of [`select_chain`]: a validator advertises what it
+    /// holds, and the holder of several chains sends the one that reaches it
+    /// \[V2G20-3373\]..\[V2G20-3385\]. An anchor that does not parse cannot
+    /// anchor anything, so it is not advertised either.
+    pub fn authorities(&self) -> impl Iterator<Item = &'a [u8]> + 's {
+        self.anchors
+            .iter()
+            .filter_map(|a| Certificate::parse(a.der).ok().map(|c| c.subject.encoded))
+    }
+}
+
+impl<'s, 'a> IntoIterator for &TrustAnchors<'s, 'a> {
+    type Item = &'s TrustAnchor<'a>;
+    type IntoIter = core::slice::Iter<'s, TrustAnchor<'a>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.anchors.iter()
+    }
 }
 
 /// The `Domain Component` a V2G Root Certificate must carry — Table F.1.

@@ -1,10 +1,7 @@
 //! `GenChallenge` — the nonce that ties a contract signature to *this* session.
 //!
-//! A Plug & Charge signature that verifies proves that the contract's private
-//! key signed those bytes. On its own it does not prove *when*, and a signature
-//! that could have been made last week is a signature an eavesdropper can
-//! replay. What closes that gap is a nonce the station picks and the vehicle
-//! signs back:
+//! A verified signature does not prove *when* it was made, so a captured one
+//! could be replayed. The station picks a nonce and the vehicle signs it back:
 //!
 //! ```text
 //!  ISO 15118-2                          ISO 15118-20
@@ -16,12 +13,10 @@
 //!                                                ds:Signature over that
 //! ```
 //!
-//! Both halves have to hold, and it is the *second* one implementations forget:
-//! the signature is checked, the echoed challenge is not, and the check that
-//! was supposed to bind the signature to the session binds it to nothing. So
 //! [`iso2::verify_authorization`](super::iso2::verify_authorization) and
-//! [`iso20::verify_authorization`](super::iso20::verify_authorization) do both
-//! in one call, and there is no way to ask them for only the first.
+//! [`iso20::verify_authorization`](super::iso20::verify_authorization) check
+//! the signature *and* the echoed challenge in one call; there is no way to ask
+//! for only the first.
 //!
 //! # What it still does not prove
 //!
@@ -29,7 +24,7 @@
 //! thing the vehicle signs — no station identity, no timestamp — so a relay
 //! between a victim's vehicle and a distant charger passes every check the
 //! protocol defines. That is a gap in the standard rather than in an
-//! implementation; see the crate's roadmap.
+//! implementation.
 
 use core::fmt;
 

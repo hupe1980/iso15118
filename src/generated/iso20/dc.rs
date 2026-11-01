@@ -5032,6 +5032,19 @@ impl Document {
             _ => return None,
         })
     }
+
+    /// Every request of this schema set, each at the
+    /// schema's minimum — the set [`Document::refusal`] answers.
+    #[must_use]
+    pub fn requests() -> Vec<Self> {
+        alloc::vec![
+            Self::DCCableCheckReq(DCCableCheckReq::minimal()),
+            Self::DCChargeLoopReq(DCChargeLoopReq::minimal()),
+            Self::DCChargeParameterDiscoveryReq(DCChargeParameterDiscoveryReq::minimal()),
+            Self::DCPreChargeReq(DCPreChargeReq::minimal()),
+            Self::DCWeldingDetectionReq(DCWeldingDetectionReq::minimal()),
+        ]
+    }
 }
 
 impl Document {

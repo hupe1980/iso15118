@@ -18,6 +18,10 @@
 set -eu
 
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+BASE_DIR_FOR_SCHEMAS="$BASE_DIR"
+# shellcheck source=lib/schemas.sh
+. "$BASE_DIR/scripts/lib/schemas.sh"
+SCHEMA_DIR=$(schemas_dir)
 WORK="${ISO15118_VERIFY_DIR:-${TMPDIR:-/tmp}/iso15118-grammar-verify}"
 MAVEN=https://repo1.maven.org/maven2
 JARS="com/siemens/ct/exi/exificient-core/1.0.7/exificient-core-1.0.7.jar
@@ -56,20 +60,44 @@ iso15118-20/V2G_CI_CommonMessages.xsd
 iso15118-20/V2G_CI_AC.xsd
 iso15118-20/V2G_CI_DC.xsd
 iso15118-20/V2G_CI_WPT.xsd
-iso15118-20/V2G_CI_ACDP.xsd"
+iso15118-20/V2G_CI_ACDP.xsd
+iso15118-20/V2G_CI_AC_DER_IEC.xsd
+iso15118-20/V2G_CI_AC_DER_SAE.xsd"
+
+# Agreeing with the reference proves nothing about a schema nobody pinned: both
+# sides would read the same changed file. Refuse it before comparing.
+# shellcheck disable=SC2046
+verify_schemas $(pinned_schemas) || exit 1
 
 status=0
+total=0
+complete=1
 for schema in $SCHEMAS; do
-    path="$BASE_DIR/specs/$schema"
+    path="$SCHEMA_DIR/$schema"
     if [ ! -f "$path" ]; then
         echo "skip     $schema (run scripts/fetch-schemas.sh)"
+        complete=0
         continue
     fi
     printf '%-34s ' "$(basename "$schema")"
     java -Xss64m -cp "$CP" GrammarDump "$path" > "$WORK/reference.txt"
     cargo run --quiet --manifest-path "$BASE_DIR/Cargo.toml" -p iso15118-codegen -- \
         "$path" --dump 2>/dev/null > "$WORK/ours.txt"
-    python3 "$BASE_DIR/tools/compare_grammars.py" "$WORK/reference.txt" "$WORK/ours.txt" || status=1
+    result=$(python3 "$BASE_DIR/tools/compare_grammars.py" "$WORK/reference.txt" "$WORK/ours.txt") \
+        || status=1
+    echo "$result"
+    n=$(echo "$result" | sed -n 's/^all \([0-9]*\) element grammars agree.*/\1/p')
+    total=$((total + ${n:-0}))
 done
+
+# Only a complete, clean run measures the number the pages quote.
+if [ "$status" -eq 0 ] && [ "$complete" -eq 1 ]; then
+    . "$BASE_DIR/scripts/lib/claims.sh"
+    claims_agree "$BASE_DIR" "($total total)" || status=1
+    v=site/content/docs/verification.md
+    claims_say "$BASE_DIR" "$v" "all **$total** element grammars" || status=1
+    claims_say "$BASE_DIR" "$v" "$total grammars" || status=1
+    claims_say "$BASE_DIR" site/config.toml "grammars = \"$total\"" || status=1
+fi
 
 exit "$status"

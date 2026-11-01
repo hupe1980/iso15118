@@ -3,7 +3,7 @@ members = ["codegen"]
 resolver = "3"
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -18,18 +18,14 @@ categories = ["embedded", "encoding", "network-programming", "no-std"]
 keywords = ["iso15118", "v2g", "ev", "charging", "exi"]
 readme = "README.md"
 
-# What a consumer gets is the crate, not the project around it. Without this the
-# tarball carries the Zola documentation site, the Java tools the differential
-# scripts drive, and the scripts themselves — none of which builds anything and
-# all of which a `cargo vendor` would copy into every downstream tree.
-#
-# `specs/` is here for a different reason: the ISO schemas are licensed and are
-# gitignored, so the directory holds nothing but a README explaining their
-# absence. `concepts/` is gitignored too — internal architecture notes, not
-# something a consumer of the crate has any use for. `codegen/` and `fuzz/` need
-# no entry: Cargo already skips a subdirectory that has its own manifest.
+# The package is the crate only: no site, scripts or Java tools. The gitignored
+# directories are listed so a maintainer's tree cannot leak internal notes or the
+# licensed ISO schemas into a package. `codegen/` and `fuzz/` have their own
+# manifests, which Cargo skips.
 exclude = [
+  "/.claude",
   "/.github",
+  "/.specify",
   "/concepts",
   "/deny.toml",
   "/scripts",
@@ -50,11 +46,8 @@ authors.workspace = true
 default = ["std", "iso2", "iso20", "sdp", "slac", "evcc", "secc", "pnc"]
 
 # --- environment -------------------------------------------------------------
-# The protocol core is `no_std` but always needs `alloc`: in bit-packed EXI a
-# decoded string is a run of bit-shifted code points, so it can never borrow
-# from the input and has to be owned. `alloc` is therefore not a feature — it is
-# a requirement. `std` only adds OS-facing conveniences (std::error::Error,
-# Ipv6Addr helpers).
+# The core is `no_std` and always needs `alloc`: a bit-packed EXI string cannot
+# borrow from its input. `std` adds `std::error::Error` and `Ipv6Addr` helpers.
 std = []
 
 # --- roles -------------------------------------------------------------------
@@ -62,30 +55,31 @@ evcc = []
 secc = []
 
 # --- protocols ---------------------------------------------------------------
-# One flag per generated schema set. `iso20-bpt` does not appear because
-# bidirectional power transfer is not a schema set: the `BPT_*` types live
-# inside AC and DC and are generated with them.
+# One flag per generated schema set. Bidirectional power transfer is not a set:
+# the `BPT_*` types live inside AC and DC.
 iso2 = []
-iso20 = ["iso20-ac", "iso20-dc", "iso20-wpt", "iso20-acdp"]
+iso20 = ["iso20-ac", "iso20-dc", "iso20-wpt", "iso20-acdp", "iso20-ac-der-iec", "iso20-ac-der-sae"]
 iso20-common = []
 iso20-ac = ["iso20-common"]
 iso20-dc = ["iso20-common"]
 iso20-wpt = ["iso20-common"]
 iso20-acdp = ["iso20-common"]
+# ISO 15118-20 Amd 1 AC_DER (service ids 10, 11): each its own schema set, the
+# AC messages as the DER schema extends them, independent of `iso20-ac`.
+iso20-ac-der-iec = ["iso20-common"]
+iso20-ac-der-sae = ["iso20-common"]
 
 # --- link & discovery --------------------------------------------------------
 sdp = []
 slac = []
 
 # --- security ----------------------------------------------------------------
-# Plug & Charge: the XML-signature profile over EXI fragments. The hash and the
-# curve are traits the caller implements, so this pulls in no crypto.
+# Plug & Charge and the V2G PKI. Hash, signature and key agreement are traits the
+# caller implements; no crypto is pulled in.
 pnc = ["iso20-common"]
 
-# A concrete backend for those traits: `sha2` for the digests, `p256` and
-# `p521` for the curves, `aes`/`cbc` for the contract-key envelope. Off by default — an ECU with a secure element wants
-# the traits and not this — but it is what a charging station on a
-# general-purpose CPU, and every test, would otherwise have to write itself.
+# A RustCrypto backend for those traits (`sha2`, `p256`, `p521`, `aes`, `cbc`).
+# Off by default: an ECU with a secure element implements the traits itself.
 pnc-rustcrypto = ["pnc", "dep:aes", "dep:cbc", "dep:p256", "dep:p521", "dep:sha2"]
 
 # --- integration -------------------------------------------------------------
@@ -102,8 +96,8 @@ serde = { version = "1", default-features = false, features = [
 ], optional = true }
 tracing = { version = "0.1", default-features = false, optional = true }
 
-# `pnc-rustcrypto` only. All three are `no_std`, and ECDSA signing here is
-# RFC 6979 deterministic, so the backend needs no RNG either.
+# `pnc-rustcrypto` only. All `no_std`; ECDSA signing is RFC 6979 deterministic,
+# so no RNG is needed.
 p256 = { version = "0.14", default-features = false, features = [
   "ecdsa",
   "ecdh",
@@ -112,24 +106,18 @@ p521 = { version = "0.14", default-features = false, features = [
   "ecdsa",
 ], optional = true }
 sha2 = { version = "0.11", default-features = false, optional = true }
-# The contract-key envelope of [V2G2-815]/[V2G2-817]: AES-128-CBC over exactly
-# two blocks, no padding — ISO 15118 says so, because a P-256 private key is
-# already a multiple of the block size.
+# The contract-key envelope [V2G2-815]/[V2G2-817]: AES-128-CBC, two blocks, no
+# padding.
 aes = { version = "0.9", default-features = false, optional = true }
 cbc = { version = "0.2", default-features = false, features = [
   "block-padding",
 ], optional = true }
 
-# Both are used by unit tests *inside* `src/`, not only by `tests/`, so neither
-# shows up in a scan of the integration tests alone.
+# Used by unit tests inside `src/` as well as by `tests/`.
 [dev-dependencies]
-# Bit-reader/writer duality and the EXI primitives — `src/exi/bitstream.rs` and
-# `src/exi/primitives.rs`.
+# Property tests of the bit reader/writer and the EXI primitives.
 proptest = "1"
-# The `serde` feature's own tests, in `src/protocol.rs` and `src/session/mod.rs`.
-# A protocol name that serialises one way and deserialises another is exactly
-# the drift the stable names exist to prevent, so the round trip is checked
-# through a real format rather than asserted.
+# Serde round trips through a real format (`src/protocol.rs`, `src/session/mod.rs`).
 serde_json = "1"
 
 # Every example needs sockets, so every example needs `std`.
@@ -153,8 +141,7 @@ unreachable_pub = "warn"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
-# Protocol code is full of small numeric conversions that are provably in range;
-# we use explicit `try_from` where it can actually fail.
+# Pedantic, except module-name repetition and mandatory `# Errors`/`# Panics` sections.
 module_name_repetitions = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"

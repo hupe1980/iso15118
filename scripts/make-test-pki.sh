@@ -9,16 +9,23 @@
 # domain components) come out where Annex F says they do or OpenSSL would not
 # have put them there.
 #
-# What it is not is a chain from a *published* V2G test pool. Hubject's and
-# OPNC's pools need registration, so the strongest available claim stays "the
-# Annex F profile is enforced against certificates a third implementation
-# encoded", not "interoperable with the pools the field uses". See
-# concepts/ROADMAP.md M6.
+# A chain from a *published* V2G test pool is separate evidence:
+# tests/pki_pool.rs validates Hubject's public openPlugnCharge archive, which
+# needs no registration.
 #
 # The output is DER, checked in, and regenerating it is only necessary when the
 # shape of a fixture changes: the validity windows are fixed dates, so the tests
 # do not rot.
+#
+# Usage: scripts/make-test-pki.sh [base|amd1|all]   (default: all)
+#
+# Each set has its own keys, so minting one leaves the other's files
+# byte-for-byte as they were: `base` is the -2 profile set, `amd1` the
+# ISO 15118-20 Amd 1 rules (validity nesting, the 1 600-byte bound,
+# cross-certification), written to tests/fixtures/pki/amd1/.
 set -eu
+SET="${1:-all}"
+case "$SET" in base|amd1|all) ;; *) echo "usage: $0 [base|amd1|all]" >&2; exit 2 ;; esac
 
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$BASE_DIR/tests/fixtures/pki"
@@ -45,6 +52,8 @@ mkdir -p "$OUT"
 cd "$WORK"
 
 key() { openssl ecparam -name prime256v1 -genkey -noout -out "$1.key" 2>/dev/null; }
+
+if [ "$SET" = base ] || [ "$SET" = all ]; then
 
 # --- V2G Root (Table F.1): CA, keyCertSign, DC=V2G, no pathLen -------------
 key root
@@ -216,4 +225,90 @@ done
 
 echo "wrote $(ls "$OUT"/*.der | wc -l | tr -d ' ') certificates to tests/fixtures/pki"
 echo "and seeded fuzz/seeds/certificate from the same files"
-openssl x509 -in secc.pem -noout -text | sed -n '1,24p'
+fi
+
+# --- ISO 15118-20 Amd 1 ------------------------------------------------------
+#
+# Its own roots and keys, so this set can be minted without touching the one
+# above. Every window is absolute again:
+#
+#   root A, root B        2020-01-01 .. 2060-01-01
+#   sub, leaves, cross    2020-01-01 .. 2050-01-01
+#   outlives-sub leaf     2020-01-01 .. 2055-01-01   (past its sub-CA)
+#   long sub-CA           2020-01-01 .. 2065-01-01   (past root A)
+if [ "$SET" = amd1 ] || [ "$SET" = all ]; then
+A1="$OUT/amd1"
+mkdir -p "$A1" "$WORK/amd1"
+cd "$WORK/amd1"
+OUTLIVE=20550101000000Z
+LONG=20650101000000Z
+
+ca_cnf() { # file O CN [pathlen]
+    pl=${4:+,pathlen:$4}
+    printf '%s\n' "[req]" "distinguished_name = dn" "prompt = no" "[dn]" \
+        "O = $2" "CN = $3" "[v3]" "basicConstraints = critical,CA:TRUE$pl" \
+        "keyUsage = critical,keyCertSign,cRLSign" "subjectKeyIdentifier = hash" > "$1"
+}
+leaf_cnf() { # file CN [comment-bytes]
+    printf '%s\n' "[req]" "distinguished_name = dn" "prompt = no" "[dn]" \
+        "C = DE" "O = V2G Amd1 Test CPO" "CN = $2" "DC = CPO" "[v3]" \
+        "basicConstraints = critical,CA:FALSE" "keyUsage = critical,digitalSignature" \
+        "subjectKeyIdentifier = hash" > "$1"
+    # A non-critical extension the parser skips, to make a certificate large
+    # without changing anything the profile reads.
+    if [ -n "${3:-}" ]; then
+        printf 'nsComment = "%s"\n' "$(head -c "$3" /dev/zero | tr '\0' 'x')" >> "$1"
+    fi
+}
+issue() { # name csr-config issuer-name serial not_after
+    openssl req -new -key "$1.key" -config "$2" -out "$1.csr" 2>/dev/null
+    openssl x509 -req -in "$1.csr" -CA "$3.pem" -CAkey "$3.key" -set_serial "$4" \
+        -extfile "$2" -extensions v3 -sha256 -not_before "$FROM" -not_after "$5" \
+        -out "$1.pem" 2>/dev/null
+}
+
+# Root A, and a nested chain under it.
+key root-a; ca_cnf root-a.cnf "V2G Amd1 Root A" "Amd1 Root A"
+openssl req -new -x509 -key root-a.key -config root-a.cnf -extensions v3 \
+    -set_serial 101 -sha256 -not_before "$FROM" -not_after "$UNTIL_ROOT" -out root-a.pem 2>/dev/null
+key sub; ca_cnf sub.cnf "V2G Amd1 Test CPO" "Amd1 Sub-CA" 0
+issue sub sub.cnf root-a 102 "$UNTIL"
+key leaf; leaf_cnf leaf.cnf "DE*AMD*E00001"
+issue leaf leaf.cnf sub 103 "$UNTIL"
+
+# A leaf that outlives its sub-CA: [V2G20-3000]/[V2G20-3001] under -20, fine under -2.
+key outlives-sub; leaf_cnf outlives-sub.cnf "DE*AMD*E00002"
+issue outlives-sub outlives-sub.cnf sub 104 "$OUTLIVE"
+
+# A sub-CA that outlives root A, and a nested leaf under it: the failing link is
+# the one to the anchor, which is where anchor *selection* has to apply the rule.
+key long-sub; ca_cnf long-sub.cnf "V2G Amd1 Test CPO" "Amd1 Long Sub-CA" 0
+issue long-sub long-sub.cnf root-a 105 "$LONG"
+key under-long; leaf_cnf under-long.cnf "DE*AMD*E00003"
+issue under-long under-long.cnf long-sub 106 "$UNTIL"
+
+# A leaf over 1 600 bytes of DER, otherwise exactly like `leaf`.
+key oversize; leaf_cnf oversize.cnf "DE*AMD*E00004" 1700
+issue oversize oversize.cnf sub 107 "$UNTIL"
+
+# Root B — another ecosystem — with its own chain, and a cross-certificate:
+# root B's name and key, issued by root A (RFC 5280 §7.1). A side that holds
+# only root A reaches B's leaves through it.
+key root-b; ca_cnf root-b.cnf "V2G Amd1 Root B" "Amd1 Root B"
+openssl req -new -x509 -key root-b.key -config root-b.cnf -extensions v3 \
+    -set_serial 201 -sha256 -not_before "$FROM" -not_after "$UNTIL_ROOT" -out root-b.pem 2>/dev/null
+key sub-b; ca_cnf sub-b.cnf "V2G Amd1 Test CPO B" "Amd1 Sub-CA B" 0
+issue sub-b sub-b.cnf root-b 202 "$UNTIL"
+key leaf-b; leaf_cnf leaf-b.cnf "DE*AMB*E00001"
+issue leaf-b leaf-b.cnf sub-b 203 "$UNTIL"
+cp root-b.key cross-b.key
+issue cross-b root-b.cnf root-a 204 "$UNTIL"
+
+for name in root-a sub leaf outlives-sub long-sub under-long oversize root-b sub-b leaf-b cross-b; do
+    openssl x509 -in "$name.pem" -outform DER -out "$A1/$name.der"
+done
+echo "wrote $(ls "$A1"/*.der | wc -l | tr -d ' ') certificates to tests/fixtures/pki/amd1"
+for name in leaf oversize cross-b; do
+    printf '  %-10s %5s bytes\n' "$name" "$(wc -c < "$A1/$name.der" | tr -d ' ')"
+done
+fi

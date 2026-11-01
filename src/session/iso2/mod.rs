@@ -3,12 +3,11 @@
 //! The -2 message set is a graph, not a list: which request may follow which
 //! depends on the payment option chosen at `PaymentServiceSelection` and on the
 //! energy transfer mode chosen at `ChargeParameterDiscovery`, and the DC loop
-//! has three extra phases the AC loop does not. The spec expresses this as a
-//! pair of state charts (§8.4.2) and prescribes exactly one response when a
-//! peer departs from them: `FAILED_SequenceError`, followed by termination.
+//! has three extra phases the AC loop does not (§8.4.2). A departure from it is
+//! answered `FAILED_SequenceError`, after which only `SessionStopReq` is legal
+//! — the second edition's reading; the 2014 text drops the connection at once.
 //!
-//! This module is that graph and nothing else — no I/O, no timers, no policy.
-//! It answers two questions:
+//! No I/O, no timers, no policy. It answers two questions:
 //!
 //! * given where the session is, is this request legal, and where does it go?
 //! * given where the session is, what *would* be legal? (which is what an EVCC

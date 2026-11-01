@@ -911,6 +911,31 @@ impl BodyChoice {
             _ => return None,
         })
     }
+
+    /// Every request among these alternatives, each at the
+    /// schema's minimum — the set [`BodyChoice::refusal`] answers.
+    #[must_use]
+    pub fn requests() -> Vec<Self> {
+        alloc::vec![
+            Self::AuthorizationReq(AuthorizationReq::minimal()),
+            Self::CableCheckReq(CableCheckReq::minimal()),
+            Self::CertificateInstallationReq(CertificateInstallationReq::minimal()),
+            Self::CertificateUpdateReq(CertificateUpdateReq::minimal()),
+            Self::ChargeParameterDiscoveryReq(ChargeParameterDiscoveryReq::minimal()),
+            Self::ChargingStatusReq(ChargingStatusReq::minimal()),
+            Self::CurrentDemandReq(CurrentDemandReq::minimal()),
+            Self::MeteringReceiptReq(MeteringReceiptReq::minimal()),
+            Self::PaymentDetailsReq(PaymentDetailsReq::minimal()),
+            Self::PaymentServiceSelectionReq(PaymentServiceSelectionReq::minimal()),
+            Self::PowerDeliveryReq(PowerDeliveryReq::minimal()),
+            Self::PreChargeReq(PreChargeReq::minimal()),
+            Self::ServiceDetailReq(ServiceDetailReq::minimal()),
+            Self::ServiceDiscoveryReq(ServiceDiscoveryReq::minimal()),
+            Self::SessionSetupReq(SessionSetupReq::minimal()),
+            Self::SessionStopReq(SessionStopReq::minimal()),
+            Self::WeldingDetectionReq(WeldingDetectionReq::minimal()),
+        ]
+    }
 }
 
 /// `BodyType`.
@@ -15097,6 +15122,31 @@ impl Document {
             }),
             _ => return None,
         })
+    }
+
+    /// Every request of this schema set, each at the
+    /// schema's minimum — the set [`Document::refusal`] answers.
+    #[must_use]
+    pub fn requests() -> Vec<Self> {
+        alloc::vec![
+            Self::AuthorizationReq(AuthorizationReq::minimal()),
+            Self::CableCheckReq(CableCheckReq::minimal()),
+            Self::CertificateInstallationReq(CertificateInstallationReq::minimal()),
+            Self::CertificateUpdateReq(CertificateUpdateReq::minimal()),
+            Self::ChargeParameterDiscoveryReq(ChargeParameterDiscoveryReq::minimal()),
+            Self::ChargingStatusReq(ChargingStatusReq::minimal()),
+            Self::CurrentDemandReq(CurrentDemandReq::minimal()),
+            Self::MeteringReceiptReq(MeteringReceiptReq::minimal()),
+            Self::PaymentDetailsReq(PaymentDetailsReq::minimal()),
+            Self::PaymentServiceSelectionReq(PaymentServiceSelectionReq::minimal()),
+            Self::PowerDeliveryReq(PowerDeliveryReq::minimal()),
+            Self::PreChargeReq(PreChargeReq::minimal()),
+            Self::ServiceDetailReq(ServiceDetailReq::minimal()),
+            Self::ServiceDiscoveryReq(ServiceDiscoveryReq::minimal()),
+            Self::SessionSetupReq(SessionSetupReq::minimal()),
+            Self::SessionStopReq(SessionStopReq::minimal()),
+            Self::WeldingDetectionReq(WeldingDetectionReq::minimal()),
+        ]
     }
 }
 

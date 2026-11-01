@@ -1,58 +1,60 @@
 +++
 title = "Certificates"
-description = "Validating a V2G certificate chain: RFC 5280 path validation under ISO 15118's Annex F profiles, the contract-key envelope, and why revocation is not here."
+description = "Validating a V2G certificate chain in iso15118: RFC 5280 path validation under ISO 15118's Annex F profiles and the Amd 1 rules, the contract-key envelope, and what the caller still answers."
 weight = 75
 
 [extra]
 nav_title = "Certificates"
 +++
 
-Plug & Charge asks two independent questions. **Is this signature about the
-session in front of me?** — the `GenChallenge` binding, which
-[Plug & Charge](@/docs/plug-and-charge.md) covers. **Is this key one to trust?**
-— a certificate chain, which is this page. They are two calls, so that answering
-one cannot look like answering both.
+Plug & Charge asks two questions: is this signature about this session (the
+`GenChallenge` binding — see [Plug & Charge](@/docs/plug-and-charge.md)), and is
+this key one to trust? This page is the second. They are separate calls.
 
 ```rust,ignore
-use iso15118::pnc::pki::{self, Profile};
+use iso15118::pnc::pki::{self, Policy, Profile, TrustAnchor, TrustAnchors};
 use iso15118::pnc::rustcrypto::Backend;
+
+// The trust anchors this side holds, each labelled with where it came from.
+let anchors = [TrustAnchor::new(mo_root, "Hubject V2G Root")];
 
 // Leaf first, as CertificateChainType carries it on the wire.
 let path = pki::validate(
     &[contract_cert, mo_sub_ca_2, mo_sub_ca_1],
-    &[mo_root],                 // the trust anchors this side holds
-    Profile::ContractCertificate,
+    &TrustAnchors::new(&anchors),
+    Policy::iso20(Profile::ContractCertificate),   // or Policy::iso2(..)
     now_unix_seconds,
     &Backend,
 )?;
+
+let source = path.anchor_source;          // "Hubject V2G Root"
 
 let emaid = path.subject_common_name();   // [V2G2-108]
 let key = path.public_key();              // now worth checking a signature against
 ```
 
-## What ISO 15118 fixes
+## What is checked
 
-X.509 is a large grammar and RFC 5280 §6.1 a large algorithm. ISO 15118 pins
-almost every input to both, which is what lets a chain validator fit in a
-`no_std` crate with no dependencies:
+RFC 5280 §6.1 basic path validation — a signature at every step, validity
+windows, `BasicConstraints`, `pathLenConstraint`, `keyCertSign`, the
+critical-extension rule, issuer/subject chaining by DER equality — plus the Annex F
+profile of the leaf. ISO 15118 pins the rest:
 
 | | |
 |---|---|
-| Signature algorithm | `ecdsa-with-SHA256` \[V2G2-006\] (`-SHA512` for ISO 15118-20's higher level) |
+| Signature algorithm | `ecdsa-with-SHA256` \[V2G2-006\] (`-SHA512` in ISO 15118-20) |
 | Curve | `secp256r1` \[V2G2-007\], `secp521r1` in -20 |
 | Path length | at most three non-self-signed certificates \[V2G2-009\] |
-| Certificate size | at most 800 bytes DER \[V2G2-010\], which the schema enforces |
-| Extensions | Annex F's set; `KeyUsage` and `BasicConstraints` **critical** in every profile |
-| Name constraints, policy mapping | not used |
+| Size | at most 800 bytes DER in -2 \[V2G2-010\]; 1 600 under `Policy::iso20` |
+| Extensions | Annex F's set; `KeyUsage` and `BasicConstraints` critical |
 
-What is implemented is basic path validation — a signature at every step,
-validity windows, `BasicConstraints`, `pathLenConstraint`, `keyCertSign`, the
-critical-extension rule, issuer/subject chaining by DER equality — plus the
-Annex F profile of whichever leaf the caller names.
+A trust anchor may sit anywhere in the path: a Private Operator Root anchors SECC
+certificates \[V2G2-927\] and may sign leaves directly \[V2G2-868\].
 
-A trust anchor may sit anywhere in the path, not only above its top. That is
-RFC 5280, and ISO 15118 needs it: \[V2G2-927\] makes a Private Operator Root an
-anchor for SECC certificates and \[V2G2-868\] has it sign leaves directly.
+`Policy::iso20` adds what ISO 15118-20 Amd 1's public text states: the size bound,
+checked before parsing (`ChainError::TooLarge`), and a certificate valid only
+within its issuer's validity \[V2G20-3000\] (`ChainError::OutlivesIssuer`).
+`Policy::iso2` keeps ISO 15118-2's rules exactly.
 
 ## The profile is a parameter
 
@@ -63,53 +65,41 @@ Profile::OemProvisioningCertificate // Table F.5
 Profile::Unchecked                  // path validation only
 ```
 
-Nothing in a certificate says which use it was issued for, and \[V2G2-925\] makes
-that a validity condition: a leaf "shall be treated as invalid, if the trust
-anchor at the end of the chain does not match the specific root certificate
-required for a certain use, or if the required Domain Component value is not
-present". A chain that validates beautifully to the *wrong* root is the failure
-that requirement names, and only the caller knows which root was meant.
+A certificate does not say what it was issued for, and \[V2G2-925\] makes the
+right root and `Domain Component` a validity condition, so the caller names the
+profile:
 
-So the same bytes get different answers:
+- SECC certificate: `digitalSignature` and `Domain Component` `"CPO"`.
+- Contract certificate: `digitalSignature` and `nonRepudiation`.
+- Every leaf is `CA = false` \[V2G2-867\].
 
-- An SECC certificate needs `digitalSignature` and the `Domain Component`
-  `"CPO"`. A contract certificate carries neither.
-- A contract certificate needs `digitalSignature` **and** `nonRepudiation` —
-  the second is what a metering receipt rests on.
-- Every Annex F leaf row is `CA = false`; \[V2G2-867\] says a root shall not
-  issue a leaf at all.
+## Trust anchors and chain selection
 
-## Two places a PKI layer leaks
+`TrustAnchor` pairs a root with its source; `Validated::anchor_source` reports
+which one a chain reached. `select_chain` picks, among the chains a holder has,
+the one reaching the authorities its peer lists (`TrustAnchors::authorities`) —
+across cross-certificates, per RFC 5280 §7.1 \[V2G20-3373\]..\[V2G20-3385\]. A
+cross-certificate counts toward the three-certificate path limit, so a
+cross-certified path fits beneath a single Sub-CA.
 
-**DER is canonical or it is refused** — no indefinite lengths, no length written
-wider than it needs, no `BOOLEAN` outside `0x00`/`0xFF`, no non-minimal
-`INTEGER`. A signature covers a byte string, so a certificate with two legal
-spellings is one where signer and verifier can be reading different bytes.
+## Parsing
 
-**An X.509 signature is DER and a V2G signature is not.** X.509 carries ECDSA as
-`SEQUENCE { r INTEGER, s INTEGER }`; `XMLDSig` uses the fixed-width `r ‖ s` pair.
-The conversion happens inside the parser, so a backend implements one signature
-format for both a message and a certificate.
+- **DER is canonical or refused** — no indefinite lengths, no over-long lengths, no
+  `BOOLEAN` outside `0x00`/`0xFF`, no non-minimal `INTEGER`.
+- **ECDSA is converted inside the parser** from X.509's DER `SEQUENCE { r, s }` to
+  XMLDSig's `r ‖ s`, so a backend implements one format.
 
-## Crypto and time are still yours
+## Crypto and time
 
-`pki::VerifyWith` is a sibling of [`Verify`](@/docs/plug-and-charge.md) rather
-than a widening of it. `Verify` suits a key this side *holds*; a chain's keys are
-not configuration — there is a new one at every step, inside the certificate
-below it — so `VerifyWith` takes the SEC1 point out of the DER.
-`pnc::rustcrypto::Backend` implements it.
+`pki::VerifyWith` takes the SEC1 point out of each certificate;
+`pnc::rustcrypto::Backend` implements it. `validate` takes Unix seconds, not
+`session::Instant`: a validity period needs a wall clock, and a vehicle without
+trustworthy time must say so \[V2G2-886\], \[V2G2-910\].
 
-`validate` takes seconds since the Unix epoch, deliberately not
-`session::Instant`: that is a monotonic count for measuring timeouts, and a
-validity period needs a wall clock. \[V2G2-886\] lets a vehicle choose its own
-time accuracy and \[V2G2-910\] makes checking validity periods a *should*, so a
-vehicle with no trustworthy time has to say so rather than pass a number it does
-not have.
-
-## The one secret that crosses the wire
+## The contract-key envelope
 
 `CertificateInstallationRes` and `CertificateUpdateRes` deliver a contract
-certificate **and its private key**. `pnc::envelope` is that exchange:
+certificate and its private key:
 
 ```rust,ignore
 use iso15118::pnc::envelope;
@@ -124,8 +114,6 @@ let contract_key = envelope::open(
 )?;
 ```
 
-Every choice is pinned by §7.9.2.4.3:
-
 ```text
 ContractSignatureEncryptedPrivateKey
   = IV ‖ AES-128-CBC( K, private key )        [V2G2-815], [V2G2-817]
@@ -133,62 +121,26 @@ K = leftmost 128 bits of                      [V2G2-818]
     SHA-256( 00 00 00 01 ‖ Z ‖ 01 55 56 )
 ```
 
-**The third argument is not optional.** \[V2G2-823\] has the vehicle verify that
-the delivered scalar is "strictly smaller than the order of the base point, and
-multiplication of the base point with this value must generate a key matching the
-public key of the contract certificate". `open` does exactly that and offers no
-call that skips it: a vehicle that installs an unchecked key has a contract it
-can never use and cannot diagnose — every signature it makes is valid, over the
-wrong key, and every station refuses it.
+- `open` always checks the delivered scalar against the contract certificate's
+  public key \[V2G2-823\]; no call skips it.
+- CBC has no integrity of its own: verify the surrounding signature first
+  \[V2G2-818\].
+- Key agreement is its own trait, `KeyAgreement`, beside `Sign` \[V2G2-822\].
+  Sealing needs a fresh random IV \[V2G2-815\]; this crate has no RNG.
 
-**CBC carries no integrity of its own.** \[V2G2-818\] NOTE 8: "The authenticity
-of the transmission is ensured by the surrounding signature." Verify that first;
-the key-match is the second line.
+## Revocation is the caller's
 
-**Key agreement is a different capability from signing.** \[V2G2-822\] requires
-the `keyAgreement` flag on exactly the certificates whose keys do this, so
-`KeyAgreement` is a trait beside `Sign` and `rustcrypto` gives them separate
-types. Sealing takes the ephemeral key and an IV that must be "randomly
-generated ... and never reused" \[V2G2-815\] — this crate has no RNG.
-
-## What is not here: revocation
-
-<div class="note note-warn">
-<span class="note-title">A validated chain says a certificate was issued, not that it was not withdrawn</span>
-
-There is no OCSP and no CRL. A revoked contract certificate validates here
-exactly as a live one does.
-
-The standard says why that is hard rather than merely undone. Annex F's own note:
-*"as access to OCSP services can not be guaranteed during charging, the usage of
-OCSP can only be recommended but not be mandatory"* — and \[V2G2-868\] removes it
-from private environments altogether. A vehicle in a basement has no path to a
-responder.
-
-The answer belongs where it already exists. A station's back end is asking a
-clearing house whether to authorize this contract at all;
-`Validated::subject_common_name` is the `EMAID` to ask about, and that answer
-covers revocation with everything else the operator knows. An OCSP client inside
-a sans-I/O crate would put a network round trip in a charge loop with a 25 ms
-budget.
-</div>
+There is no OCSP and no CRL: a revoked certificate validates like a live one.
+Annex F makes OCSP a recommendation because a charging vehicle cannot be assumed
+to reach a responder, and \[V2G2-868\] removes it from private environments. A
+station's back end already asks a clearing house about the contract;
+`Validated::subject_common_name` is the `EMAID` to ask about.
 
 ## Evidence
 
-The chains in `tests/fixtures/pki` are minted by **OpenSSL**
-(`scripts/make-test-pki.sh`), and the contract-key envelope is sealed by OpenSSL
-too (`scripts/make-test-envelope.sh`) — the ECDH, the KDF and the cipher all done
-by a third implementation from the requirement text. That matters for the same
-reason `exificient` matters one layer down: a parser checked only against an
-encoder from the same workspace is checked against its own opinions, and for a
-key schedule the failure modes are symmetric — a counter left out of the KDF,
-`OtherInfo` in the wrong order, the digest truncated from the wrong end, the IV
-read off the tail. Seal-then-open passes for every one of them.
-
-A fuzz target over the certificate parser asserts more than "does not panic":
-that every borrowed field lies inside the input.
-
-What this is **not** is a chain from a published V2G test pool — Hubject's and
-OPNC's need registration — so the claim is "the Annex F profile is enforced
-against certificates a third implementation encoded", which is weaker than
-interoperability. See [Verification](@/docs/verification.md).
+- Chains and the envelope are minted by OpenSSL (`scripts/make-test-pki.sh`,
+  `scripts/make-test-envelope.sh`), positive and negative per rule.
+- All ten OEM provisioning leaves of Hubject's public test PKI validate to its real
+  V2G Root (`tests/pki_pool.rs`, reading `ISO15118_PKI_POOL`). The pool has no real
+  leaf for the SECC and contract profiles.
+- A fuzz target asserts every borrowed field lies inside the input.

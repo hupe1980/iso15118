@@ -35,99 +35,53 @@
 //! | Bytes for the wire | `take_transmit()` | `poll_transmit()` |
 //! | The next deadline | `poll_timeout()`, then `handle_timeout(now)` | same |
 //!
-//! The two column headings are a distinction worth keeping: a session engine
-//! consumes a *stream* and has to reassemble it, so it takes whatever bytes
-//! arrived and returns everything queued. Discovery and SLAC consume complete
-//! datagrams and Ethernet frames, where a boundary is meaningful, so they take
-//! one and hand back one at a time.
-//!
-//! The answering step differs because the protocol does. The vehicle *drives*:
-//! it chooses the next request, and the charger only ever answers.
+//! A session engine consumes a *stream* and reassembles it; discovery and SLAC
+//! consume whole datagrams and frames, one at a time. The vehicle drives — it
+//! chooses each request — and the charger only answers.
 //!
 //! **An error from `handle_input` has already ended the session.** The engine
 //! closes itself — timers disarmed, buffers dropped, `Event::Closed` queued —
-//! before the error is returned, because a byte stream that stopped being a V2G
-//! session cannot be resynchronised: V2GTP has no delimiter to scan for, and
-//! after the handshake the negotiated grammar is the only reading of the bytes
-//! there is. So the error is for the log, not for a decision.
+//! before returning it: V2GTP has no delimiter to resynchronise on, so the
+//! error is for the log, not for a decision.
 //!
 //! # Whose key, and which session
 //!
-//! Plug & Charge is two independent questions, kept apart because answering one
-//! and implying the other is the dangerous shape. [`pnc`] answers "is this
-//! signature about *this* session" — the `GenChallenge` binding, in the same
-//! call as the signature, with no way to ask for only one. [`pnc::pki`] answers
-//! "is this key one to trust" — RFC 5280 path validation under ISO 15118's own
-//! Annex F certificate profiles.
-//!
-//! Neither answers whether a certificate was **revoked**: there is no OCSP here,
-//! for reasons [`pnc::pki`] sets out.
+//! [`pnc`] answers "is this signature about *this* session" — the
+//! `GenChallenge` binding, checked in the same call as the signature.
+//! [`pnc::pki`] answers "is this key one to trust" — RFC 5280 path validation
+//! under ISO 15118's Annex F profiles. Neither answers whether a certificate was
+//! **revoked**; [`pnc::pki`] says why.
 //!
 //! # Protocol, not policy
 //!
-//! The engines own framing, decoding, the protocol handshake, session-id
-//! checking, message ordering and the spec timers. They own nothing about
-//! charging: whether to authorize a vehicle, which schedule to offer, how much
-//! current to deliver. Those arrive as events and are answered with a message
-//! the application builds. Everything above that line is a decision a charge
-//! point operator makes; everything below it is a decision ISO made.
+//! The engines own framing, decoding, the handshake, session-id checking,
+//! message ordering and the spec timers. Whether to authorize, which schedule
+//! to offer and how much current to deliver arrive as events, answered with a
+//! message the application builds. Ordering includes stopping, pausing and
+//! renegotiating — see [`session`].
 //!
-//! Ordering includes what the standard says about *stopping*, and the three
-//! values of `ChargingSession` do not say the same thing. A `FAILED_*` response
-//! ends the session and leaves only `SessionStopReq`; a vehicle may `Terminate`
-//! from any established phase, because an abort is exactly the case where it
-//! cannot do the tidy thing first; but `Pause` takes the transport connection
-//! down with it \[V2G2-739\] and so is refused while the cable is live, and
-//! -20's `ServiceRenegotiation` returns the flow to just after authorization
-//! and so needs a service already selected — accepted earlier it is not a
-//! shortcut but an authorization bypass.
-//!
-//! Ordering also includes *renegotiating*: revising the schedule mid-charge
-//! keeps the service, the authorization and the power flow, and does not send a
-//! DC session back through its isolation test. See [`session`].
-//!
-//! # Plug & Charge needs TLS, and the core will not take your word for it
+//! # Plug & Charge needs TLS
 //!
 //! ISO 15118-2 forbids the Plug & Charge message sets on an unsecured session
-//! outright — \[V2G2-634\] to the station, \[V2G2-635\] to the vehicle, with
-//! \[V2G2-633\] leaving such a session external identification and nothing
-//! else. A sans-I/O core cannot observe the transport, so
-//! [`secc::SeccConfig::security`] and [`evcc::EvccConfig::security`] state it,
-//! and the ISO 15118-2 ordering graph refuses a contract selection without it.
+//! \[V2G2-634\], \[V2G2-635\]. A sans-I/O core cannot observe the transport, so
+//! [`secc::SeccConfig::security`] and [`evcc::EvccConfig::security`] state it.
+//! The default, [`session::Security::None`], refuses a contract selection rather
+//! than put a certificate chain on a plaintext wire.
 //!
-//! The default is [`session::Security::None`]: the safe default for a security
-//! decision is the restrictive one, so forgetting produces a refused contract
-//! rather than a certificate chain on a plaintext wire.
+//! # Half-duplex, both ways
 //!
-//! # Half-duplex, and what that is worth
-//!
-//! Neither side of a V2G session may send again before the other has answered,
-//! so the engines do not read ahead: [`secc::Secc`] surfaces one request and
-//! reads nothing further until [`secc::Secc::respond`] has been called, and
-//! [`evcc::Evcc`] accepts a response only if it answers the request that is
-//! outstanding. Both are protocol rules, and both are also what stops one
-//! unauthenticated peer from queueing work without bound — several requests are
-//! legal repeatedly, and the ordering graph constrains requests only.
-//!
-//! The rule is symmetric, so the enforcement is too, and this is the half that
-//! is easy to leave out: [`evcc::Evcc::request`] refuses a second request while
-//! the first is unanswered, and [`secc::Secc::respond`] refuses a response that
-//! answers nothing or answers the wrong question. The ordering graph cannot
-//! catch either — it constrains *which* request, not *when*.
+//! [`secc::Secc`] surfaces one request and reads nothing further until
+//! [`secc::Secc::respond`]; [`evcc::Evcc::request`] refuses a second request
+//! while the first is unanswered, and [`secc::Secc::respond`] refuses a response
+//! that answers nothing or the wrong question. Besides being the protocol's
+//! rule, this stops an unauthenticated peer from queueing work without bound.
 //!
 //! # You never write a session id
 //!
-//! The charger assigns one in `SessionSetupRes` and every message of the session
-//! repeats it, so it is not a per-message decision. [`secc::Secc::respond`]
-//! stamps it into every response and [`evcc::Evcc::request`] into every request
-//! — the all-zero id before setup, the assigned one after. Leave the field
-//! empty and the driver fills it.
-//!
-//! Rejoining a paused session is the one case where the vehicle picks the id,
-//! and it says so once in [`evcc::EvccConfig::rejoin`]. That is worth more than
-//! it looks: ISO 15118-2 tolerates a short or absent `SessionID` and
-//! ISO 15118-20 requires exactly eight bytes, so a field left to the application
-//! is a field that is right in one generation and wrong in the other.
+//! [`secc::Secc::respond`] and [`evcc::Evcc::request`] stamp it into every
+//! message — the all-zero id before setup, the assigned one after. The one case
+//! where the vehicle picks it, rejoining a paused session, is
+//! [`evcc::EvccConfig::rejoin`].
 //!
 //! # Layering
 //!
@@ -155,7 +109,7 @@
 //! |---|---|
 //! | Environment | `std` (default; the core is `no_std` + `alloc`) |
 //! | Roles | `evcc`, `secc` |
-//! | Protocols | `iso2`, `iso20` (= `iso20-ac`+`iso20-dc`+`iso20-wpt`+`iso20-acdp`) |
+//! | Protocols | `iso2`, `iso20` (= `iso20-ac`, `iso20-dc`, `iso20-wpt`, `iso20-acdp`, `iso20-ac-der-iec`, `iso20-ac-der-sae`; each implies `iso20-common`) |
 //! | Link | `sdp`, `slac` |
 //! | Security | `pnc`, `pnc-rustcrypto` |
 //! | Integration | `serde`, `tracing` |
@@ -173,11 +127,9 @@
 //! regulatory feed asks.
 //!
 //! [`Protocol::as_str`] gives a short stable name — `"din70121"`,
-//! `"iso15118-2"`, `"iso15118-20"` — and `FromStr` reads it back, so a
-//! charge-detail record, a metric label or a database column can hold the
-//! answer without every consumer inventing its own spelling. The generation is
-//! in the name on purpose: the vocabularies around this protocol are not so
-//! careful, and one of them carries legal weight. See [`protocol`].
+//! `"iso15118-2"`, `"iso15118-20"` — and `FromStr` reads it back, for a record,
+//! a metric label or a database column. A bare `"iso15118"` is refused: it names
+//! neither generation. See [`protocol`].
 //!
 //! ```
 //! use iso15118::{Protocol, Protocols};
@@ -194,9 +146,9 @@
 //!
 //! # Example: the protocol handshake
 //!
-//! The vehicle offers the protocols it speaks; the charger picks one. This is
-//! the first EXI-encoded exchange of every session, whichever generation wins —
-//! and [`secc::Secc`] runs it for you, because it is pure protocol.
+//! The vehicle offers the protocols it speaks — ISO 15118-20 as one entry per
+//! message set — and the charger picks one. [`secc::Secc`] and [`evcc::Evcc`]
+//! run this for you.
 //!
 //! ```
 //! use iso15118::Protocol;
@@ -270,20 +222,14 @@ mod error;
 pub use error::{Error, Result};
 
 pub mod protocol;
-pub use protocol::{ParseProtocolError, Protocol, Protocols};
+pub use protocol::{Iso20Set, ParseProtocolError, Protocol, Protocols};
 
 #[macro_use]
 mod trace;
 
-/// The README, compiled as a doctest so its examples cannot rot.
-///
-/// A README example that no longer builds is worse than no example: it is the
-/// first thing a reader tries and the last thing anyone re-checks.
-///
-/// The examples show the crate as a reader meets it — default features — and a
-/// doctest cannot be feature-gated block by block, so the whole file is checked
-/// only when those features are on. A stripped build compiling the README would
-/// prove nothing about it anyway.
+/// The README, compiled as a doctest so its examples cannot rot. Checked only
+/// with the default features, which is how a reader meets the crate; a doctest
+/// cannot be gated block by block.
 #[cfg(all(
     doctest,
     feature = "std",

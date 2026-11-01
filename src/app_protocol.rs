@@ -24,10 +24,14 @@ use alloc::vec::Vec;
 use crate::exi::{
     Decoder, Encoder, ExiDocument, ExiError, ExiResult, Header, Lengths, ValueCoding, ValueCtx,
 };
-use crate::{Error, Protocol, Protocols, Result};
+use crate::{Error, Iso20Set, Protocol, Protocols, Result};
 
 /// Maximum number of `AppProtocol` entries a request may carry (`maxOccurs`).
 pub const MAX_APP_PROTOCOLS: usize = 20;
+
+/// The ISO 15118-20 message sets [`SupportedAppProtocolReq::advertising`] offers:
+/// DC, then AC — the two every deployed station recognises.
+pub const DEFAULT_ISO20_SETS: &[Iso20Set] = &[Iso20Set::Dc, Iso20Set::Ac];
 
 /// Maximum length of `ProtocolNamespace` in characters (`maxLength`).
 pub const MAX_NAMESPACE_LEN: usize = 100;
@@ -129,10 +133,29 @@ impl AppProtocol {
         }
     }
 
+    /// An entry offering one ISO 15118-20 message set.
+    #[must_use]
+    pub fn for_iso20_set(set: Iso20Set, schema_id: u8, priority: u8) -> Self {
+        let (major, minor) = Protocol::Iso20.version();
+        Self {
+            protocol_namespace: String::from(set.namespace()),
+            version_number_major: major,
+            version_number_minor: minor,
+            schema_id,
+            priority,
+        }
+    }
+
     /// The protocol this entry names, if this crate knows it.
     #[must_use]
     pub fn protocol(&self) -> Option<Protocol> {
         Protocol::from_namespace(&self.protocol_namespace)
+    }
+
+    /// The ISO 15118-20 message set this entry names, if it names one.
+    #[must_use]
+    pub fn iso20_set(&self) -> Option<Iso20Set> {
+        Iso20Set::from_namespace(&self.protocol_namespace)
     }
 
     /// Checks the entry against its schema facets.
@@ -240,69 +263,43 @@ pub struct SupportedAppProtocolReq {
 impl SupportedAppProtocolReq {
     /// Builds a request advertising `protocols`, most preferred first.
     ///
-    /// Schema ids and priorities are both assigned in order starting at 1, so
-    /// the *n*th protocol of the set is schema id *n*. A [`Protocols`] set
-    /// holds each protocol once, so no two entries can share a schema id —
-    /// which is what makes [`SupportedAppProtocolReq::protocol_for_schema_id`]
-    /// an unambiguous lookup on the way back.
-    ///
-    /// An empty set produces a request with no entries, which
-    /// [`SupportedAppProtocolReq::validate`] rejects: the schema requires at
-    /// least one.
+    /// ISO 15118-20 is offered as [`DEFAULT_ISO20_SETS`] — DC then AC, one entry
+    /// each; [`SupportedAppProtocolReq::advertising_with`] names the sets. Every
+    /// entry gets the next schema id and priority, starting at 1, so
+    /// [`SupportedAppProtocolReq::protocol_for_schema_id`] is unambiguous. An
+    /// empty set produces a request [`SupportedAppProtocolReq::validate`]
+    /// rejects.
     #[must_use]
     pub fn advertising(protocols: impl Into<Protocols>) -> Self {
-        let app_protocols = protocols
-            .into()
-            .iter()
-            .enumerate()
-            .take(MAX_APP_PROTOCOLS)
-            .map(|(i, p)| {
-                let n = schema_id_for_index(i);
-                AppProtocol::for_protocol(p, n, n)
-            })
-            .collect();
-        Self { app_protocols }
+        Self::advertising_with(protocols, DEFAULT_ISO20_SETS)
     }
 
-    /// The protocol [`SupportedAppProtocolReq::advertising`] gave `schema_id`
-    /// to, for the same `protocols` set.
+    /// Builds a request advertising `protocols`, with ISO 15118-20 offered as
+    /// one entry per message set in `iso20_sets`, in that order.
     ///
-    /// The charger's answer echoes a schema *id*, not a namespace, so the
-    /// vehicle has to undo its own numbering to learn which protocol was
-    /// chosen. This is that inverse, and it lives here so the two directions
-    /// cannot disagree: an EVCC that reimplemented the offset would keep
-    /// working right up until the numbering changed, and would then map the
-    /// charger's answer onto a protocol it never chose.
-    ///
-    /// `None` for an id outside what the set covers — a charger answering with
-    /// one that was never offered.
-    ///
-    /// ```
-    /// use iso15118::{Protocol, Protocols};
-    /// use iso15118::app_protocol::SupportedAppProtocolReq;
-    ///
-    /// let offered = Protocols::ISO; // -20 then -2
-    /// let req = SupportedAppProtocolReq::advertising(offered);
-    ///
-    /// // The two directions agree, entry by entry.
-    /// for entry in &req.app_protocols {
-    ///     assert_eq!(
-    ///         SupportedAppProtocolReq::advertised_protocol(offered, entry.schema_id),
-    ///         entry.protocol(),
-    ///     );
-    /// }
-    /// assert_eq!(SupportedAppProtocolReq::advertised_protocol(offered, 0), None);
-    /// assert_eq!(SupportedAppProtocolReq::advertised_protocol(offered, 99), None);
-    /// ```
+    /// A set named twice is offered once. An empty `iso20_sets` leaves
+    /// ISO 15118-20 out: there is no generation-wide namespace ([`Iso20Set`]).
     #[must_use]
-    pub fn advertised_protocol(protocols: impl Into<Protocols>, schema_id: u8) -> Option<Protocol> {
-        protocols
-            .into()
-            .iter()
-            .take(MAX_APP_PROTOCOLS)
-            .enumerate()
-            .find(|&(i, _)| schema_id_for_index(i) == schema_id)
-            .map(|(_, p)| p)
+    pub fn advertising_with(protocols: impl Into<Protocols>, iso20_sets: &[Iso20Set]) -> Self {
+        let mut app_protocols = Vec::new();
+        for protocol in &protocols.into() {
+            if protocol == Protocol::Iso20 {
+                for (i, set) in iso20_sets.iter().enumerate() {
+                    // A set offered twice is one offer: a repeat would only
+                    // spend an entry the -2 fallback may need.
+                    if iso20_sets[..i].contains(set) {
+                        continue;
+                    }
+                    let n = schema_id_for_index(app_protocols.len());
+                    app_protocols.push(AppProtocol::for_iso20_set(*set, n, n));
+                }
+            } else {
+                let n = schema_id_for_index(app_protocols.len());
+                app_protocols.push(AppProtocol::for_protocol(protocol, n, n));
+            }
+        }
+        app_protocols.truncate(MAX_APP_PROTOCOLS);
+        Self { app_protocols }
     }
 
     /// The protocol the entry with this schema id names.
@@ -362,8 +359,26 @@ impl SupportedAppProtocolReq {
     /// common was sitting in the same request — see
     /// [`Flow::supports`](crate::session::Flow::supports), which is what the
     /// role drivers use.
+    ///
+    /// Every ISO 15118-20 message set counts as ISO 15118-20 here;
+    /// [`SupportedAppProtocolReq::negotiate_with`] narrows them.
     #[must_use]
     pub fn negotiate(&self, supported: impl Into<Protocols>) -> Option<Negotiated> {
+        self.negotiate_with(supported, &Iso20Set::ALL)
+    }
+
+    /// [`SupportedAppProtocolReq::negotiate`], counting an ISO 15118-20 entry
+    /// only when it names one of `iso20_sets`.
+    ///
+    /// Narrowing before the choice lets the vehicle's usable fallback win: an
+    /// AC-only station takes the vehicle's `…:-20:AC` entry, not the `…:-20:DC`
+    /// one ranked above it.
+    #[must_use]
+    pub fn negotiate_with(
+        &self,
+        supported: impl Into<Protocols>,
+        iso20_sets: &[Iso20Set],
+    ) -> Option<Negotiated> {
         let supported = supported.into();
         // Track the winning priority alongside the winner: schema ids are the
         // vehicle's to choose and nothing stops it repeating one, so looking
@@ -372,6 +387,10 @@ impl SupportedAppProtocolReq {
         for entry in &self.app_protocols {
             let Some(protocol) = entry.protocol() else { continue };
             if !supported.contains(protocol) {
+                continue;
+            }
+            let iso20_set = entry.iso20_set();
+            if iso20_set.is_some_and(|set| !iso20_sets.contains(&set)) {
                 continue;
             }
             let (major, minor) = protocol.version();
@@ -390,6 +409,7 @@ impl SupportedAppProtocolReq {
                 entry.priority,
                 Negotiated {
                     protocol,
+                    iso20_set,
                     schema_id: entry.schema_id,
                     minor_deviation: entry.version_number_minor != minor,
                 },
@@ -405,6 +425,8 @@ impl SupportedAppProtocolReq {
 pub struct Negotiated {
     /// The protocol both sides will speak.
     pub protocol: Protocol,
+    /// For ISO 15118-20, the message set the winning entry named.
+    pub iso20_set: Option<Iso20Set>,
     /// The schema id to echo in the response.
     pub schema_id: u8,
     /// True when the minor versions differed.
@@ -736,9 +758,9 @@ mod tests {
         assert_eq!(SupportedAppProtocolReq::from_bytes(&bytes).unwrap(), req);
     }
 
-    /// Found by `cargo fuzz`: five bits can carry 0..=31, but `priorityType`
-    /// only defines 1..=20. The decoder used to pass the surplus twelve values
-    /// through, producing an `AppProtocol` that then failed to re-encode.
+    /// Five bits can carry 0..=31, but `priorityType` defines only 1..=20: a
+    /// decoder that passed the surplus through would build an `AppProtocol`
+    /// that fails to re-encode.
     #[test]
     fn an_out_of_range_priority_is_rejected_by_the_decoder() {
         const CRASH: &[u8] = &[144, 0, 36, 27, 255, 16, 0, 0, 0, 0, 64, 104, 64];
@@ -864,6 +886,90 @@ mod tests {
             SupportedAppProtocolRes::reject().response_code,
             ResponseCode::FailedNoNegotiation
         );
+    }
+
+    /// What a deployed vehicle actually sends. Josev's EVCC offers one
+    /// ISO 15118-20 entry naming the message set — here AC — and a station that
+    /// knew only a generation-wide namespace refused every such vehicle.
+    #[test]
+    fn a_vehicle_offering_a_message_set_namespace_negotiates_iso20() {
+        for set in Iso20Set::ALL {
+            let req = SupportedAppProtocolReq {
+                app_protocols: vec![AppProtocol {
+                    protocol_namespace: String::from(set.namespace()),
+                    version_number_major: 1,
+                    version_number_minor: 0,
+                    schema_id: 1,
+                    priority: 1,
+                }],
+            };
+            let n = req.negotiate([Protocol::Iso20]).expect("a -20 message set is -20");
+            assert_eq!(n.protocol, Protocol::Iso20, "{set:?}");
+            assert_eq!(req.app_protocols[0].iso20_set(), Some(set));
+        }
+    }
+
+    /// A station narrowed to AC takes the vehicle's AC entry even though DC
+    /// came first, and says which set won.
+    #[test]
+    fn negotiation_skips_an_iso20_set_the_station_cannot_run() {
+        let req = SupportedAppProtocolReq::advertising(Protocols::ISO);
+        let n = req.negotiate_with(Protocols::ISO, &[Iso20Set::Ac]).expect("AC is in common");
+        assert_eq!(
+            (n.protocol, n.iso20_set, n.schema_id),
+            (Protocol::Iso20, Some(Iso20Set::Ac), 2)
+        );
+        let n = req.negotiate_with(Protocols::ISO, &[]).expect("-2 is the fallback");
+        assert_eq!((n.protocol, n.iso20_set), (Protocol::Iso2, None));
+    }
+
+    /// A set named twice is offered once, so it cannot crowd out the fallback.
+    #[test]
+    fn a_repeated_iso20_set_is_offered_once() {
+        let sets = [Iso20Set::Dc; 30];
+        let req = SupportedAppProtocolReq::advertising_with(Protocols::ISO, &sets);
+        assert_eq!(req.app_protocols.len(), 2, "one DC entry and the -2 fallback");
+        assert_eq!(req.protocol_for_schema_id(2), Some(Protocol::Iso2));
+    }
+
+    /// No deployed peer uses a generation-wide -20 namespace, so none is
+    /// recognised: a namespace is a message set or it is not -20.
+    #[test]
+    fn there_is_no_generation_wide_iso20_namespace() {
+        assert_eq!(Protocol::from_namespace("urn:iso:std:iso:15118:-20:CommonMessages"), None);
+        assert_eq!(Protocol::from_namespace("urn:iso:std:iso:15118:-20"), None);
+        // A stored record from before 0.6.0 still parses, though no peer sent it.
+        assert_eq!(
+            "urn:iso:std:iso:15118:-20:CommonMessages".parse::<Protocol>(),
+            Ok(Protocol::Iso20)
+        );
+    }
+
+    /// The default offer: -20 as DC then AC, then -2, each with its own schema
+    /// id and priority, and every id resolving back to the protocol it names.
+    #[test]
+    fn the_default_offer_names_two_iso20_sets_then_iso2() {
+        let req = SupportedAppProtocolReq::advertising(Protocols::ISO);
+        let namespaces: Vec<&str> =
+            req.app_protocols.iter().map(|e| e.protocol_namespace.as_str()).collect();
+        assert_eq!(
+            namespaces,
+            [
+                "urn:iso:std:iso:15118:-20:DC",
+                "urn:iso:std:iso:15118:-20:AC",
+                "urn:iso:15118:2:2013:MsgDef"
+            ]
+        );
+        for (i, entry) in req.app_protocols.iter().enumerate() {
+            assert_eq!(usize::from(entry.schema_id), i + 1);
+            assert_eq!(entry.priority, entry.schema_id);
+        }
+        assert_eq!(req.protocol_for_schema_id(2), Some(Protocol::Iso20));
+        assert_eq!(req.protocol_for_schema_id(3), Some(Protocol::Iso2));
+        assert_eq!(req.protocol_for_schema_id(4), None);
+        // No sets named means no -20 entry at all.
+        let only_two = SupportedAppProtocolReq::advertising_with(Protocols::ISO, &[]);
+        assert_eq!(only_two.app_protocols.len(), 1);
     }
 
     #[test]

@@ -385,16 +385,10 @@ impl Response {
 
 /// The vehicle's side of discovery, as a sans-I/O state machine.
 ///
-/// The codec above is the easy half. The part that is actually specified, and
-/// that every implementation has to get right the same way, is the retry
-/// policy: a `SECCDiscoveryReq` is a UDP multicast to `ff02::1`, it is not
-/// acknowledged, and ISO 15118-2 §7.9 bounds both how often it may be repeated
-/// \[V2G2-159\] and how many times \[V2G2-161\] before the vehicle gives
-/// up. Those two numbers are the difference between a vehicle that finds a
-/// charger through one dropped packet and a vehicle that floods the link.
-///
-/// Same shape as every other engine here — bytes in, bytes, events and
-/// deadlines out — so the caller owns the socket and the clock.
+/// A `SECCDiscoveryReq` is an unacknowledged UDP multicast to `ff02::1`;
+/// ISO 15118-2 bounds how often it repeats \[V2G2-159\] and how many times
+/// \[V2G2-161\] before the vehicle gives up. The caller owns the socket and the
+/// clock.
 ///
 /// ```
 /// use iso15118::sdp::{Discovery, Event, Request, Response, Security, TransportProtocol};
@@ -490,7 +484,7 @@ pub enum Event {
     /// can *tell*; an answer that is well-formed, link-local and offers the
     /// requested security is indistinguishable from the real station's, so
     /// whichever arrives first wins and an attacker need only be quicker
-    /// (arXiv 2512.15966 §3.2).
+    /// (arXiv 2404.06635; arXiv 2601.15515).
     ///
     /// The engine therefore keeps listening after it has an answer, and reports
     /// a second that disagrees. It does not decide: `accepted` has already been
@@ -1168,7 +1162,7 @@ mod tests {
     /// secured answer that simply arrives first.
     ///
     /// Nothing about one such datagram distinguishes it from the real station's
-    /// — that is the point of the attack (arXiv 2512.15966 §3.2) — so the only
+    /// — that is the point of the attack (arXiv 2404.06635, arXiv 2601.15515) — so the only
     /// check available is against the *other* answer, and the only way to have
     /// one is to go on listening after the run is finished.
     #[test]

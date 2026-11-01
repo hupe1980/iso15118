@@ -4,60 +4,48 @@ description = "How iso15118 turns the official ISO 15118 XSD schemas into Rust: 
 weight = 110
 +++
 
-The ISO 15118-2 and -20 message sets are not written by hand. A
-workspace-internal generator reads the official XSDs, derives the EXI grammars,
-reduces each content model to the arithmetic the codecs need, checks that
-reduction against the derived grammar, and emits Rust.
-
-**A mismatch at any step fails the build rather than producing a plausible codec.**
+A workspace-internal generator reads the official XSDs, derives the EXI grammars,
+reduces each content model to the arithmetic the codecs need, checks the reduction
+against the grammar, and emits Rust. A mismatch fails the run.
 
 ## The output is committed
 
-`src/generated/` is in the repository, so:
-
-- a reader can see the codec without running the generator;
-- **building or using the crate never needs the schemas** — only regenerating does;
-- and the check that the two have not drifted is one command.
+`src/generated/` is in the repository — module indexes included — so building
+never needs the schemas. The generator is the source of truth:
 
 ```sh
 scripts/generate.sh && git diff --exit-code src/generated
 ```
 
-The generator is still the source of truth. Editing the generated files is not a
-fix; it is a divergence that the command above will catch.
-
 ## Getting the schemas
 
-The XSDs for ISO 15118-2 and -20 are published freely by ISO. They are *licensed*,
-though, so they are not redistributed here — `specs/` is gitignored except for its
-README.
+ISO publishes the XSDs freely under its own terms, so they are not redistributed:
+`scripts/fetch-schemas.sh` downloads them into a gitignored directory, checks each
+against a pinned SHA-256 (`scripts/schemas.sha256`), and prints where.
 
 ```sh
-scripts/fetch-schemas.sh     # reproducible download into specs/
+scripts/fetch-schemas.sh     # reproducible download; prints <schemas>
 scripts/generate.sh          # regenerate src/generated/
 ```
 
-The spec **texts** (the PDFs) are paid documents, and so are the DIN SPEC 70121
-schemas. Nothing in the build depends on having either.
+The specification texts are paid documents; nothing in the build needs them.
 
 ## What the generator emits
 
-For each schema set: typed Rust structs, `Encode`/`Decode` implementations that
-walk derived event-code arithmetic, and two constructors the schema alone can
-supply — `minimal()`, the smallest value a type permits, and `refusal(code)`,
-the response that refuses a request. The second is built from the first, which
-is why a refusal always encodes even when the station has nothing to put in it.
+For each schema set:
 
-Notably it does **not** emit state tables. A content model's whole grammar becomes
-five short integer slices — productions before each item, the event-code width at
-each position, the width after a repeat, and the occurrence bounds — which a
-shared interpreter drives. An unrolled DFA has one state per permitted
-occurrence: these schemas hold one `maxOccurs="2048"` particle, seven at 1024 and
-sixteen at `unbounded` — and the last of those has no finite table at all. Here
-each costs one `u32` whatever its bound.
+- typed structs with an `ExiDocument` implementation and inherent
+  `encode_body`/`decode_body` methods;
+- `minimal()` — the smallest value a type permits;
+- `refusal(code)` — the response refusing a request, built on `minimal()`, so it
+  always encodes;
+- `requests()` — every request of the set at its minimum, so tests cover all of
+  them without a hand-kept list.
 
-That is what makes the generated code fit on a microcontroller, and it is why the
-crate can afford to ship all five schema sets behind feature flags.
+No state tables: a content model is five short integer slices — productions per
+item, event-code widths, the width after a repeat, occurrence bounds — driven by a
+shared interpreter. One `maxOccurs="2048"` particle, seven at 1024 and sixteen
+`unbounded` (all in the imported XMLDSig schema) each cost one `u32`.
 
 ## When it cannot express something
 
@@ -65,31 +53,21 @@ Some XSD constructs have no faithful Rust representation, and the generator's
 contract is that it says so rather than dropping them quietly:
 
 ```sh
-cargo run -p iso15118-codegen -- specs/iso15118-2/V2G_CI_MsgDef.xsd --why
+cargo run -p iso15118-codegen -- <schemas>/iso15118-2/V2G_CI_MsgDef.xsd --why
 ```
 
-reports every declaration it could not express and the reason. A type that is
-reported is a type whose decoder refuses the input, not one that silently decodes
-to something incomplete.
+lists every declaration it could not express and why; such input is refused at
+decode, never silently skipped.
 
 ## Enumerations and response codes
 
-Two details that would otherwise be forty-odd hand-maintained constants per
-generation:
-
-- **Enumeration indices follow schema document order**, not lexicographic order.
-  The generator derives them, so an enum's discriminant *is* its EXI index.
-- **Response-code classification is derived from the schemas' own naming.** The
-  `OK_`, `WARNING_` and `FAILED_` prefixes give every code an `is_ok`, `is_warning`
-  and `is_failure`, which is what lets the session layer act on "a failure ended
-  this session" without either generation's code list being maintained by hand.
+- Enumeration indices follow schema document order, so a discriminant is its EXI
+  index.
+- `is_ok`, `is_warning` and `is_failure` on every response code come from the
+  schemas' `OK_`/`WARNING_`/`FAILED_` prefixes.
 
 ## Is the derivation right?
 
-That is the whole question, and it is why the generator is checked against an
-independent implementation rather than against itself. Every grammar it derives is
-diffed against `exificient`, and every message it generates is round-tripped
-against bytes that same implementation produced — as documents and as fragments.
-
-See [Verification](@/docs/verification.md), including the list of defects that
-check found and that no round-trip test could have.
+Every derived grammar is diffed against `exificient`, and every generated message
+round-tripped against bytes it produced, as documents and as fragments — see
+[Verification](@/docs/verification.md).

@@ -34,7 +34,7 @@
 //! ```
 //!
 //! The schemas are not in this repository; fetch them with
-//! `scripts/fetch-schemas.sh` first. See `specs/README.md`.
+//! `scripts/fetch-schemas.sh` first; it prints where they land.
 
 // A build tool rather than a published API: these pedantic lints fire on
 // shapes that read better as written — a long but flat argument parser, match
@@ -553,7 +553,9 @@ mod tests {
     /// `src/app_protocol.rs` hand-derived and its golden vectors confirm.
     #[test]
     fn app_protocol_grammar_matches_the_hand_written_codec() {
-        let Some(schema) = load("specs/iso15118-2/V2G_CI_AppProtocol.xsd") else { return };
+        let Some(schema) = load("concepts/reference/iso15118-2/V2G_CI_AppProtocol.xsd") else {
+            return;
+        };
 
         assert_eq!(schema.global_elements.len(), 2);
         assert_eq!(event_code(&schema, "supportedAppProtocolReq"), Some(0));
@@ -583,7 +585,9 @@ mod tests {
     /// real third-party ISO 15118-20 bytes with.
     #[test]
     fn iso20_grammar_matches_the_golden_vectors() {
-        let Some(schema) = load("specs/iso15118-20/V2G_CI_CommonMessages.xsd") else { return };
+        let Some(schema) = load("concepts/reference/iso15118-20/V2G_CI_CommonMessages.xsd") else {
+            return;
+        };
 
         assert_eq!(schema.global_elements.len(), 54);
         assert_eq!(event_code(&schema, "SessionStopReq"), Some(37));
@@ -616,7 +620,9 @@ mod tests {
     /// against the reference implementation; see scripts/verify-grammars.sh.
     #[test]
     fn mixed_content_appends_generic_characters_last() {
-        let Some(schema) = load("specs/iso15118-20/V2G_CI_CommonMessages.xsd") else { return };
+        let Some(schema) = load("concepts/reference/iso15118-20/V2G_CI_CommonMessages.xsd") else {
+            return;
+        };
         let name = QName::new("http://www.w3.org/2000/09/xmldsig#", "CanonicalizationMethodType");
         let Some(TypeDef::Complex(ct)) = schema.types.get(&name) else {
             panic!("xmldsig should be part of the schema set")
@@ -648,7 +654,9 @@ mod tests {
     /// `<any>` before `<element name="XPath">`, yet `XPath` gets event code 0.
     #[test]
     fn declared_elements_sort_before_the_wildcard() {
-        let Some(schema) = load("specs/iso15118-20/V2G_CI_CommonMessages.xsd") else { return };
+        let Some(schema) = load("concepts/reference/iso15118-20/V2G_CI_CommonMessages.xsd") else {
+            return;
+        };
         let name = QName::new("http://www.w3.org/2000/09/xmldsig#", "TransformType");
         let Some(TypeDef::Complex(ct)) = schema.types.get(&name) else { return };
         let g = Builder::new(&schema).complex_type(ct).unwrap();
@@ -672,7 +680,7 @@ mod tests {
     /// as unbounded would keep offering the element past its limit.
     #[test]
     fn large_bounded_repetitions_are_unrolled_exactly() {
-        let Some(schema) = load("specs/iso15118-2/V2G_CI_MsgDef.xsd") else { return };
+        let Some(schema) = load("concepts/reference/iso15118-2/V2G_CI_MsgDef.xsd") else { return };
         let name = QName::new("urn:iso:15118:2:2013:MsgDataTypes", "PMaxScheduleType");
         let Some(TypeDef::Complex(ct)) = schema.types.get(&name) else { return };
         let g = Builder::new(&schema).complex_type(ct).unwrap();
@@ -690,13 +698,13 @@ mod tests {
     #[test]
     fn every_v2g_type_derives_a_grammar() {
         for relative in [
-            "specs/iso15118-2/V2G_CI_AppProtocol.xsd",
-            "specs/iso15118-2/V2G_CI_MsgDef.xsd",
-            "specs/iso15118-20/V2G_CI_CommonMessages.xsd",
-            "specs/iso15118-20/V2G_CI_AC.xsd",
-            "specs/iso15118-20/V2G_CI_DC.xsd",
-            "specs/iso15118-20/V2G_CI_WPT.xsd",
-            "specs/iso15118-20/V2G_CI_ACDP.xsd",
+            "concepts/reference/iso15118-2/V2G_CI_AppProtocol.xsd",
+            "concepts/reference/iso15118-2/V2G_CI_MsgDef.xsd",
+            "concepts/reference/iso15118-20/V2G_CI_CommonMessages.xsd",
+            "concepts/reference/iso15118-20/V2G_CI_AC.xsd",
+            "concepts/reference/iso15118-20/V2G_CI_DC.xsd",
+            "concepts/reference/iso15118-20/V2G_CI_WPT.xsd",
+            "concepts/reference/iso15118-20/V2G_CI_ACDP.xsd",
         ] {
             let Some(schema) = load(relative) else { continue };
             let builder = Builder::new(&schema);
