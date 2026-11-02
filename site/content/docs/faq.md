@@ -16,8 +16,9 @@ faq = [
   { q = "Why does strict mode matter so much?", a = "ISO 15118 sends no EXI options document, and its default is `strict = false`. Non-strict grammars add second-level productions that cost no bits themselves but widen every first-level event code, so every element of every message is shifted if you get it wrong." },
   { q = "How does it compare to EVerest, Josev and OpenV2G?", a = "EVerest runs DIN, -2 and -20 on one C++ station stack with a generated C codec, coupled to its runtime. Josev is Python, readable and reference-quality, but not for a vehicle controller. OpenV2G is C, ISO 15118-2 and DIN only. This crate is one sans-I/O, `no_std` Rust codebase for both roles and both generations, with its wire format checked against third implementations and captured sessions." },
   { q = "Is Plug & Charge complete?", a = "Signatures (build, verify, the algorithm restrictions, the challenge and metering bindings), X.509 chain validation under Annex F and the Amd 1 rules, and the contract-key envelope are implemented. Certificate revocation is the caller's — see [Limitations](@/docs/faq.md#limitations)." },
+  { q = "Has it run against another stack?", a = "Yes, live, in containers: Josev in both roles (-2 and -20, AC and DC), and EVerest's station as our vehicle's peer (-2 and -20 DC, TLS, Plug & Charge — EVerest verifies our signature). See [Verification](@/docs/verification.md#live-peers)." },
   { q = "Do I need the ISO schemas to build it?", a = "No. The generated message sets are committed. You need the schemas only to regenerate; `scripts/fetch-schemas.sh` downloads them, pinned by SHA-256." },
-  { q = "Is it production ready?", a = "It is pre-1.0: the minor version is the breaking one. The message sets are generated from the official schemas and verified against third implementations, the session layer implements both generations' ordering rules, and there is no `unsafe`. Read the limitations below before deciding — revocation above all." },
+  { q = "Is it production ready?", a = "It is pre-1.0: the minor version is the breaking one. The message sets are generated from the official schemas and verified against third implementations, the session layer implements both generations' ordering rules, whole sessions run against Josev in both roles, and there is no `unsafe`. Read the limitations below before deciding — revocation above all." },
   { q = "What licence is it under?", a = "MIT or Apache-2.0, at your option. No part of the ISO standard is redistributed." },
 ]
 +++
@@ -28,7 +29,7 @@ Short answers to common questions. Start with
 
 ## Limitations
 
-What the crate does not do, as of this release.
+What the crate does not do.
 
 | | |
 |---|---|
@@ -39,5 +40,5 @@ What the crate does not do, as of this release.
 | **Real certificates for two profiles** | Hubject's public test PKI has real leaves only for OEM provisioning; `SeccCertificate` and `ContractCertificate` are tested on OpenSSL-minted chains. |
 | **ISO 15118-20 timing values** | The -20 timing table is not freely available; loop budgets for -20 are this crate's labelled policy, overridable with `LoopBudgets`. |
 | **MCS rules** | MCS runs the DC flow; Amd 1's no-fallback rule (configure the station for ISO 15118-20 only) and the data-link pause are the caller's. |
-| **Conformance** | Not conformance-tested against the ISO test plans; verified against third implementations and captured sessions. |
+| **Conformance** | Not conformance-tested against the ISO test plans; verified against third implementations, captured sessions and live Josev and EVerest peers. |
 | **Out of scope** | Writing cryptography (the optional backend binds `sha2`, `p256`, `p521`, `aes`, `cbc`); control pilot, PWM and modem drivers; OCPP, EEBUS or OpenADR bridges; station hardware abstraction; the ISO 15118-8 WLAN layer; redistributing ISO material. |

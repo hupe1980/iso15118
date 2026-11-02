@@ -45,8 +45,8 @@ the caller's.
 - **Hostile input is the normal case.** Every length is bounded by its schema
   facets before anything is allocated; `#![forbid(unsafe_code)]` and ten fuzz targets.
 - **Evidence from outside.** Differential against `exificient`, replayed against
-  captured sessions, PKI checked against a published test pool, citations
-  checked against the standard's text.
+  captured sessions, run live against two other stacks, PKI checked
+  against a published test pool, citations checked against the standard's text.
 
 ## 📦 Install
 
@@ -201,6 +201,9 @@ scripts/verify-captures.sh   3760 messages decoded, 3760 re-encoded byte-identic
 - **Replayed against real hardware** — 3 760 messages from sixteen captured
   charging sessions (dSPACE DS5366 against Josev and RiseV2G), ISO 15118-2 and
   -20 over TLS 1.3 included, decode and re-encode byte for byte.
+- **Live against other stacks** — whole sessions in containers: Josev in both
+  roles (-2 and -20, AC and DC), and EVerest's station for our vehicle (-2 and
+  -20 DC, TLS, Plug & Charge, where EVerest verifies our signature).
 - **Citations checked against the text** — `scripts/verify-citations.sh`
   confirms that each of the 101 requirement numbers cited here exists among the
   852 ISO 15118-2:2014 defines.
@@ -211,6 +214,7 @@ cargo test --workspace --all-features
 scripts/generate.sh && git diff --exit-code src/generated   # codegen has not drifted
 scripts/verify-grammars.sh && scripts/verify-messages.sh    # need a JDK and the schemas
 scripts/verify-captures.sh                                  # needs tshark
+cargo test --test josev --test everest                      # need Docker
 ```
 
 The schemas are fetched by `scripts/fetch-schemas.sh` and pinned by SHA-256.

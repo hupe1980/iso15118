@@ -91,8 +91,8 @@ interpreter, not state tables, so a `maxOccurs="2048"` particle costs one `u32`.
 See [Code generation](@/docs/codegen.md).
 
 **`message`** — turns a V2GTP payload type plus the negotiated protocol into a
-typed message. `0x8001` is the handshake, DIN/TS 70121 or ISO 15118-2 depending on
-what was negotiated, so the session has to remember.
+typed message. `0x8001` carries the handshake and then DIN/TS 70121 or ISO 15118-2,
+depending on what was negotiated, so the session has to remember.
 
 **`session`** — clock, spec timers, stream framing, one ordering graph per
 generation shared by both roles, and the ISO 15118-2 charging-profile rule. The

@@ -6,6 +6,40 @@ breaking one, and it is bumped whenever the public API changes.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 versioning follows [Cargo's pre-1.0 semver](https://doc.rust-lang.org/cargo/reference/semver.html).
 
+## [0.7.0] — 2026-11-03
+
+**Live peers.** This crate runs whole sessions against Josev in both roles
+and against EVerest's station, Plug & Charge included; the first of them found
+a -20 sequencing defect.
+
+### Added
+
+- `session::iso20::Sequencer::accept_processing` and
+  `session::iso20::power_delivery_ongoing`: the sequencer is told whether a
+  request said `EVProcessing = Ongoing`.
+- Live peers, in Linux containers, through `examples/v2g_node` — the engines
+  on a real link (SDP over a veth pair, then TCP; TLS through `socat`, so no
+  TLS code in the crate or its dependencies):
+  - `tests/josev.rs`: Josev 0.31.2, our EVCC at its SECC and its EVCC at ours,
+    -2 and -20, AC and DC.
+  - `tests/everest.rs`: EVerest's SIL station (everest-demo `2025.10.0`), our
+    EVCC — -2 and -20 DC over TCP, -2 over TLS 1.2, and -2 Plug & Charge,
+    where EVerest verifies the signature this crate made.
+
+  Each skips by name without Docker and has its own CI job.
+  `tests/v2g_node_loopback.rs` runs the node's vehicle and station against
+  each other on every `cargo test`. New dev-dependency: `testcontainers`.
+
+### Fixed
+
+- **ISO 15118-20: a `PowerDeliveryReq(Start)` repeated after one that said
+  `EVProcessing = Ongoing` was refused with `FAILED_SequenceError`.** Found by
+  the first live session against Josev, whose vehicle sends the repeat. Both
+  drivers now admit it — and only it: a `Start` after a `Start` that said
+  `Finished`, or once the charge loop has begun, is still refused. A behaviour
+  change that compiles: a station that relied on the refusal will now see the
+  repeat as `Event::Request`.
+
 ## [0.6.0] — 2026-11-01
 
 **ISO 15118-20 that deployed peers accept, and Amendment 1.** The -20 handshake
@@ -604,7 +638,9 @@ charging-profile rule is implemented.
 
 Earlier releases predate this file.
 
-[0.5.0]: https://github.com/hupe1980/iso15118/compare/v0.4.0...HEAD
+[0.7.0]: https://github.com/hupe1980/iso15118/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/hupe1980/iso15118/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/hupe1980/iso15118/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hupe1980/iso15118/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hupe1980/iso15118/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hupe1980/iso15118/compare/v0.1.0...v0.2.0

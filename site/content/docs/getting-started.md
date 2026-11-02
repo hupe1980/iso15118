@@ -80,8 +80,7 @@ loop {
 ```
 
 Arm a timer for `secc.poll_timeout()` and call `secc.handle_timeout(now)` when it
-fires. Blocks marked `pinned-to` on this site are checked against their source by
-a test.
+fires.
 
 - **One request at a time.** V2G is half-duplex: the station surfaces one
   `Event::Request` and reads nothing further until `respond`. `respond` refuses an
@@ -127,6 +126,8 @@ cargo run --example sdp_discovery -- eth0
 
 The two TCP examples complete an AC session against each other.
 `tests/session.rs` runs a whole DC session through both engines with no I/O.
+`examples/v2g_node` runs either role on a real link — SDP, then TCP — and is
+what [runs against Josev and EVerest](@/docs/verification.md#live-peers).
 
 ## Recording which generation you spoke
 

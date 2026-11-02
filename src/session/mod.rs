@@ -242,7 +242,7 @@ impl Flow {
                 if !s.admits(message.payload_type()) {
                     return Err(FlowError::Sequence(s.refusal(request)));
                 }
-                s.accept(request)?;
+                s.accept_processing(request, iso20::power_delivery_ongoing(message))?;
             }
         }
         Ok(())

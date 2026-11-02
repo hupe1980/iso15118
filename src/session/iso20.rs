@@ -117,6 +117,21 @@ impl Service {
     }
 }
 
+/// Whether `message` is a `PowerDeliveryReq` that says the vehicle is still
+/// processing — the one request whose `EVProcessing` the ordering graph reads;
+/// see [`Sequencer::accept_processing`].
+#[must_use]
+pub fn power_delivery_ongoing(message: &crate::message::Message) -> bool {
+    match message {
+        crate::message::Message::Iso20(doc) => matches!(
+            &**doc,
+            crate::iso20::messages::Document::PowerDeliveryReq(req)
+                if req.ev_processing != crate::iso20::common::Processing::Finished
+        ),
+        _ => false,
+    }
+}
+
 /// A -20 request, reduced to what sequencing depends on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -582,6 +597,11 @@ pub struct Sequencer {
     /// Set once a `FAILED_*` response has gone past, after which the only
     /// request left is `SessionStopReq`.
     failed: bool,
+    /// The last request was a `PowerDeliveryReq(Start)` that said
+    /// `EVProcessing = Ongoing`: the vehicle has not finished starting and
+    /// will send the request again. See [`Sequencer::accept_processing`].
+    #[cfg_attr(feature = "serde", serde(default))]
+    starting: bool,
 }
 
 impl Default for Sequencer {
@@ -594,7 +614,13 @@ impl Sequencer {
     /// A session that has not yet seen its first request.
     #[must_use]
     pub const fn new() -> Self {
-        Self { phase: Phase::Start, energy_transfer: None, renegotiated: false, failed: false }
+        Self {
+            phase: Phase::Start,
+            energy_transfer: None,
+            renegotiated: false,
+            failed: false,
+            starting: false,
+        }
     }
 
     /// Picks up a paused session, from just after `SessionSetup`.
@@ -609,6 +635,7 @@ impl Sequencer {
         self.energy_transfer = Some(energy_transfer);
         self.phase = Phase::ServiceSelected;
         self.renegotiated = false;
+        self.starting = false;
     }
 
     /// Records that a `FAILED_*` response has gone past.
@@ -692,7 +719,28 @@ impl Sequencer {
     /// Records that `request` arrived, advancing the session.
     ///
     /// See [`super::iso2::Sequencer::accept`] — same contract, different graph.
+    /// The request is taken as `EVProcessing = Finished`; see
+    /// [`Sequencer::accept_processing`] for the one place that matters.
     pub fn accept(&mut self, request: Request) -> Result<Phase, SequenceError> {
+        self.accept_processing(request, false)
+    }
+
+    /// [`Sequencer::accept`], told whether the request said
+    /// `EVProcessing = Ongoing`.
+    ///
+    /// It matters for one request. A `PowerDeliveryReq(Start)` that says
+    /// `Ongoing` comes from a vehicle that has not finished starting, so a
+    /// second `Start` straight after it is a repeat, as for the other requests
+    /// that carry `EVProcessing`. Only that repeat is admitted: a `Start` after
+    /// one that said `Finished` is refused.
+    ///
+    /// A judgement — the ISO 15118-20 text is not read here. Josev's vehicle
+    /// sends the repeat and `EVerest`'s station answers it.
+    pub fn accept_processing(
+        &mut self,
+        request: Request,
+        ev_processing_ongoing: bool,
+    ) -> Result<Phase, SequenceError> {
         let Some(next) = self.next_phase(request) else {
             return Err(self.refusal(request));
         };
@@ -723,6 +771,8 @@ impl Sequencer {
             _ => {}
         }
         self.phase = next;
+        self.starting = ev_processing_ongoing
+            && matches!(request, Request::PowerDelivery(ChargeProgress::Start));
         Ok(next)
     }
 
@@ -839,6 +889,9 @@ impl Sequencer {
             (F::PreCharge, R::PreCharge) => F::PreCharge,
             (F::PreCharge, R::PowerDelivery(P::Start)) => F::Charging,
 
+            // A vehicle still starting repeats its `Start`; see
+            // `accept_processing`.
+            (F::Charging, R::PowerDelivery(P::Start)) if self.starting => F::Charging,
             (F::Charging, R::ChargeLoop) => F::Charging,
             (F::Charging, R::MeteringConfirmation) => F::Charging,
             // A *schedule* renegotiation is not a *service* renegotiation. It
@@ -1122,6 +1175,50 @@ mod tests {
             s.accept(r).unwrap_or_else(|e| panic!("{r:?}: {e}"));
         }
         assert!(s.is_finished());
+    }
+
+    /// A vehicle that has not finished starting says `EVProcessing = Ongoing`
+    /// and sends its `PowerDeliveryReq(Start)` again — Josev does, live.
+    #[test]
+    fn a_start_that_said_ongoing_may_be_repeated() {
+        let mut s = run(&PREAMBLE);
+        s.accept(Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Ac))).unwrap();
+        s.accept(Request::ChargeParameterDiscovery).unwrap();
+        s.accept(Request::ScheduleExchange).unwrap();
+        s.accept_processing(Request::PowerDelivery(ChargeProgress::Start), true).unwrap();
+        s.accept_processing(Request::PowerDelivery(ChargeProgress::Start), true).unwrap();
+        s.accept_processing(Request::PowerDelivery(ChargeProgress::Start), false).unwrap();
+        s.accept(Request::ChargeLoop).unwrap();
+        s.accept(Request::PowerDelivery(ChargeProgress::Stop)).unwrap();
+        s.accept(Request::SessionStop(ChargingSession::Terminate)).unwrap();
+        assert!(s.is_finished());
+    }
+
+    /// The repeat is admitted only after a `Start` that said `Ongoing`: a
+    /// second `Start` after one that said `Finished`, or after the charge loop
+    /// has begun, is still out of sequence.
+    #[test]
+    fn a_start_that_said_finished_may_not_be_repeated() {
+        let mut s = run(&PREAMBLE);
+        s.accept(Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Ac))).unwrap();
+        s.accept(Request::ChargeParameterDiscovery).unwrap();
+        s.accept(Request::ScheduleExchange).unwrap();
+        s.accept_processing(Request::PowerDelivery(ChargeProgress::Start), false).unwrap();
+        assert!(!s.permits(Request::PowerDelivery(ChargeProgress::Start)));
+
+        s.accept(Request::ChargeLoop).unwrap();
+        assert!(!s.permits(Request::PowerDelivery(ChargeProgress::Start)));
+
+        let mut s = run(&PREAMBLE);
+        s.accept(Request::ServiceSelection(EnergyTransfer::unidirectional(Service::Ac))).unwrap();
+        s.accept(Request::ChargeParameterDiscovery).unwrap();
+        s.accept(Request::ScheduleExchange).unwrap();
+        s.accept_processing(Request::PowerDelivery(ChargeProgress::Start), true).unwrap();
+        s.accept(Request::ChargeLoop).unwrap();
+        assert!(
+            !s.permits(Request::PowerDelivery(ChargeProgress::Start)),
+            "once the loop runs, the vehicle has started"
+        );
     }
 
     #[test]

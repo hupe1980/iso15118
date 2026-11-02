@@ -53,6 +53,13 @@ response *content*, the graph allows the union:
 Everything a request decides is enforced: the payment option, the energy transfer
 mode, the selected service, `ChargeProgress`, `ChargingSession`.
 
+In ISO 15118-20 the graph also reads `EVProcessing` on `PowerDeliveryReq(Start)`.
+A `Start` that says `Ongoing` is a vehicle still starting, so one more `Start`
+straight after it is admitted; a `Start` after one that said `Finished`, or once
+the charge loop has begun, is `FAILED_SequenceError`. The drivers read the field
+themselves; driving `session::iso20::Sequencer` directly, call
+`accept_processing` with `power_delivery_ongoing(&message)`.
+
 ## One service, one message set
 
 ISO 15118-20 gives each energy transfer service its own message set and V2GTP

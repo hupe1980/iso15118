@@ -28,13 +28,42 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --all-features
+      # The live peers have jobs of their own (`interop-*`).
+      - run: cargo test --workspace --all-features -- --skip live_peer
       - run: cargo test --no-default-features
       - name: Doc tests
         run: cargo test --doc --all-features
       # The examples are the integration story; a broken one is a broken
       # README. They are built, not run, because two of them want a socket.
       - run: cargo build --examples --all-features
+
+  # This crate against Josev, live, in a container: both roles, -2 and -20,
+  # AC and DC (`tests/josev.rs`). About two minutes cold.
+  interop-josev:
+    name: live peer / josev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --test josev -- --nocapture
+
+  # This crate's vehicle at EVerest's SIL station, live: -2 and -20 DC, TCP and
+  # TLS, EIM and Plug & Charge (`tests/everest.rs`). The base image is 20 GB
+  # unpacked, which a standard runner fits only once its SDKs are gone.
+  interop-everest:
+    name: live peer / everest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+          df -h /
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --test everest -- --nocapture
 
   lint:
     name: fmt + clippy + docs

@@ -41,6 +41,15 @@ mismatch means ISO serves different bytes at the same URL: re-pinning is a
 reviewed change, and the `src/generated` diff it causes is the review. The
 capture corpus is GPL-2.0 and is fetched into a gitignored directory.
 
+If you touched a session engine or a sequencer (needs Docker):
+
+```sh
+cargo test --test josev --test everest -- --nocapture   # live sessions; EVerest pulls 4 GB
+```
+
+What a live peer disagreed about, and whose it was, is in
+`tests/interop/PEERS.md`.
+
 If you added or changed a `[V2G2-nnn]` citation:
 
 ```sh

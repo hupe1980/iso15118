@@ -57,11 +57,12 @@ There is no `iso20-bpt` (the `BPT_*` types live inside AC and DC) and no
 
 | Flag | Effect |
 |---|---|
-| `pnc` | The Plug & Charge signature profile. The hash and the curve are traits, so this pulls in no cryptography. |
+| `pnc` | The Plug & Charge signature profile and the V2G PKI. The hash and the curve are traits, so this pulls in no cryptography. Implies `iso20-common`. |
 | `pnc-rustcrypto` | A concrete backend for those traits: `sha2`, `p256`, `p521`, and `aes` with `cbc` for the contract-key envelope. |
 
-`pnc-rustcrypto` is the only flag that adds a dependency tree; it is off by
-default so a secure element can implement the traits instead.
+`pnc-rustcrypto`, `serde` and `tracing` are the only flags that add
+dependencies. `pnc-rustcrypto` is off by default so a secure element can
+implement the traits instead.
 
 ## Integration
 

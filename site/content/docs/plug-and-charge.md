@@ -149,7 +149,7 @@ XMLDSig wants rather than DER, and refuses a suite the key is not on.
 ## What a valid signature does not prove
 
 - **That the key is trusted.** Chain validation is `pnc::pki`, a separate call —
-  see [PKI](@/docs/pki.md). Revocation is not checked
+  see [Certificates](@/docs/pki.md). Revocation is not checked
   ([limitations](@/docs/faq.md#limitations)).
 - **That the car is plugged in here.** The vehicle signs the station's challenge
   and nothing else, so a relay between a victim's vehicle and a distant station
