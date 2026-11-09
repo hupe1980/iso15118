@@ -286,7 +286,7 @@ impl<'a> Certificate<'a> {
         if let Some(extensions) = tbs_reader.optional(tag::context(3))? {
             let mut list = Der::new(extensions);
             let mut list = list.nested(tag::SEQUENCE)?;
-            let mut seen = ExtensionsSeen::default();
+            let mut count = 0usize;
             while !list.is_empty() {
                 let mut ext = list.nested(tag::SEQUENCE)?;
                 let id = ext.expect(tag::OID)?;
@@ -294,13 +294,20 @@ impl<'a> Certificate<'a> {
                     if ext.peek() == Some(tag::BOOLEAN) { ext.boolean()? } else { false };
                 let value = ext.expect(tag::OCTET_STRING)?;
                 ext.finish()?;
+                // RFC 5280 §4.2: "A certificate MUST NOT include more than one
+                // instance of a particular extension" — any extension, not only
+                // the two read here. Checked against the ones before it, which
+                // allocates nothing; the schemas cap a certificate on the wire at
+                // 800 bytes (-2) or 1 600 (-20), so the scan stays small.
+                if appears_among(extensions, count, id)? {
+                    return Err(CertError::DuplicateExtension);
+                }
+                count += 1;
                 match id {
                     oid::KEY_USAGE => {
-                        seen.mark(Extension::KeyUsage)?;
                         key_usage = Some(read_key_usage(value)?);
                     }
                     oid::BASIC_CONSTRAINTS => {
-                        seen.mark(Extension::BasicConstraints)?;
                         basic_constraints = Some(read_basic_constraints(value)?);
                     }
                     // Recognised, and nothing here acts on them. Every Annex F
@@ -363,31 +370,17 @@ impl<'a> Certificate<'a> {
     }
 }
 
-/// The extensions this parser tracks for the "at most once" rule.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Extension {
-    KeyUsage,
-    BasicConstraints,
-}
-
-#[derive(Debug, Default)]
-struct ExtensionsSeen {
-    key_usage: bool,
-    basic_constraints: bool,
-}
-
-impl ExtensionsSeen {
-    /// RFC 5280 §4.2: "A certificate MUST NOT include more than one instance of
-    /// a particular extension." A second `BasicConstraints` is the difference
-    /// between "this is a CA" and "this is not", decided by which one a parser
-    /// happens to keep.
-    fn mark(&mut self, which: Extension) -> Result<(), CertError> {
-        let slot = match which {
-            Extension::KeyUsage => &mut self.key_usage,
-            Extension::BasicConstraints => &mut self.basic_constraints,
-        };
-        if core::mem::replace(slot, true) { Err(CertError::DuplicateExtension) } else { Ok(()) }
+/// Whether one of the first `count` extensions in `extensions` (the contents of
+/// the `[3]` wrapper) has the OID `id`.
+fn appears_among(extensions: &[u8], count: usize, id: &[u8]) -> Result<bool, CertError> {
+    let mut list = Der::new(extensions);
+    let mut list = list.nested(tag::SEQUENCE)?;
+    for _ in 0..count {
+        if list.nested(tag::SEQUENCE)?.expect(tag::OID)? == id {
+            return Ok(true);
+        }
     }
+    Ok(false)
 }
 
 /// Reads an `AlgorithmIdentifier`, returning the curve-independent algorithm

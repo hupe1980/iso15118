@@ -68,6 +68,25 @@ scripts/make-test-envelope.sh   # needs openssl; rewrites the envelope fixture
 
 Validity windows are absolute dates, so the chains do not expire.
 
+If you touched path validation in `pnc::pki`, run it against x509-limbo, the
+suite rustls-webpki and Go run. Every case must reach limbo's verdict or be
+listed with its reason in `tests/x509_limbo/divergences.tsv`; the test also fails
+on a listed case that now agrees.
+
+```sh
+scripts/fetch-x509-limbo.sh /tmp/limbo   # pinned commit, SHA-256 checked, not committed
+ISO15118_X509_LIMBO=/tmp/limbo/limbo.json \
+  cargo test --release --all-features --test x509_limbo -- --nocapture
+```
+
+If you touched `v2gtp::split_frame` / `write_frame` or the EXI `BitReader`, run
+the Kani proofs beside them
+([Kani](https://model-checking.github.io/kani/) 0.68):
+
+```sh
+cargo kani -p iso15118 --all-features
+```
+
 If you touched a decoder, fuzz it for a few minutes. Put the corpus first: new
 inputs are written to the first directory, and `fuzz/seeds/` is the curated set.
 

@@ -132,6 +132,8 @@ outside the script's pattern.
 | Concern | Approach |
 |---|---|
 | **Fuzzing** | Ten `cargo-fuzz` targets: EXI primitives, every message decoder, fragments, V2GTP, SDP, SLAC frames, SLAC matching, X.509 certificates, and the station's front door from raw TCP bytes at arbitrary read boundaries. The certificate target asserts every borrowed field lies inside the input; the session target that any error from `handle_input` has already closed the session. |
+| **Proofs** | Kani, for every input up to a stated size: `split_frame` returns a payload inside its input and within the ceiling, `write_frame` never writes past its buffer (16 bytes, any ceiling), and the EXI bit reader advances by exactly the width read or fails without moving (4 bytes, widths to 64 bits). Run locally with `cargo kani`. |
+| **X.509 path validation** | [x509-limbo](https://github.com/C2SP/x509-limbo) at `519f4bc`, the suite rustls-webpki and Go run: of 9 807 cases, 8 800 reach limbo's verdict, 45 use algorithms ISO 15118 lacks, and 962 are listed with a reason in `tests/x509_limbo/divergences.tsv` — profile rules (819), the caller's checks such as host name and EKU (114), revocation (15), chains over three certificates (14). Run locally. |
 | **Session tests** | A whole DC session per generation through byte vectors with a mock clock; sequence violations, failures, pauses, timer expiry and protocol mismatch each tested. |
 | **Hostile peers** | Pipelined bursts, unsolicited responses, forged SLAC key handover, replayed signatures. |
 | **Examples** | `evcc_tcp` and `secc_tcp` complete an AC session over a real socket. `v2g_node` plays either role after SDP, every generation and service of the live-peer matrix; `tests/v2g_node_loopback.rs` completes each against itself. |
@@ -147,6 +149,8 @@ outside the script's pattern.
   implementations" is the accurate claim.
 - **Not tested against production vehicles.** Captures and reference stacks, live
   or not, are not a vehicle population.
+- **`Connection`'s buffer ceilings are not proved**, only tested and fuzzed;
+  the model exceeds what Kani can check here.
 - **Two of three certificate profiles** (`SeccCertificate`, `ContractCertificate`)
   are tested only on OpenSSL-minted chains: the public pool has no real leaf for
   them.
@@ -164,6 +168,8 @@ scripts/verify-grammars.sh              # every grammar vs. the reference
 scripts/verify-messages.sh              # every message, as document and fragment
 scripts/verify-citations.sh             # every [V2G2-nnn] vs. the standard's text
 scripts/verify-captures.sh              # every captured message, replayed
+scripts/fetch-x509-limbo.sh /tmp/limbo # then ISO15118_X509_LIMBO=/tmp/limbo/limbo.json cargo test --test x509_limbo
+cargo kani -p iso15118 --all-features   # the bound proofs
 ```
 
 `scripts/fetch-schemas.sh` downloads the XSDs, which ISO publishes freely. The

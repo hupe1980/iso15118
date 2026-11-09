@@ -6,6 +6,34 @@ breaking one, and it is bumped whenever the public API changes.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 versioning follows [Cargo's pre-1.0 semver](https://doc.rust-lang.org/cargo/reference/semver.html).
 
+## [0.8.0] — 2026-11-09
+
+**`pnc::pki` checked against x509-limbo, and two length bounds proved.** No API
+change.
+
+### Fixed
+
+- **`pnc::pki` refuses a certificate carrying any extension twice**
+  (`CertError::DuplicateExtension`, RFC 5280 §4.2); before, only a second
+  `KeyUsage` or `BasicConstraints` was refused. Found by x509-limbo. A behaviour
+  change that compiles: such a certificate, and any chain holding one, now fails.
+
+### Added
+
+- `tests/x509_limbo.rs` with `scripts/fetch-x509-limbo.sh`: every x509-limbo case
+  on an ISO 15118 curve reaches limbo's verdict or is listed with its reason in
+  `tests/x509_limbo/divergences.tsv` (at `519f4bc`: 8 800 agree, 962 listed).
+  Local; skips without the suite.
+- Kani proofs for `v2gtp::split_frame` / `write_frame` and the EXI `BitReader`
+  (`cargo kani`, local).
+
+### Changed
+
+- CI: no scheduled jobs — beta clippy and the hour-long fuzz run are a manual
+  `workflow_dispatch`; `cargo semver-checks` runs on pull requests.
+- `cargo-deny` ignores RUSTSEC-2026-0440 (`astral-tokio-tar` unmaintained,
+  dev-only via `testcontainers`).
+
 ## [0.7.0] — 2026-11-03
 
 **Live peers.** This crate runs whole sessions against Josev in both roles
@@ -638,6 +666,7 @@ charging-profile rule is implemented.
 
 Earlier releases predate this file.
 
+[0.8.0]: https://github.com/hupe1980/iso15118/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/hupe1980/iso15118/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/hupe1980/iso15118/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/hupe1980/iso15118/compare/v0.4.0...v0.5.0

@@ -1,0 +1,966 @@
+# x509-limbo cases where pnc::pki reaches a different verdict, with why.
+# id<TAB>class<TAB>reason. Classes: path-length, revocation, caller, profile, defect.
+# Measured on C2SP/x509-limbo @ 519f4bc with Profile::Unchecked (tests/x509_limbo.rs).
+# The test fails on an unlisted disagreement and on a listed case that agrees.
+bettertls::nameconstraints::tc1	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1003	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1004	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1005	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1006	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1007	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1008	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1012	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1013	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1014	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1015	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1016	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1017	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1021	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1022	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1023	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1024	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1025	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1026	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1030	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1031	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1032	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1062	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1066	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1068	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1069	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1071	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1075	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1077	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1087	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1089	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1093	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1095	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1096	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1098	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1102	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1104	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1142	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1147	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1148	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1159	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1160	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1165	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1166	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1168	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1169	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1174	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1175	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1186	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1187	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1192	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1193	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1222	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc1303	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc1384	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc1465	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc1546	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc1627	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc169	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc1709	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1710	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1714	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1715	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1716	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1717	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1718	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1719	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1723	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1724	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1725	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1726	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1727	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1728	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1732	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1733	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1734	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1735	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1736	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1737	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1741	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1742	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1743	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1744	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1745	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1746	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1750	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1751	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1752	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1753	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1754	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1755	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1759	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1760	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1761	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1791	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1795	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1797	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1798	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1800	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1804	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1806	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1816	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1818	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1822	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1824	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1825	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1827	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1831	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1833	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1871	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1876	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1877	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1888	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1889	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1894	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1895	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1897	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1898	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1903	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1904	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1915	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1916	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1921	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1922	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc1951	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc2032	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc2113	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc2194	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc2275	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc2356	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc2438	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2439	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2443	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2444	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2445	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2446	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2447	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2448	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2452	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2453	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2454	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2455	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2456	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2457	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2461	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2462	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2463	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2464	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2465	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2466	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2470	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2471	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2472	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2473	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2474	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2475	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2479	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2480	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2481	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2482	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2483	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2484	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2488	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2489	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2490	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc251	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc252	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2520	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2524	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2526	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2527	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2529	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2533	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2535	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2545	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2547	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2551	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2553	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2554	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2556	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc256	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2560	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2562	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc257	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc258	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc259	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc260	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2600	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2605	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2606	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc261	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2617	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2618	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2623	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2624	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2626	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2627	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2632	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2633	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2644	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2645	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc265	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2650	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2651	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc266	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc267	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc268	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2680	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc269	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc270	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc274	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc275	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc276	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2761	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc277	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc278	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc279	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc283	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc284	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2842	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc285	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc286	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc287	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc288	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc292	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc2923	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc293	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc294	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc295	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc296	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc297	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc3004	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc301	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc302	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc303	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3085	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc3167	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3168	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3172	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3173	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3174	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3175	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3176	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3177	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3181	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3182	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3183	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3184	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3185	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3186	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3190	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3191	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3192	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3193	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3194	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3195	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3199	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3200	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3201	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3202	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3203	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3204	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3208	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3209	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3210	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3211	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3212	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3213	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3217	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3218	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3219	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3249	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3253	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3255	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3256	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3258	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3262	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3264	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3274	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3276	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3280	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3282	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3283	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3285	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3289	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3291	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3329	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc333	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3334	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3335	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3346	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3347	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3352	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3353	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3355	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3356	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3361	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3362	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc337	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3373	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3374	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3379	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3380	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc339	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc340	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3409	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc342	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc346	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc348	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3490	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc3571	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc358	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc360	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc364	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3652	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc366	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc367	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc369	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc373	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3733	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc375	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3814	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc3896	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3897	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3901	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3902	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3903	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3904	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3905	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3906	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3910	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3911	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3912	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3913	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3914	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3915	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3919	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3920	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3921	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3922	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3923	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3924	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3928	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3929	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3930	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3931	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3932	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3933	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3937	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3938	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3939	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3940	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3941	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3942	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3946	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3947	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3948	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3978	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3982	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3984	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3985	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3987	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3991	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc3993	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4003	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4005	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4009	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4011	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4012	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4014	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4018	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4020	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4058	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4063	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4064	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4075	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4076	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4081	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4082	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4084	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4085	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4090	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4091	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4102	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4103	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4108	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4109	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc413	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4138	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc418	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc419	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4219	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc430	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4300	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc431	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc436	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc437	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4381	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc439	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc440	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc445	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc446	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4464	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4465	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4467	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4468	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4470	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4471	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4473	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4474	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4476	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4477	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4479	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4489	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4491	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4492	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4494	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4495	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4497	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4498	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4500	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4501	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4503	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4504	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4506	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4516	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4518	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4519	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4521	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4522	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4524	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4525	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4527	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4528	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4530	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4531	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4533	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4543	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc457	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc458	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4624	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc463	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc464	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4707	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4711	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4713	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4714	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4716	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4720	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4722	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4732	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4734	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4738	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4740	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4741	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4743	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4747	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4749	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4786	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc4867	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc493	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc4950	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4951	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4953	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4957	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4959	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4960	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc4962	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc5002	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5004	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5005	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5007	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5011	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5013	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5014	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5016	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5029	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc5110	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc5193	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5194	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5196	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5197	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5199	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5200	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5202	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5203	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5205	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5206	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5208	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5218	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5220	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5221	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5223	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5224	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5226	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5227	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5229	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5230	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5232	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5233	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5235	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5245	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5247	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5248	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5250	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5251	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5253	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5254	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5256	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5257	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5259	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5260	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5262	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5272	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc5353	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc5436	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5440	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5442	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5443	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5445	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5449	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5451	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5461	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5463	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5467	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5469	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5470	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5472	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5476	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5478	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5515	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc5596	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc5679	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5680	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5682	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5686	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5688	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5689	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5691	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5731	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5733	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5734	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5736	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc574	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc5740	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5742	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5743	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5745	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5758	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc5839	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc5922	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5923	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5925	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5926	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5928	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5929	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5931	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5932	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5934	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5935	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5937	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5947	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5949	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5950	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5952	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5953	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5955	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5956	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5958	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5959	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5961	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5962	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5964	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5974	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5976	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5977	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5979	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5980	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5982	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5983	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5985	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5986	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5988	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5989	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc5991	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6001	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc6082	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc6165	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6169	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6171	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6172	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6174	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6178	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6180	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6190	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6192	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6196	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6198	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6199	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6201	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6205	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6207	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6244	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc6325	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc6408	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6409	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6411	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6415	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6417	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6418	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6420	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6460	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6462	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6463	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6465	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6469	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6471	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6472	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6474	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6487	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc655	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc6568	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc6651	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6652	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6654	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6655	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6657	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6658	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6660	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6661	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6663	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6664	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6666	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6676	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6678	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6679	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6681	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6682	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6684	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6685	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6687	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6688	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6690	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6691	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6693	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6703	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6705	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6706	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6708	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6709	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6711	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6712	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6714	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6715	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6717	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6718	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6720	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6730	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc6811	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc6894	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6898	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6900	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6901	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6903	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6907	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6909	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6919	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6921	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6925	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6927	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6928	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6930	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6934	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6936	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc6973	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc7	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc7054	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc7137	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7138	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7140	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7144	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7146	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7147	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7149	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7189	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7191	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7192	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7194	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7198	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7200	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7201	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7203	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7216	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc7297	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc736	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc7380	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7381	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7383	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7384	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7386	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7387	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7389	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7390	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7392	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7393	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7395	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7405	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7407	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7408	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7410	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7411	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7413	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7414	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7416	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7417	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7419	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7420	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7422	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7432	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7434	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7435	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7437	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7438	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7440	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7441	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7443	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7444	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7446	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7447	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7449	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7459	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc7540	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc7623	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7627	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7629	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7630	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7632	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7636	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7638	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7648	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7650	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7654	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7656	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7657	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7659	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7663	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7665	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7702	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc7783	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc7866	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7867	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7869	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7873	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7875	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7876	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7878	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7918	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7920	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7921	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7923	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7927	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7929	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7930	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7932	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc7945	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc8026	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc8109	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8110	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8112	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8113	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8115	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8116	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8118	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8119	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8121	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8122	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8124	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8134	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8136	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8137	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8139	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8140	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8142	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8143	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8145	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8146	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8148	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8149	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8151	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8161	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8163	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8164	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8166	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8167	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8169	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc817	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc8170	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8172	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8173	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8175	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8176	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8178	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8188	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc8269	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc8352	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8356	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8358	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8359	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8361	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8365	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8367	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8377	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8379	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8383	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8385	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8386	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8388	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8392	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8394	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8431	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc8512	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc8595	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8596	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8598	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8602	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8604	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8605	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8607	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8647	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8649	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8650	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8652	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8656	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8658	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8659	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8661	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc8674	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc88	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc898	caller	no name constraints in the chain; refused only for the expected peer name, which Profile::Unchecked leaves to the caller
+bettertls::nameconstraints::tc980	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc981	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc985	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc986	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc987	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc988	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc989	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc990	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc994	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc995	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc996	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc997	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc998	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::nameconstraints::tc999	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+bettertls::pathbuilding::tc12	caller	the only path to the root runs through an intermediate whose EKU excludes the usage; EKU is the caller's
+bettertls::pathbuilding::tc38	caller	the only path to the root runs through an intermediate whose EKU excludes the usage; EKU is the caller's
+bettertls::pathbuilding::tc44	caller	the only path to the root runs through an intermediate whose EKU excludes the usage; EKU is the caller's
+bettertls::pathbuilding::tc5	caller	the only path to the root runs through an intermediate whose EKU excludes the usage; EKU is the caller's
+bettertls::pathbuilding::tc50	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+bettertls::pathbuilding::tc52	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+bettertls::pathbuilding::tc53	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+bettertls::pathbuilding::tc56	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+bettertls::pathbuilding::tc58	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+bettertls::pathbuilding::tc59	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+bettertls::pathbuilding::tc61	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+bettertls::pathbuilding::tc62	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+bettertls::pathbuilding::tc63	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+bettertls::pathbuilding::tc64	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+bettertls::pathbuilding::tc65	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+bettertls::pathbuilding::tc66	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+bettertls::pathbuilding::tc67	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
+crl::crlnumber-critical	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::crlnumber-missing	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::issuer-missing-crlsign	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::revoked-certificate-with-crl	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::structure::crl-duplicate-revoked-serial	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::structure::crl-invalid-signature	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::structure::crl-unknown-critical-extension	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::structure::crl-wrong-signing-key	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::structure::entry-unknown-critical-extension	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::structure::entry-unknown-noncritical-extension	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::temporal::crl-validity-no-overlap	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::temporal::next-update-in-past	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::temporal::revocation-date-before-not-before	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::temporal::revocation-date-in-future	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+crl::temporal::this-update-in-future	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
+cve::cve-2024-0567	profile	the leaf's SubjectAltName is critical; SAN is not processed, so it is refused as an unknown critical extension
+pathlen::max-chain-depth-0-exhausted	caller	limbo's max_chain_depth is a caller-configured limit; this crate's is fixed at three [V2G2-009]
+pathlen::max-chain-depth-1-exhausted	caller	limbo's max_chain_depth is a caller-configured limit; this crate's is fixed at three [V2G2-009]
+pathlen::self-issued-certs-pathlen	path-length	the valid path is four certificates; ISO 15118 allows three [V2G2-009]
+pathlen::validation-ignores-pathlen-in-leaf	profile	a CA certificate in leaf position is refused under every profile, Unchecked included [V2G2-867]
+rfc5280::aki::cross-signed-root-missing-aki	profile	key identifiers are neither required nor used: the path is built by DER-equal names and checked signatures
+rfc5280::aki::intermediate-missing-aki	profile	key identifiers are neither required nor used: the path is built by DER-equal names and checked signatures
+rfc5280::aki::leaf-missing-aki	profile	key identifiers are neither required nor used: the path is built by DER-equal names and checked signatures
+rfc5280::ca-as-leaf	profile	a CA certificate in leaf position is refused under every profile, Unchecked included [V2G2-867]
+rfc5280::ca-empty-subject	profile	names are compared by DER equality; an empty issuer name is not refused on its own
+rfc5280::eku::ee-eku-empty	caller	extended key usage is the caller's under Profile::Unchecked
+rfc5280::eku::ee-wrong-eku	caller	extended key usage is the caller's under Profile::Unchecked
+rfc5280::leaf-ku-keycertsign	caller	the leaf's key usage is the caller's under Profile::Unchecked; the Annex F profiles refuse keyCertSign on a leaf
+rfc5280::nc::excluded-different-constraint-type	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::nc-forbids-alternate-chain-ica	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::nc-forbids-othername-noop	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::nc-permits-email-domain	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::nc-permits-email-exact	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::nc-permits-email-literal-asterisk-exact-match	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::nc-permits-email-literal-double-asterisk	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::nc-permits-email-literal-mid-asterisk	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::not-allowed-in-ee-noncritical	profile	non-critical name constraints are not processed; RFC 5280 requires them critical, and a critical one is refused
+rfc5280::nc::permitted-different-constraint-type	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::permitted-dn-match	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::permitted-dns-match	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::permitted-dns-match-more	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::permitted-dns-match-noncritical	profile	non-critical name constraints are not processed; RFC 5280 requires them critical, and a critical one is refused
+rfc5280::nc::permitted-ipv4-match	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::permitted-ipv6-match	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::permitted-nonempty-excluded-nonempty	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::nc::permitted-self-issued	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+rfc5280::pc::ica-noncritical-pc	profile	certificate policies and policy constraints are not processed; a critical PolicyConstraints is refused
+rfc5280::root-non-critical-basic-constraints	profile	BasicConstraints criticality is an issuer obligation; path processing (RFC 5280 §6.1.4) reads the cA bit, which is set
+rfc5280::san::ip-in-dns	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+rfc5280::san::malformed	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+rfc5280::san::noncritical-with-empty-subject	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+rfc5280::san::underscore-dns	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+rfc5280::serial::too-long	profile	the serial number's value is not checked; it plays no part in path validation here
+rfc5280::serial::zero	profile	the serial number's value is not checked; it plays no part in path validation here
+rfc5280::ski::intermediate-missing-ski	profile	key identifiers are neither required nor used: the path is built by DER-equal names and checked signatures
+rfc5280::ski::root-missing-ski	profile	key identifiers are neither required nor used: the path is built by DER-equal names and checked signatures
+webpki::aki::root-with-aki-all-fields	profile	key identifiers are neither required nor used: the path is built by DER-equal names and checked signatures
+webpki::aki::root-with-aki-authoritycertissuer	profile	key identifiers are neither required nor used: the path is built by DER-equal names and checked signatures
+webpki::aki::root-with-aki-authoritycertserialnumber	profile	key identifiers are neither required nor used: the path is built by DER-equal names and checked signatures
+webpki::aki::root-with-aki-missing-keyidentifier	profile	key identifiers are neither required nor used: the path is built by DER-equal names and checked signatures
+webpki::aki::root-with-aki-ski-mismatch	profile	key identifiers are neither required nor used: the path is built by DER-equal names and checked signatures
+webpki::cn::case-mismatch	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::cn::ipv4-hex-mismatch	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::cn::ipv4-leading-zeros-mismatch	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::cn::ipv6-non-rfc5952-mismatch	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::cn::ipv6-uncompressed-mismatch	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::cn::ipv6-uppercase-mismatch	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::cn::not-in-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::cn::punycode-not-in-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::cn::utf8-vs-punycode-mismatch	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::eku::ee-anyeku	caller	extended key usage is the caller's under Profile::Unchecked
+webpki::eku::ee-without-eku	caller	extended key usage is the caller's under Profile::Unchecked
+webpki::eku::root-has-eku	caller	extended key usage is the caller's under Profile::Unchecked
+webpki::malformed-aia	profile	AuthorityInfoAccess is recognised and not read; a malformed non-critical one is ignored
+webpki::nc::nc-permits-dns-san-pattern	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
+webpki::san::mismatch-apex-subdomain-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::mismatch-domain-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::mismatch-subdomain-apex-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::mismatch-subdomain-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::no-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::public-suffix-multi-label-wildcard-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::public-suffix-private-namespace-wildcard-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::public-suffix-wildcard-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::san-wildcard-only	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::san-wildcard-only-tld	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::unicode-emoji-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::wildcard-embedded-leftmost-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::wildcard-embedded-ulabel-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::wildcard-match-across-labels-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::san::wildcard-not-in-leftmost-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's

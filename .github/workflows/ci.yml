@@ -4,16 +4,16 @@ on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    # A weekly long fuzz run; the per-PR run is only a smoke test.
-    - cron: "17 4 * * 1"
+  # No schedule. A manual run is the long one: an hour per fuzz target instead
+  # of the per-PR minute, and clippy on beta.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -82,12 +82,12 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
-  # The weekly run also lints on beta, so a lint that lands in the next stable
-  # is a scheduled failure here rather than a red pull request for whoever
-  # touches the code first. 0.5's clippy job went red that way on 1.99.
+  # The manual run also lints on beta, so a lint that lands in the next stable
+  # can be found before it turns a pull request red for whoever touches the code
+  # first. 0.5's clippy job went red that way on 1.99. Run it before a release.
   lint-beta:
-    name: clippy (beta, weekly)
-    if: github.event_name == 'schedule'
+    name: clippy (beta, manual)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -139,14 +139,19 @@ jobs:
       # a broken MSRV claim for anyone following the README.
       - run: cargo check --workspace --all-targets --all-features
 
+  # The public API against the newest release on crates.io. Before 1.0 a minor
+  # bump may break, so a break passes once `version` says so — and fails while
+  # it does not, which is the point: a break nobody announced.
   semver:
     name: semver-checks
     runs-on: ubuntu-latest
-    # Nothing is published yet, so there is no baseline to compare against.
-    if: github.event_name == 'pull_request' && false
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
       - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: iso15118
+          feature-group: all-features
 
   # Note: scripts/verify-grammars.sh and scripts/verify-messages.sh diff every
   # derived grammar and every message against the EXI reference implementation,
@@ -154,6 +159,10 @@ jobs:
   # committed codec still matches its generator. None of the three is a CI job,
   # because all need a JDK and the ISO schemas — licensed, and therefore not in
   # the repository.
+  #
+  # Two more checks run locally, not here: the Kani proofs (`cargo kani -p
+  # iso15118 --all-features`) and x509-limbo (`scripts/fetch-x509-limbo.sh`, then
+  # `cargo test --test x509_limbo` with ISO15118_X509_LIMBO set).
 
   deny:
     name: cargo-deny
@@ -242,7 +251,7 @@ jobs:
           mkdir -p fuzz/corpus/${{ matrix.target }}
           cargo +nightly fuzz run ${{ matrix.target }} \
             fuzz/corpus/${{ matrix.target }} fuzz/seeds/${{ matrix.target }} -- \
-            -max_total_time=${{ github.event_name == 'schedule' && 3600 || 60 }}
+            -max_total_time=${{ github.event_name == 'workflow_dispatch' && 3600 || 60 }}
       - name: Upload crash artifacts
         if: failure()
         uses: actions/upload-artifact@v4

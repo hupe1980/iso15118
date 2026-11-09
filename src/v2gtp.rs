@@ -372,6 +372,69 @@ impl fmt::Display for V2gtpError {
 #[cfg(feature = "std")]
 impl std::error::Error for V2gtpError {}
 
+/// Kani proofs of the length arithmetic — `cargo kani -p iso15118 --all-features`.
+///
+/// Bounded model checks: every input up to the stated size, not a sample of
+/// them. The limit itself is unbounded.
+#[cfg(kani)]
+mod verification {
+    use super::*;
+
+    /// For every input of up to 16 bytes and **every** ceiling, a frame that
+    /// splits lies wholly inside its input, is no longer than the ceiling and
+    /// its header declared, and the three parts account for every byte.
+    #[kani::proof]
+    #[kani::unwind(17)]
+    fn split_frame_stays_inside_its_input() {
+        let bytes: [u8; 16] = kani::any();
+        let len: usize = kani::any_where(|&l: &usize| l <= bytes.len());
+        let input = &bytes[..len];
+        let max_payload_len: usize = kani::any();
+
+        match split_frame(input, max_payload_len) {
+            Ok((header, payload, rest)) => {
+                assert!(payload.len() <= max_payload_len);
+                assert_eq!(payload.len() as u64, u64::from(header.payload_len));
+                assert_eq!(HEADER_LEN + payload.len() + rest.len(), input.len());
+                assert!(payload == &input[HEADER_LEN..HEADER_LEN + payload.len()]);
+            }
+            Err(error) => {
+                if len < HEADER_LEN {
+                    assert_eq!(error, V2gtpError::Incomplete);
+                }
+            }
+        }
+    }
+
+    /// For every payload of up to 8 bytes and every output buffer of up to 20,
+    /// `write_frame` never writes past `out`, reports exactly what it wrote,
+    /// and what it wrote splits back to the same payload.
+    #[kani::proof]
+    #[kani::unwind(21)]
+    fn write_frame_never_overruns() {
+        let bytes: [u8; 8] = kani::any();
+        let len: usize = kani::any_where(|&l: &usize| l <= bytes.len());
+        let payload = &bytes[..len];
+        let mut buffer = [0u8; 20];
+        let room: usize = kani::any_where(|&r: &usize| r <= 20);
+        let payload_type = PayloadType::from_u16(kani::any());
+
+        match write_frame(payload_type, payload, &mut buffer[..room]) {
+            Ok(written) => {
+                assert_eq!(written, HEADER_LEN + len);
+                let (header, back, rest) = split_frame(&buffer[..written], len).unwrap();
+                assert_eq!(header.payload_len as usize, len);
+                assert!(back == payload);
+                assert!(rest.is_empty());
+            }
+            Err(error) => {
+                assert_eq!(error, V2gtpError::BufferTooSmall);
+                assert!(room < HEADER_LEN + len);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -42,9 +42,8 @@ add_color_scheme = true
 error_on_missing_language = true
 
 [link_checker]
-# ISO's own site rate-limits crawlers. docs.rs and crates.io are the permanent
-# homes of a crate that has not been published yet, so they 404 today and will
-# not once it is — checking them would fail the build for the wrong reason.
+# ISO's own site rate-limits crawlers. docs.rs and crates.io are the crate's own
+# pages, published by every release; a site build should not depend on them.
 skip_prefixes = [
   "https://www.iso.org/",
   "https://standards.iso.org/",

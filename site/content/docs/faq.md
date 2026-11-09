@@ -18,7 +18,7 @@ faq = [
   { q = "Is Plug & Charge complete?", a = "Signatures (build, verify, the algorithm restrictions, the challenge and metering bindings), X.509 chain validation under Annex F and the Amd 1 rules, and the contract-key envelope are implemented. Certificate revocation is the caller's — see [Limitations](@/docs/faq.md#limitations)." },
   { q = "Has it run against another stack?", a = "Yes, live, in containers: Josev in both roles (-2 and -20, AC and DC), and EVerest's station as our vehicle's peer (-2 and -20 DC, TLS, Plug & Charge — EVerest verifies our signature). See [Verification](@/docs/verification.md#live-peers)." },
   { q = "Do I need the ISO schemas to build it?", a = "No. The generated message sets are committed. You need the schemas only to regenerate; `scripts/fetch-schemas.sh` downloads them, pinned by SHA-256." },
-  { q = "Is it production ready?", a = "It is pre-1.0: the minor version is the breaking one. The message sets are generated from the official schemas and verified against third implementations, the session layer implements both generations' ordering rules, whole sessions run against Josev in both roles, and there is no `unsafe`. Read the limitations below before deciding — revocation above all." },
+  { q = "Is it production ready?", a = "It is pre-1.0: the minor version is the breaking one. The message sets are generated from the official schemas and verified against third implementations, the session layer implements both generations' ordering rules, whole sessions run live against Josev in both roles and against EVerest's station, and there is no `unsafe`. Read the limitations below before deciding — revocation above all." },
   { q = "What licence is it under?", a = "MIT or Apache-2.0, at your option. No part of the ISO standard is redistributed." },
 ]
 +++
@@ -35,7 +35,7 @@ What the crate does not do.
 |---|---|
 | **Certificate revocation** | No OCSP, no CRL: a revoked certificate validates like a live one. Annex F makes OCSP a recommendation because a charging vehicle cannot be assumed to reach a responder. Ask your back end; `Validated::subject_common_name` is the `EMAID`. |
 | **Transport** | No TCP, TLS, UDP or raw sockets. The examples show the glue. |
-| **DIN/TS 70121 message set** | Not included: no schema licence that permits generating from them. The handshake recognises DIN so a station can decline it by name, and the framing, timers and `Connection::next_frame` let your own DIN codec ride the same layers (`tests/foreign_protocol.rs`). |
+| **DIN/TS 70121 message set** | Not included. The handshake recognises DIN so a station can decline it by name, and the framing, timers and `Connection::next_frame` let your own DIN codec ride the same layers (`tests/foreign_protocol.rs`). |
 | **Relay attacks** | Plug & Charge authenticates the contract, not the cable: the vehicle signs the station's challenge and nothing else, so a live relay passes every check the protocol defines ([arXiv 2512.15966](https://arxiv.org/abs/2512.15966)). Checking the challenge stops replay, not relay. |
 | **Real certificates for two profiles** | Hubject's public test PKI has real leaves only for OEM provisioning; `SeccCertificate` and `ContractCertificate` are tested on OpenSSL-minted chains. |
 | **ISO 15118-20 timing values** | The -20 timing table is not freely available; loop budgets for -20 are this crate's labelled policy, overridable with `LoopBudgets`. |

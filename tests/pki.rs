@@ -87,6 +87,87 @@ fn a_secc_certificate_reads_as_its_profile_says_it_should() {
     assert!(!cert.is_self_issued());
 }
 
+/// RFC 5280 §4.2: "A certificate MUST NOT include more than one instance of a
+/// particular extension" — every extension, including the ones this crate reads
+/// nothing from. Each extension of an OpenSSL-minted leaf is duplicated in turn;
+/// the duplicate is refused while parsing, before the (now wrong) signature.
+#[test]
+fn a_certificate_with_any_extension_twice_is_refused() {
+    let original = der("secc");
+    let (_, cert, _) = tlv(&original);
+    let cert_items = items(cert);
+    let (_, tbs, _) = tlv(cert_items[0].1);
+    let tbs_items = items(tbs);
+    let at = tbs_items.iter().position(|(tag, _)| *tag == 0xA3).expect("[3] extensions");
+    let (_, block, _) = tlv(tbs_items[at].1);
+    let (_, list, _) = tlv(block);
+    let extensions = items(list);
+    assert!(extensions.len() >= 2, "the fixture carries several extensions");
+
+    for twice in 0..extensions.len() {
+        let mut list_items = extensions.clone();
+        list_items.insert(twice + 1, extensions[twice]);
+        let block = encode(0xA3, &encode(0x30, &concat(&list_items)));
+        let tbs = encode(0x30, &concat_owned(&tbs_items, at, &block));
+        let forged = encode(0x30, &concat_owned(&cert_items, 0, &tbs));
+        assert_eq!(
+            Certificate::parse(&forged).err(),
+            Some(pki::CertError::DuplicateExtension),
+            "extension {twice} twice"
+        );
+    }
+    assert!(Certificate::parse(&original).is_ok(), "and once each is fine");
+}
+
+/// One DER TLV: tag, contents, rest. Definite lengths only, as DER has.
+fn tlv(der: &[u8]) -> (u8, &[u8], &[u8]) {
+    let (tag, first) = (der[0], der[1]);
+    let (len, head) = if first < 0x80 {
+        (usize::from(first), 2)
+    } else {
+        let n = usize::from(first & 0x7F);
+        (der[2..2 + n].iter().fold(0, |acc, &b| acc << 8 | usize::from(b)), 2 + n)
+    };
+    (tag, &der[head..head + len], &der[head + len..])
+}
+
+/// The TLVs a constructed value holds, each as (tag, whole encoding).
+fn items(mut contents: &[u8]) -> Vec<(u8, &[u8])> {
+    let mut out = Vec::new();
+    while !contents.is_empty() {
+        let (tag, _, rest) = tlv(contents);
+        out.push((tag, &contents[..contents.len() - rest.len()]));
+        contents = rest;
+    }
+    out
+}
+
+fn concat(items: &[(u8, &[u8])]) -> Vec<u8> {
+    items.iter().flat_map(|(_, der)| der.iter().copied()).collect()
+}
+
+/// `concat`, with item `at` replaced by an encoding built in this scope.
+fn concat_owned(items: &[(u8, &[u8])], at: usize, replacement: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for (i, (_, der)) in items.iter().enumerate() {
+        out.extend_from_slice(if i == at { replacement } else { der });
+    }
+    out
+}
+
+fn encode(tag: u8, contents: &[u8]) -> Vec<u8> {
+    let mut out = vec![tag];
+    let len = u16::try_from(contents.len()).expect("a test certificate under 64 KiB");
+    let [high, low] = len.to_be_bytes();
+    match len {
+        0..0x80 => out.push(low),
+        0x80..=0xFF => out.extend_from_slice(&[0x81, low]),
+        _ => out.extend_from_slice(&[0x82, high, low]),
+    }
+    out.extend_from_slice(contents);
+    out
+}
+
 /// \[V2G2-010\]: "The size of a certificate in DER encoded form shall be not
 /// bigger than 800 Bytes." The schema enforces it on the wire
 /// (`certificateType` is `maxLength = 800`); this checks the fixtures are

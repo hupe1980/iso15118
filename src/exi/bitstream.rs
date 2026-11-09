@@ -196,6 +196,40 @@ impl<'a> BitReader<'a> {
     }
 }
 
+/// Kani proof of the reader's bound — `cargo kani -p iso15118 --all-features`.
+#[cfg(kani)]
+mod verification {
+    use super::*;
+
+    /// For every buffer of up to 4 bytes, every position an earlier read can
+    /// leave the cursor at, and every width up to 64 bits: a read either
+    /// advances the cursor by exactly the width, or fails with `UnexpectedEnd`
+    /// and leaves the cursor where it was. Either way the cursor never passes
+    /// the end of the buffer.
+    #[kani::proof]
+    #[kani::unwind(66)]
+    fn read_bits_never_reads_past_the_slice() {
+        let bytes: [u8; 4] = kani::any();
+        let len: usize = kani::any_where(|&l: &usize| l <= bytes.len());
+        let mut reader = BitReader::new(&bytes[..len]);
+
+        let skip: u32 = kani::any_where(|&n: &u32| n <= 32);
+        let _ = reader.read_bits(skip);
+        assert!(reader.bit_pos() <= len * 8);
+
+        let before = reader.bit_pos();
+        let width: u32 = kani::any_where(|&n: &u32| n <= 64);
+        match reader.read_bits(width) {
+            Ok(_) => assert_eq!(reader.bit_pos(), before + width as usize),
+            Err(error) => {
+                assert_eq!(error, ExiError::UnexpectedEnd);
+                assert_eq!(reader.bit_pos(), before);
+            }
+        }
+        assert!(reader.bit_pos() <= len * 8);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;

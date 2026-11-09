@@ -197,7 +197,8 @@ scripts/verify-captures.sh   3760 messages decoded, 3760 re-encoded byte-identic
 - **Differential, against `exificient`** — every grammar and every message, as
   document and as fragment. Certificate chains and the contract-key envelope are
   checked against **OpenSSL**, and all ten OEM provisioning leaves of Hubject's
-  public test PKI validate to its real V2G Root.
+  public test PKI validate to its real V2G Root. Path validation also runs
+  against x509-limbo, with every deliberate divergence listed by reason.
 - **Replayed against real hardware** — 3 760 messages from sixteen captured
   charging sessions (dSPACE DS5366 against Josev and RiseV2G), ISO 15118-2 and
   -20 over TLS 1.3 included, decode and re-encode byte for byte.

@@ -22,6 +22,13 @@ deny = [{ name = "openssl-sys" }, { name = "cc", wrappers = ["libfuzzer-sys"] }]
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+  # `astral-tokio-tar` is unmaintained (no vulnerability). It reaches this
+  # repository only through the `testcontainers` dev-dependency, which tars the
+  # Dockerfile context of the live-peer images; nothing it touches ships in the
+  # crate. Drop this when a `testcontainers` release moves off it.
+  { id = "RUSTSEC-2026-0440", reason = "dev-only, via testcontainers 0.28; unmaintained, not vulnerable" },
+]
 
 [sources]
 unknown-registry = "deny"

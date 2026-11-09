@@ -3,7 +3,7 @@ members = ["codegen"]
 resolver = "3"
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -144,6 +144,9 @@ required-features = ["std", "iso2", "iso20-ac", "iso20-dc", "sdp", "evcc", "secc
 
 [workspace.lints.rust]
 missing_docs = "warn"
+# The Kani proofs (`#[cfg(kani)]` modules beside the code they check) compile
+# only under `cargo kani`, which sets this cfg.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 unsafe_code = "forbid"
 missing_debug_implementations = "warn"
 unreachable_pub = "warn"
