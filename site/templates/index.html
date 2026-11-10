@@ -189,9 +189,9 @@
           <tr><td><strong>EVCC / SECC drivers</strong></td>
               <td>Handshake, sequencing, session-id checks, half-duplex enforcement, pause and resume</td></tr>
           <tr><td><strong>Plug &amp; Charge signatures</strong></td>
-              <td>XMLDSig over EXI fragments, build and verify, algorithm restrictions enforced</td></tr>
+              <td>XMLDSig over EXI fragments, build and verify: ECDSA over secp256r1 (-2), secp521r1 and Ed448 (-20)</td></tr>
           <tr><td><strong>V2G PKI</strong></td>
-              <td>DER/X.509 reader, RFC 5280 path validation, the Annex F profiles, the ISO 15118-20 Amd 1 rules, and the encrypted contract-key envelope</td></tr>
+              <td>DER/X.509 reader, RFC 5280 path validation under ISO 15118-2 Annex F and ISO 15118-20 Annex B and Amd 1, OCSP and CRL revocation status, and the contract-key envelopes of both generations</td></tr>
         </tbody>
       </table>
     </div>
@@ -209,11 +209,10 @@
 
     <div class="cards">
       <article class="card">
-        <h3>Certificate revocation</h3>
+        <h3>Fetching revocation status</h3>
         <p>
-          Chains validate, but nothing here asks whether a certificate was
-          withdrawn — no OCSP, no CRL. That answer belongs in the back end your
-          station already talks to.
+          OCSP responses and CRLs you hand in are verified; nothing here
+          contacts a responder or downloads a list.
         </p>
       </article>
       <article class="card">

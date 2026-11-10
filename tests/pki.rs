@@ -13,12 +13,18 @@
 //! implementation encoded".
 //!
 //! The validity windows are absolute dates, so nothing here rots.
+//!
+//! Every anchor here is configured as **private** (`TrustAnchor::private`), on
+//! purpose: this file is about the *path* — signatures, profiles, depth,
+//! validity — and a private environment's chain owes no revocation status in
+//! either generation \[V2G2-872\]\[V2G20-2410\]. The status rules, public
+//! anchors included, are `tests/revocation.rs`.
 
 #![cfg(all(feature = "pnc-rustcrypto", feature = "std"))]
 
 use iso15118::pnc::pki::{
-    self, Certificate, ChainError, Curve, KeyUsage, Policy, Profile, TrustAnchor, TrustAnchors,
-    Validated,
+    self, Certificate, ChainError, Curve, Evidence, KeyUsage, Policy, Profile, TrustAnchor,
+    TrustAnchors, Validated,
 };
 use iso15118::pnc::rustcrypto::Backend;
 
@@ -43,7 +49,8 @@ fn refs(v: &[Vec<u8>]) -> Vec<&[u8]> {
     v.iter().map(Vec::as_slice).collect()
 }
 
-/// `pki::validate` with every anchor labelled `"test"`.
+/// `pki::validate` with every anchor labelled `"test"`, private, and no
+/// revocation evidence — see the module docs.
 fn validate<'a>(
     chain: &[&'a [u8]],
     anchors: &[&'a [u8]],
@@ -51,8 +58,8 @@ fn validate<'a>(
     now: i64,
 ) -> Result<Validated<'a>, ChainError> {
     let set: Vec<TrustAnchor<'a>> =
-        anchors.iter().map(|der| TrustAnchor::new(der, "test")).collect();
-    pki::validate(chain, &TrustAnchors::new(&set), policy, now, &Backend)
+        anchors.iter().map(|der| TrustAnchor::private(der, "test")).collect();
+    pki::validate(chain, &TrustAnchors::new(&set), policy, &Evidence::none(), now, &Backend)
 }
 
 // ---------------------------------------------------------------------------
@@ -509,12 +516,18 @@ fn amd1(name: &str) -> Vec<u8> {
 fn a_nested_chain_validates_under_both_rules_and_names_its_anchor() {
     let chain = [amd1("leaf"), amd1("sub")];
     let root = amd1("root-a");
-    let anchors = [TrustAnchor::new(&root, "Amd1 test store")];
+    let anchors = [TrustAnchor::private(&root, "Amd1 test store")];
     for policy in [Policy::iso2(Profile::SeccCertificate), Policy::iso20(Profile::SeccCertificate)]
     {
-        let path =
-            pki::validate(&refs(&chain), &TrustAnchors::new(&anchors), policy, IN_2030, &Backend)
-                .unwrap_or_else(|e| panic!("{policy:?}: {e}"));
+        let path = pki::validate(
+            &refs(&chain),
+            &TrustAnchors::new(&anchors),
+            policy,
+            &Evidence::none(),
+            IN_2030,
+            &Backend,
+        )
+        .unwrap_or_else(|e| panic!("{policy:?}: {e}"));
         assert_eq!(path.anchor_source, "Amd1 test store");
     }
 }
@@ -586,13 +599,13 @@ fn under_iso20_a_certificate_over_1600_bytes_is_refused_before_parsing() {
 fn a_cross_certificate_reaches_an_anchor_from_another_ecosystem() {
     let root_a = amd1("root-a");
     let root_b = amd1("root-b");
-    let anchors = [TrustAnchor::new(&root_a, "ecosystem A")];
+    let anchors = [TrustAnchor::private(&root_a, "ecosystem A")];
     let set = TrustAnchors::new(&anchors);
 
     let cross = [amd1("leaf-b"), amd1("sub-b"), amd1("cross-b")];
     for policy in [Policy::iso2(Profile::SeccCertificate), Policy::iso20(Profile::SeccCertificate)]
     {
-        let path = pki::validate(&refs(&cross), &set, policy, IN_2030, &Backend)
+        let path = pki::validate(&refs(&cross), &set, policy, &Evidence::none(), IN_2030, &Backend)
             .unwrap_or_else(|e| panic!("{policy:?}: {e}"));
         assert_eq!(path.anchor, Certificate::parse(&root_a).unwrap());
         assert_eq!(path.anchor_source, "ecosystem A");
@@ -601,7 +614,7 @@ fn a_cross_certificate_reaches_an_anchor_from_another_ecosystem() {
     let plain = [amd1("leaf-b"), amd1("sub-b")];
     let policy = Policy::iso20(Profile::SeccCertificate);
     assert_eq!(
-        pki::validate(&refs(&plain), &set, policy, IN_2030, &Backend),
+        pki::validate(&refs(&plain), &set, policy, &Evidence::none(), IN_2030, &Backend),
         Err(ChainError::NoTrustAnchor),
     );
     assert!(validate(&refs(&plain), &[&root_b], policy, IN_2030).is_ok());
@@ -621,7 +634,7 @@ fn a_chain_is_selected_by_the_authorities_the_peer_holds() {
     let candidates: [&[&[u8]]; 2] = [&direct, &via_cross];
 
     let holds = |root: &[u8]| -> Vec<Vec<u8>> {
-        let anchors = [TrustAnchor::new(root, "peer")];
+        let anchors = [TrustAnchor::private(root, "peer")];
         TrustAnchors::new(&anchors).authorities().map(<[u8]>::to_vec).collect()
     };
     let pick = |authorities: &[Vec<u8>]| {
@@ -644,7 +657,7 @@ fn a_chain_is_selected_by_the_authorities_the_peer_holds() {
 fn only_anchors_that_parse_are_advertised() {
     let root_a = amd1("root-a");
     let anchors =
-        [TrustAnchor::new(&root_a, "real"), TrustAnchor::new(b"not a certificate", "junk")];
+        [TrustAnchor::private(&root_a, "real"), TrustAnchor::private(b"not a certificate", "junk")];
     let set = TrustAnchors::new(&anchors);
     assert_eq!(set.len(), 2);
     let advertised: Vec<&[u8]> = set.authorities().collect();

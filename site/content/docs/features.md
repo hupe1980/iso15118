@@ -4,7 +4,7 @@ description = "Every iso15118 feature flag, what it gates, and how to compile on
 weight = 80
 +++
 
-Flags are additive and every one gates real code. There are eighteen flags besides `default`.
+Flags are additive and every one gates real code. There are nineteen flags besides `default`.
 
 ```toml
 default = ["std", "iso2", "iso20", "sdp", "slac", "evcc", "secc", "pnc"]
@@ -58,10 +58,11 @@ There is no `iso20-bpt` (the `BPT_*` types live inside AC and DC) and no
 | Flag | Effect |
 |---|---|
 | `pnc` | The Plug & Charge signature profile and the V2G PKI. The hash and the curve are traits, so this pulls in no cryptography. Implies `iso20-common`. |
-| `pnc-rustcrypto` | A concrete backend for those traits: `sha2`, `p256`, `p521`, and `aes` with `cbc` for the contract-key envelope. |
+| `pnc-rustcrypto` | A concrete backend for those traits: `sha2`, `sha1` and `hmac`, `p256` and `p521`, and `aes` with `cbc` (ISO 15118-2), `aes-gcm` and `cfb-mode` (ISO 15118-20, the TPM wrapper) for the contract-key envelopes. |
+| `pnc-rustcrypto-ed448` | Adds ISO 15118-20's Ed448, X448 and SHAKE256 to that backend (`ed448-goldilocks`, `x448`, pre-releases). |
 
-`pnc-rustcrypto`, `serde` and `tracing` are the only flags that add
-dependencies. `pnc-rustcrypto` is off by default so a secure element can
+`pnc-rustcrypto`, `pnc-rustcrypto-ed448`, `serde` and `tracing` are the only
+flags that add dependencies. The backends are off by default so a secure element can
 implement the traits instead.
 
 ## Integration

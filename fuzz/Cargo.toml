@@ -16,7 +16,7 @@ libfuzzer-sys = "0.4"
 
 [dependencies.iso15118]
 path = ".."
-features = ["std", "sdp", "slac", "iso2", "iso20", "evcc", "secc", "pnc"]
+features = ["std", "sdp", "slac", "iso2", "iso20", "evcc", "secc", "pnc", "pnc-rustcrypto"]
 
 [[bin]]
 name = "messages"
@@ -84,6 +84,20 @@ bench = false
 [[bin]]
 name = "certificate"
 path = "fuzz_targets/certificate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "revocation"
+path = "fuzz_targets/revocation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "envelope"
+path = "fuzz_targets/envelope.rs"
 test = false
 doc = false
 bench = false

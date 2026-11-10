@@ -13,7 +13,9 @@ is checked against a third implementation:
 - a golden vector captured from another implementation; or
 - a citation to ISO 15118 or EXI 1.0, checked against the text.
   `scripts/verify-citations.sh` confirms every `[V2G2-nnn]` names a requirement
-  ISO 15118-2:2014 defines (the text is public on a US FHWA docket).
+  ISO 15118-2:2014 defines and every `[V2G20-nnnn]` one ISO 15118-20:2022 or its
+  Amd 1:2026 defines (both texts are public on a US FHWA docket; the amendment's
+  requirements are in its free preview).
 
 ## Before opening a pull request
 
@@ -50,20 +52,21 @@ cargo test --test josev --test everest -- --nocapture   # live sessions; EVerest
 What a live peer disagreed about, and whose it was, is in
 `tests/interop/PEERS.md`.
 
-If you added or changed a `[V2G2-nnn]` citation:
+If you added or changed a `[V2G2-nnn]` or `[V2G20-nnnn]` citation:
 
 ```sh
 scripts/verify-citations.sh    # needs pdftotext and network access
 ```
 
-The PDF and its extracted text stay in a scratch directory; they are never
+The PDFs and their extracted text stay in a scratch directory; they are never
 written into the repository.
 
 If you touched `pnc::pki` fixtures:
 
 ```sh
-scripts/make-test-pki.sh        # needs openssl; rewrites tests/fixtures/pki
+scripts/make-test-pki.sh        # needs openssl and python3 cryptography; rewrites tests/fixtures/pki
 scripts/make-test-envelope.sh   # needs openssl; rewrites the envelope fixture
+scripts/verify-tpm-import.sh    # needs Docker; swtpm imports the TPM 2.0 contract key
 ```
 
 Validity windows are absolute dates, so the chains do not expire.

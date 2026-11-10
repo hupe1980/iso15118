@@ -3,7 +3,7 @@ members = ["codegen"]
 resolver = "3"
 
 [workspace.package]
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -78,9 +78,25 @@ slac = []
 # caller implements; no crypto is pulled in.
 pnc = ["iso20-common"]
 
-# A RustCrypto backend for those traits (`sha2`, `p256`, `p521`, `aes`, `cbc`).
-# Off by default: an ECU with a secure element implements the traits itself.
-pnc-rustcrypto = ["pnc", "dep:aes", "dep:cbc", "dep:p256", "dep:p521", "dep:sha2"]
+# A RustCrypto backend for those traits (`sha2`, `sha1`, `hmac`, `p256`, `p521`,
+# `aes`, `cbc`, `cfb-mode`, `aes-gcm`). Off by default: an ECU with a secure
+# element implements the traits itself.
+pnc-rustcrypto = [
+  "pnc",
+  "dep:aes",
+  "dep:aes-gcm",
+  "dep:cbc",
+  "dep:cfb-mode",
+  "dep:hmac",
+  "dep:p256",
+  "dep:p521",
+  "dep:sha1",
+  "dep:sha2",
+]
+# ISO 15118-20's Ed448, X448 and SHAKE256 (via `ed448-goldilocks`) for that
+# backend. Separate because RustCrypto's `ed448-goldilocks` and `x448` are
+# pre-releases.
+pnc-rustcrypto-ed448 = ["pnc-rustcrypto", "dep:ed448-goldilocks", "dep:x448"]
 
 # --- integration -------------------------------------------------------------
 serde = ["dep:serde"]
@@ -104,8 +120,24 @@ p256 = { version = "0.14", default-features = false, features = [
 ], optional = true }
 p521 = { version = "0.14", default-features = false, features = [
   "ecdsa",
+  "ecdh",
 ], optional = true }
 sha2 = { version = "0.11", default-features = false, optional = true }
+# The TPM 2.0 duplication wrapper for an EVCC with TPM [V2G20-2518].
+hmac = { version = "0.13", default-features = false, optional = true }
+cfb-mode = { version = "0.9", default-features = false, optional = true }
+# The ISO 15118-20 contract-key envelope [V2G20-2497].
+aes-gcm = { version = "0.11", default-features = false, features = [
+  "aes",
+  "alloc",
+], optional = true }
+# Pre-releases, pinned: `pnc-rustcrypto-ed448` only.
+ed448-goldilocks = { version = "=0.14.0-pre.15", default-features = false, features = [
+  "signing",
+], optional = true }
+x448 = { version = "=0.14.0-pre.12", default-features = false, optional = true }
+# OCSP CertID lookup only (RFC 6960 §4.1.1); never used to verify a signature.
+sha1 = { version = "0.11", default-features = false, optional = true }
 # The contract-key envelope [V2G2-815]/[V2G2-817]: AES-128-CBC, two blocks, no
 # padding.
 aes = { version = "0.9", default-features = false, optional = true }
@@ -136,6 +168,10 @@ required-features = ["std", "iso2", "secc"]
 [[example]]
 name = "evcc_tcp"
 required-features = ["std", "iso2", "evcc"]
+
+[[example]]
+name = "tpm_seal"
+required-features = ["std", "pnc-rustcrypto"]
 
 # The node the live-peer tests run in a container opposite another stack.
 [[example]]

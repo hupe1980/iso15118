@@ -27,7 +27,7 @@
 
 use std::path::PathBuf;
 
-use iso15118::pnc::pki::{self, ChainError, Policy, Profile, TrustAnchor, TrustAnchors};
+use iso15118::pnc::pki::{self, ChainError, Evidence, Policy, Profile, TrustAnchor, TrustAnchors};
 use iso15118::pnc::rustcrypto::Backend;
 
 /// Inside every certificate's window: the leaves run 2018-11-05 → 2022-11-05,
@@ -110,31 +110,34 @@ fn load(dir: &std::path::Path) -> Pool {
     }
 }
 
-/// All ten OEM provisioning leaves validate to Hubject's V2G Root, under the
-/// profile Table F.5 gives them — and, since the real chain happens to meet
-/// ISO 15118-20 Amd 1's nesting rule and size bound too, under -20's rules as
-/// well.
+/// All ten OEM provisioning leaves validate to Hubject's V2G Root under -2's
+/// rules and the profile Table F.5 gives them; -20's rules refuse them, because
+/// the pool is secp256r1 and ISO 15118-20 has no secp256r1 profile (Annex B).
 #[test]
 fn every_published_provisioning_leaf_validates_to_the_real_v2g_root() {
     let Some(dir) = pool("every_published_provisioning_leaf_validates_to_the_real_v2g_root") else {
         return;
     };
     let pool = load(&dir);
-    let anchors = [TrustAnchor::new(&pool.root, "Hubject openPlugnCharge V2G Root")];
+    let anchors = [TrustAnchor::public(&pool.root, "Hubject openPlugnCharge V2G Root")];
     let anchors = TrustAnchors::new(&anchors);
 
     for (name, leaf) in &pool.leaves {
         let chain: [&[u8]; 3] = [leaf, &pool.sub2, &pool.sub1];
-        for policy in [
-            Policy::iso2(Profile::OemProvisioningCertificate),
-            Policy::iso20(Profile::OemProvisioningCertificate),
-        ] {
-            let path = pki::validate(&chain, &anchors, policy, IN_2020, &Backend)
-                .unwrap_or_else(|e| panic!("{name} under {policy:?}: {e}"));
-            // [V2G2-933]: the provisioning certificate's Common Name is its CertID.
-            assert_eq!(path.subject_common_name(), Some(name.as_str()));
-            assert_eq!(path.anchor_source, "Hubject openPlugnCharge V2G Root");
-        }
+        // Hubject's pool is a secp256r1 (ISO 15118-2) PKI; ISO 15118-20 has no
+        // secp256r1 profile (Annex B), so its rules refuse it by name.
+        let iso20 = Policy::iso20(Profile::OemProvisioningCertificate);
+        assert_eq!(
+            pki::validate(&chain, &anchors, iso20, &Evidence::none(), IN_2020, &Backend),
+            Err(ChainError::AlgorithmNotAllowed { index: 0 }),
+            "{name}"
+        );
+        let policy = Policy::iso2(Profile::OemProvisioningCertificate);
+        let path = pki::validate(&chain, &anchors, policy, &Evidence::none(), IN_2020, &Backend)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        // [V2G2-933]: the provisioning certificate's Common Name is its CertID.
+        assert_eq!(path.subject_common_name(), Some(name.as_str()));
+        assert_eq!(path.anchor_source, "Hubject openPlugnCharge V2G Root");
     }
     assert_eq!(pool.leaves.len(), 10);
 }
@@ -145,7 +148,7 @@ fn every_published_provisioning_leaf_validates_to_the_real_v2g_root() {
 fn the_published_chain_is_refused_when_it_should_be() {
     let Some(dir) = pool("the_published_chain_is_refused_when_it_should_be") else { return };
     let pool = load(&dir);
-    let anchors = [TrustAnchor::new(&pool.root, "Hubject")];
+    let anchors = [TrustAnchor::public(&pool.root, "Hubject")];
     let anchors = TrustAnchors::new(&anchors);
     let policy = Policy::iso2(Profile::OemProvisioningCertificate);
     let (_, leaf) = &pool.leaves[0];
@@ -153,7 +156,7 @@ fn the_published_chain_is_refused_when_it_should_be() {
     // After the leaves expired.
     let chain: [&[u8]; 3] = [leaf, &pool.sub2, &pool.sub1];
     assert_eq!(
-        pki::validate(&chain, &anchors, policy, IN_2023, &Backend),
+        pki::validate(&chain, &anchors, policy, &Evidence::none(), IN_2023, &Backend),
         Err(ChainError::Expired { index: 0 }),
     );
 
@@ -162,7 +165,7 @@ fn the_published_chain_is_refused_when_it_should_be() {
     let last = flipped.len() - 1;
     flipped[last] ^= 0x01;
     let chain: [&[u8]; 3] = [&flipped, &pool.sub2, &pool.sub1];
-    let result = pki::validate(&chain, &anchors, policy, IN_2020, &Backend);
+    let result = pki::validate(&chain, &anchors, policy, &Evidence::none(), IN_2020, &Backend);
     assert!(
         matches!(result, Err(ChainError::BadSignature { .. } | ChainError::Certificate { .. })),
         "{result:?}"
@@ -171,7 +174,7 @@ fn the_published_chain_is_refused_when_it_should_be() {
     // A Sub-CA missing from the middle.
     let chain: [&[u8]; 2] = [leaf, &pool.sub1];
     assert_eq!(
-        pki::validate(&chain, &anchors, policy, IN_2020, &Backend),
+        pki::validate(&chain, &anchors, policy, &Evidence::none(), IN_2020, &Backend),
         Err(ChainError::NoTrustAnchor),
     );
 
@@ -179,7 +182,14 @@ fn the_published_chain_is_refused_when_it_should_be() {
     // SECC certificate, whose Domain Component is a validity condition.
     let chain: [&[u8]; 3] = [leaf, &pool.sub2, &pool.sub1];
     assert!(
-        pki::validate(&chain, &anchors, Policy::iso2(Profile::SeccCertificate), IN_2020, &Backend)
-            .is_err()
+        pki::validate(
+            &chain,
+            &anchors,
+            Policy::iso2(Profile::SeccCertificate),
+            &Evidence::none(),
+            IN_2020,
+            &Backend
+        )
+        .is_err()
     );
 }

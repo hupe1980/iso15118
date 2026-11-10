@@ -219,6 +219,9 @@ pub struct Evcc {
     /// When the last response arrived, which is when
     /// `V2G_EVCC_Sequence_Performance_Time` starts running \[V2G2-485\].
     answered_at: Option<Instant>,
+    /// `V2G_EVCC_Sequence_Performance_Time` for the step after the request
+    /// last sent: 40 s, or 0,25 s inside a -20 charge loop.
+    sequence_budget: Millis,
     closed: bool,
 }
 
@@ -241,6 +244,7 @@ impl Evcc {
             established: false,
             phase: None,
             answered_at: None,
+            sequence_budget: crate::session::timers::iso2::EVCC_SEQUENCE_PERFORMANCE_TIME,
             closed: false,
         }
     }
@@ -385,6 +389,7 @@ impl Evcc {
         request.set_session_id(self.session_id);
 
         let timeout = self.config.message_timeout.unwrap_or_else(|| response_timeout(&request));
+        let sequence_budget = sequence_performance_time(&request);
         let name = request.name();
         // Everything that can fail has now failed or not; from here the session
         // moves, and it moves all at once.
@@ -398,6 +403,7 @@ impl Evcc {
         trace_event!(message = name, timeout = %timeout, "request sent");
         self.timers.arm(Timer::Message, now, timeout);
         self.outstanding = Some(name);
+        self.sequence_budget = sequence_budget;
         Ok(())
     }
 
@@ -608,12 +614,14 @@ impl Evcc {
     /// When the next request should be out — the last response's arrival plus
     /// `V2G_EVCC_Sequence_Performance_Time`.
     ///
-    /// The vehicle's half of ISO 15118-2 Table 109's sequence pair, and
-    /// **advice rather than a deadline**: nothing here enforces it and no timer
-    /// is armed from it. What is on the other side of it is the *station's*
-    /// `V2G_SECC_Sequence_Timeout` — 60 s against this 40 — so a vehicle that
-    /// lets it pass has twenty seconds of margin and then the session ends from
-    /// the far end \[V2G2-443\].
+    /// The vehicle's half of the sequence pair — ISO 15118-2 Table 109, or
+    /// ISO 15118-20 Table 215 — and **advice rather than a deadline**: nothing
+    /// here enforces it and no timer is armed from it. What is on the other
+    /// side of it is the *station's* `V2G_SECC_Sequence_Timeout` — 60 s against
+    /// this 40 — so a vehicle that lets it pass has twenty seconds of margin and
+    /// then the session ends from the far end \[V2G2-443\], \[V2G20-443\].
+    /// Inside an ISO 15118-20 charge loop the pair is 0,25 s against 0,5 s
+    /// (Tables 216-218); -2 has no separate charge-loop value.
     ///
     /// The gap is the point. \[V2G2-485\] and its neighbours phrase every step
     /// of the flow as "after receiving the `...Res`, the EVCC shall send the
@@ -627,9 +635,7 @@ impl Evcc {
     #[must_use]
     pub const fn next_request_due(&self) -> Option<Instant> {
         match (self.answered_at, self.outstanding) {
-            (Some(at), None) => Some(
-                at.saturating_add(crate::session::timers::iso2::EVCC_SEQUENCE_PERFORMANCE_TIME),
-            ),
+            (Some(at), None) => Some(at.saturating_add(self.sequence_budget)),
             _ => None,
         }
     }
@@ -691,6 +697,19 @@ fn response_timeout(request: &Message) -> Millis {
     }
     let _ = request;
     crate::session::timers::iso2::MSG_TIMEOUT_DEFAULT
+}
+
+/// `V2G_EVCC_Sequence_Performance_Time` for the step after `request`.
+///
+/// 40 s in both generations (ISO 15118-2 Table 109, ISO 15118-20 Table 215),
+/// except after an ISO 15118-20 charge loop request: 0,25 s, Tables 216-218.
+fn sequence_performance_time(request: &Message) -> Millis {
+    #[cfg(feature = "iso20-common")]
+    if let Some(r) = crate::session::iso20::Request::of(request) {
+        return r.sequence_performance_time();
+    }
+    let _ = request;
+    crate::session::timers::iso2::EVCC_SEQUENCE_PERFORMANCE_TIME
 }
 
 /// A failure that ends the session rather than being answered on the wire.

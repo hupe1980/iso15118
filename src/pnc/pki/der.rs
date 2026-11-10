@@ -35,8 +35,12 @@ pub(crate) mod tag {
     pub(crate) const BIT_STRING: u8 = 0x03;
     /// `OCTET STRING`.
     pub(crate) const OCTET_STRING: u8 = 0x04;
+    /// `NULL`.
+    pub(crate) const NULL: u8 = 0x05;
     /// `OBJECT IDENTIFIER`.
     pub(crate) const OID: u8 = 0x06;
+    /// `ENUMERATED`.
+    pub(crate) const ENUMERATED: u8 = 0x0A;
     /// `UTCTime`.
     pub(crate) const UTC_TIME: u8 = 0x17;
     /// `GeneralizedTime`.
@@ -50,6 +54,13 @@ pub(crate) mod tag {
     #[must_use]
     pub(crate) const fn context(n: u8) -> u8 {
         0xA0 | n
+    }
+
+    /// Context-specific *primitive* tag `n` — an `IMPLICIT` scalar, such as
+    /// OCSP's `good [0] IMPLICIT NULL`.
+    #[must_use]
+    pub(crate) const fn context_primitive(n: u8) -> u8 {
+        0x80 | n
     }
 }
 
@@ -187,6 +198,17 @@ impl<'a> Der<'a> {
             return Err(DerError::LengthTooLarge);
         }
         Ok(bytes.iter().fold(0u32, |acc, &b| (acc << 8) | u32::from(b)))
+    }
+
+    /// Reads a small `ENUMERATED` — OCSP's `responseStatus`, a `CRLReason`.
+    ///
+    /// The same minimal two's-complement rules as [`Self::small_uint`]; every
+    /// enumeration these grammars use fits in one octet.
+    pub(crate) fn enumerated(&mut self) -> Result<u8, DerError> {
+        match self.expect(tag::ENUMERATED)? {
+            [value] if value & 0x80 == 0 => Ok(*value),
+            _ => Err(DerError::Malformed),
+        }
     }
 
     /// Reads a `BIT STRING`, returning `(unused_bits, bytes)`.

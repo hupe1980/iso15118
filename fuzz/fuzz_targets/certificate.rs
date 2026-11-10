@@ -23,8 +23,8 @@
 #![no_main]
 
 use iso15118::pnc::pki::{
-    self, Certificate, ChainError, ISO20_MAX_CERTIFICATE_LEN, Policy, Profile, TrustAnchor,
-    TrustAnchors, VerifyWith,
+    self, Certificate, ChainError, Evidence, HashAlgorithm, Hasher, ISO20_MAX_CERTIFICATE_LEN,
+    Policy, Profile, TrustAnchor, TrustAnchors, VerifyWith,
 };
 use iso15118::pnc::{PncError, Suite};
 use libfuzzer_sys::fuzz_target;
@@ -38,6 +38,13 @@ impl VerifyWith for AcceptAll {
     }
 }
 
+/// No evidence is passed here, so nothing is ever hashed.
+impl Hasher for AcceptAll {
+    fn hash(&self, _: HashAlgorithm, _: &[u8]) -> Option<Vec<u8>> {
+        None
+    }
+}
+
 /// True when `part` is a subslice of `whole`, by address.
 fn within(whole: &[u8], part: &[u8]) -> bool {
     let base = whole.as_ptr() as usize;
@@ -47,12 +54,12 @@ fn within(whole: &[u8], part: &[u8]) -> bool {
 
 fuzz_target!(|data: &[u8]| {
     // The input as a self-anchored one-certificate chain, under both rules.
-    let anchors = [TrustAnchor::new(data, "fuzz")];
+    let anchors = [TrustAnchor::public(data, "fuzz")];
     let anchors = TrustAnchors::new(&anchors);
     let now = i64::from_le_bytes(data.get(..8).and_then(|b| b.try_into().ok()).unwrap_or_default());
     let profile = Profile::Unchecked;
-    let iso2 = pki::validate(&[data], &anchors, Policy::iso2(profile), now, &AcceptAll);
-    let iso20 = pki::validate(&[data], &anchors, Policy::iso20(profile), now, &AcceptAll);
+    let iso2 = pki::validate(&[data], &anchors, Policy::iso2(profile), &Evidence::none(), now, &AcceptAll);
+    let iso20 = pki::validate(&[data], &anchors, Policy::iso20(profile), &Evidence::none(), now, &AcceptAll);
     if data.len() > ISO20_MAX_CERTIFICATE_LEN {
         assert_eq!(iso20, Err(ChainError::TooLarge { index: 0, len: data.len() }));
     }

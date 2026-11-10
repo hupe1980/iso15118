@@ -38,14 +38,24 @@
 //! Private Operator Root anchors SECC certificates \[V2G2-927\] and may sign
 //! leaves directly \[V2G2-868\].
 //!
-//! # Not here: revocation
+//! # Revocation
 //!
-//! No OCSP, no CRL: a revoked certificate validates like a live one. Annex F
-//! makes OCSP a recommendation because a vehicle cannot be assumed to reach a
-//! responder while charging, and \[V2G2-868\] drops it in private
-//! environments. A station's back end already asks a clearing house whether to
-//! authorize the contract; [`Validated::subject_common_name`] is the `EMAID` to
-//! ask about.
+//! [`validate`] takes the OCSP responses and CRLs the caller holds
+//! ([`Evidence`]) and verifies them. Nothing is fetched.
+//!
+//!
+//! | Chain | Rules | Must be shown good | Source |
+//! |---|---|---|---|
+//! | SECC, public V2G root | -2 | every Sub-CA (not the leaf) | \[V2G2-070\], \[V2G2-873\] |
+//! | SECC, public V2G root | -20 | every certificate below the anchor | \[V2G20-1240\], \[V2G20-2416\] |
+//! | SECC, private root | -2 | nothing | \[V2G2-872\] |
+//! | SECC, private root | -20 | all or none | \[V2G20-2410\], \[V2G20-2417\] |
+//! | contract, OEM provisioning, unchecked | both | nothing — fetching is the station's call | \[V2G2-693\], \[V2G20-2214\] |
+//!
+//! In every row a certificate shown revoked, or evidence that does not verify,
+//! refuses the chain (\[V2G2-875\], \[V2G20-2413\]–\[V2G20-2415\]).
+//! [`Validated::standing`] reports each certificate. Public or private is set
+//! on the anchor: [`TrustAnchor::public`], [`TrustAnchor::private`].
 //!
 //! # Time is a real input
 //!
@@ -57,19 +67,24 @@
 //! # Example
 //!
 //! ```no_run
-//! use iso15118::pnc::pki::{Policy, Profile, TrustAnchor, TrustAnchors, chain};
+//! use iso15118::pnc::pki::{Evidence, Policy, Profile, TrustAnchor, TrustAnchors, chain};
 //! # use iso15118::pnc::{PncError, Suite};
+//! # use iso15118::pnc::pki::HashAlgorithm;
 //! # struct Backend;
 //! # impl iso15118::pnc::pki::VerifyWith for Backend {
 //! #     fn verify_with(&self, _: Suite, _: &[u8], _: &[u8], _: &[u8]) -> Result<(), PncError> { Ok(()) }
 //! # }
-//! # fn f(leaf: &[u8], sub_ca: &[u8], v2g_root: &[u8], now: i64) -> Result<(), chain::ChainError> {
+//! # impl iso15118::pnc::pki::Hasher for Backend {
+//! #     fn hash(&self, _: HashAlgorithm, _: &[u8]) -> Option<Vec<u8>> { None }
+//! # }
+//! # fn f(leaf: &[u8], sub_ca: &[u8], mo_root: &[u8], crl: &[u8], now: i64) -> Result<(), chain::ChainError> {
 //! // Leaf first, as both generations put it on the wire.
-//! let anchors = [TrustAnchor::new(v2g_root, "V2G Root")];
+//! let anchors = [TrustAnchor::public(mo_root, "MO Root")];
 //! let validated = chain::validate(
 //!     &[leaf, sub_ca],
 //!     &TrustAnchors::new(&anchors),
 //!     Policy::iso2(Profile::ContractCertificate),
+//!     &Evidence::crls(&[crl]),
 //!     now,
 //!     &Backend,
 //! )?;
@@ -84,16 +99,103 @@
 
 pub mod cert;
 pub mod chain;
+pub mod crl;
 mod der;
+pub mod ocsp;
 mod oid;
+pub mod status;
+
+use alloc::vec::Vec;
 
 pub use cert::{BasicConstraints, CertError, Certificate, Curve, KeyUsage, Name};
 pub use chain::{
     ChainError, ISO20_MAX_CERTIFICATE_LEN, MAX_PATH_LEN, Validated, select_chain, validate,
 };
+pub use crl::Crl;
 pub use der::DerError;
+pub use ocsp::OcspResponse;
+pub use status::{EvidenceError, Reason, Source, Standing, Unknown};
 
 use crate::pnc::{PncError, Suite};
+
+/// A digest named by an OCSP `CertID` or `ResponderID`.
+///
+/// SHA-1 is used only to find a response, never to verify one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
+pub enum HashAlgorithm {
+    /// SHA-1 (RFC 3174) — lookup only.
+    Sha1,
+    /// SHA-256.
+    Sha256,
+    /// SHA-384.
+    Sha384,
+    /// SHA-512.
+    Sha512,
+}
+
+/// Computes the digests revocation evidence names certificates by.
+pub trait Hasher {
+    /// `alg` over `data`, or `None` when this backend does not implement `alg` —
+    /// which makes evidence that needs it [`EvidenceError::UnsupportedHash`],
+    /// never good.
+    fn hash(&self, alg: HashAlgorithm, data: &[u8]) -> Option<Vec<u8>>;
+}
+
+/// The most OCSP responses, and separately the most CRLs, one validation reads.
+pub const MAX_EVIDENCE: usize = 16;
+
+/// Revocation evidence the caller holds, as DER: OCSP responses and CRLs, in
+/// any order, from any source.
+///
+/// Matched to certificates by what they say, never by position: a response by
+/// its `CertID`, a list by its issuer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Evidence<'s, 'a> {
+    /// DER `OCSPResponse`s.
+    pub ocsp: &'s [&'a [u8]],
+    /// DER `CertificateList`s.
+    pub crls: &'s [&'a [u8]],
+}
+
+impl<'s, 'a> Evidence<'s, 'a> {
+    /// No evidence. An SECC chain under a public anchor does not pass with it.
+    #[must_use]
+    pub const fn none() -> Self {
+        Self { ocsp: &[], crls: &[] }
+    }
+
+    /// OCSP responses only — what a vehicle has from the TLS handshake.
+    #[must_use]
+    pub const fn ocsp(responses: &'s [&'a [u8]]) -> Self {
+        Self { ocsp: responses, crls: &[] }
+    }
+
+    /// CRLs only.
+    #[must_use]
+    pub const fn crls(lists: &'s [&'a [u8]]) -> Self {
+        Self { ocsp: &[], crls: lists }
+    }
+
+    /// Both.
+    #[must_use]
+    pub const fn new(ocsp: &'s [&'a [u8]], crls: &'s [&'a [u8]]) -> Self {
+        Self { ocsp, crls }
+    }
+}
+
+/// Whether a trust anchor roots the public V2G PKI or a private one; the anchor
+/// a chain reaches selects the revocation rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Environment {
+    /// A V2G root, an MO / eMSP root, an OEM root.
+    Public,
+    /// A private environment's root — a PE or Private Operator Root
+    /// \[V2G2-868\]\[V2G2-927\].
+    Private,
+}
 
 /// Verifies a signature against a public key that arrived in a certificate.
 ///
@@ -133,8 +235,11 @@ pub enum Rules {
     /// bound \[V2G2-010\] is the schema's, on the wire, and not repeated here.
     Iso2,
     /// ISO 15118-20 with Amd 1:2026: certificates of at most
-    /// [`ISO20_MAX_CERTIFICATE_LEN`] bytes, and every certificate valid only
-    /// within its issuer's validity \[V2G20-3000\]/\[V2G20-3001\].
+    /// [`ISO20_MAX_CERTIFICATE_LEN`] bytes, every certificate valid only within
+    /// its issuer's validity \[V2G20-3000\]/\[V2G20-3001\], only secp521r1
+    /// with `ecdsa-with-SHA512` or Ed448 as [`Policy::algorithms`] allows
+    /// (Annex B, \[V2G20-2322\]), and only Annex B's extensions
+    /// \[V2G20-2323\].
     Iso20,
 }
 
@@ -147,19 +252,36 @@ pub struct Policy {
     pub profile: Profile,
     /// The generation's rules.
     pub rules: Rules,
+    /// The ISO 15118-20 algorithms accepted under [`Rules::Iso20`]
+    /// \[V2G20-2320\]; both by default. Ignored under [`Rules::Iso2`].
+    pub algorithms: crate::pnc::Algorithms,
 }
 
 impl Policy {
     /// `profile` under ISO 15118-2's rules.
     #[must_use]
     pub const fn iso2(profile: Profile) -> Self {
-        Self { profile, rules: Rules::Iso2 }
+        Self {
+            profile,
+            rules: Rules::Iso2,
+            algorithms: crate::pnc::Algorithms { secp521r1: true, ed448: true },
+        }
     }
 
     /// `profile` under ISO 15118-20's rules, Amd 1 included.
     #[must_use]
     pub const fn iso20(profile: Profile) -> Self {
-        Self { profile, rules: Rules::Iso20 }
+        Self {
+            profile,
+            rules: Rules::Iso20,
+            algorithms: crate::pnc::Algorithms { secp521r1: true, ed448: true },
+        }
+    }
+
+    /// The same policy with only `algorithms` accepted under ISO 15118-20.
+    #[must_use]
+    pub const fn with_algorithms(self, algorithms: crate::pnc::Algorithms) -> Self {
+        Self { algorithms, ..self }
     }
 }
 
@@ -176,13 +298,24 @@ pub struct TrustAnchor<'a> {
     pub der: &'a [u8],
     /// Where the anchor came from.
     pub source: &'a str,
+    /// Which PKI it roots — and so which revocation rules a chain reaching it
+    /// is held to.
+    pub environment: Environment,
 }
 
 impl<'a> TrustAnchor<'a> {
-    /// An anchor and its provenance.
+    /// An anchor of the public V2G PKI — a V2G root, an MO or OEM root — and
+    /// its provenance.
     #[must_use]
-    pub const fn new(der: &'a [u8], source: &'a str) -> Self {
-        Self { der, source }
+    pub const fn public(der: &'a [u8], source: &'a str) -> Self {
+        Self { der, source, environment: Environment::Public }
+    }
+
+    /// A private environment's anchor \[V2G2-868\]\[V2G2-927\] and its
+    /// provenance.
+    #[must_use]
+    pub const fn private(der: &'a [u8], source: &'a str) -> Self {
+        Self { der, source, environment: Environment::Private }
     }
 }
 

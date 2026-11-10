@@ -99,17 +99,20 @@ pub const DEFAULT_ID: &str = "ID1";
 
 /// The signature suites ISO 15118 defines.
 ///
-/// -2 has one; -20 adds the 521-bit curve for its higher security level and an
-/// Ed448 suite, which is not here because its algorithm identifiers are the
-/// caller's to supply along with the backend that implements them.
+/// -2 has one; -20 has two, ECDSA over secp521r1 and Ed448 \[V2G20-2674\]
+/// \[V2G20-2319\].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum Suite {
-    /// ECDSA over secp256r1 with SHA-256 — ISO 15118-2, and -20's baseline.
+    /// ECDSA over secp256r1 with SHA-256 — ISO 15118-2 \[V2G2-006\].
     EcdsaSha256,
-    /// ECDSA over secp521r1 with SHA-512 — ISO 15118-20's higher level.
+    /// ECDSA over secp521r1 with SHA-512 — ISO 15118-20 \[V2G20-2473\]
+    /// \[V2G20-2475\].
     EcdsaSha512,
+    /// Ed448 with SHAKE256 digests — ISO 15118-20 \[V2G20-2474\]
+    /// \[V2G20-2476\].
+    Ed448,
 }
 
 impl Suite {
@@ -119,6 +122,7 @@ impl Suite {
         match self {
             Self::EcdsaSha256 => "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256",
             Self::EcdsaSha512 => "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha512",
+            Self::Ed448 => "urn:iso:std:iso:15118:-20:Security:xmldsig#Ed448",
         }
     }
 
@@ -128,6 +132,7 @@ impl Suite {
         match self {
             Self::EcdsaSha256 => "http://www.w3.org/2001/04/xmlenc#sha256",
             Self::EcdsaSha512 => "http://www.w3.org/2001/04/xmlenc#sha512",
+            Self::Ed448 => "urn:iso:std:iso:15118:-20:Security:xmlenc#SHAKE256",
         }
     }
 
@@ -136,14 +141,49 @@ impl Suite {
     pub const fn digest_len(self) -> usize {
         match self {
             Self::EcdsaSha256 => 32,
-            Self::EcdsaSha512 => 64,
+            Self::EcdsaSha512 | Self::Ed448 => 64,
         }
     }
 
     /// Recognises a suite from its `SignatureMethod/@Algorithm` URI.
     #[must_use]
     pub fn from_signature_algorithm(uri: &str) -> Option<Self> {
-        [Self::EcdsaSha256, Self::EcdsaSha512].into_iter().find(|s| s.signature_algorithm() == uri)
+        [Self::EcdsaSha256, Self::EcdsaSha512, Self::Ed448]
+            .into_iter()
+            .find(|s| s.signature_algorithm() == uri)
+    }
+}
+
+/// The ISO 15118-20 algorithms a deployment accepts \[V2G20-2320\].
+///
+/// Both by default, because both are a "shall support" \[V2G20-2674\]
+/// \[V2G20-2319\]; a deployment disables one when a flaw is found in it.
+/// secp521r1 is the preferred one for signing and sealing \[V2G20-2321\].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Algorithms {
+    /// ECDSA over secp521r1 with SHA-512.
+    pub secp521r1: bool,
+    /// Ed448 with SHAKE256.
+    pub ed448: bool,
+}
+
+impl Default for Algorithms {
+    fn default() -> Self {
+        Self { secp521r1: true, ed448: true }
+    }
+}
+
+impl Algorithms {
+    /// Whether `suite` is an ISO 15118-20 suite this set accepts. ECDSA over
+    /// secp256r1 is never one.
+    #[must_use]
+    pub const fn allows(self, suite: Suite) -> bool {
+        match suite {
+            Suite::EcdsaSha256 => false,
+            Suite::EcdsaSha512 => self.secp521r1,
+            Suite::Ed448 => self.ed448,
+        }
     }
 }
 
@@ -170,8 +210,12 @@ impl<'a> Signed<'a> {
 
 /// Computes the digests a signature is built from.
 pub trait Hash {
-    /// `SHA-256` or `SHA-512`, as the suite requires.
-    fn digest(&self, suite: Suite, data: &[u8]) -> Vec<u8>;
+    /// The suite's digest: SHA-256, SHA-512, or SHAKE256 (64 bytes) for Ed448.
+    ///
+    /// # Errors
+    ///
+    /// When this backend does not implement the suite's digest.
+    fn digest(&self, suite: Suite, data: &[u8]) -> Result<Vec<u8>, PncError>;
 }
 
 /// Produces a signature over the canonical `SignedInfo` bytes.
@@ -372,7 +416,7 @@ pub(crate) fn check_reference(
     if digest_algorithm != suite.digest_algorithm() {
         return Err(PncError::UnsupportedAlgorithm(String::from(digest_algorithm)));
     }
-    let expected = hash.digest(suite, element.fragment);
+    let expected = hash.digest(suite, element.fragment)?;
     if digests_equal(&expected, digest_value) {
         Ok(())
     } else {
@@ -508,8 +552,11 @@ pub enum PncError {
         len: usize,
     },
     /// A delivered contract private key does not generate the public key of the
-    /// certificate it came with. \[V2G2-823\]
+    /// certificate it came with. \[V2G2-823\], \[V2G20-2507\], \[V2G20-2510\]
     KeyMismatch,
+    /// An ISO 15118-20 envelope failed authenticated decryption, or its
+    /// padding bits were not zero. \[V2G20-2504\], \[V2G20-2678\]
+    Decrypt,
     /// A `GenChallenge` was not [`GenChallenge::LEN`] bytes.
     BadChallengeLength {
         /// The length that arrived.
@@ -584,6 +631,7 @@ impl fmt::Display for PncError {
             Self::KeyMismatch => f.write_str(
                 "the delivered private key does not belong to the certificate it came with",
             ),
+            Self::Decrypt => f.write_str("the envelope did not decrypt and authenticate"),
             Self::TooManyReferences { references } => write!(
                 f,
                 "the signature covers {references} elements; ISO 15118 allows at most \

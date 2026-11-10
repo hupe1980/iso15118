@@ -23,17 +23,31 @@ use super::oid;
 pub enum Curve {
     /// `secp256r1` / `prime256v1` — ISO 15118-2's only curve.
     P256,
-    /// `secp521r1` — ISO 15118-20's higher security level.
+    /// `secp521r1` — ISO 15118-20 \[V2G20-2674\].
     P521,
+    /// Ed448 (RFC 8410) — ISO 15118-20 \[V2G20-2319\].
+    Ed448,
 }
 
 impl Curve {
-    /// Length of one coordinate, and so half of a raw `r ‖ s` signature.
+    /// Half the length of a raw signature: one coordinate of ECDSA's `r ‖ s`,
+    /// or half of Ed448's 114 bytes.
     #[must_use]
     pub const fn field_len(self) -> usize {
         match self {
             Self::P256 => 32,
             Self::P521 => 66,
+            Self::Ed448 => 57,
+        }
+    }
+
+    /// Length of the public key as the certificate carries it: an uncompressed
+    /// SEC1 point, or Ed448's 57 bytes.
+    #[must_use]
+    pub const fn public_key_len(self) -> usize {
+        match self {
+            Self::P256 | Self::P521 => 1 + 2 * self.field_len(),
+            Self::Ed448 => 57,
         }
     }
 
@@ -43,6 +57,7 @@ impl Curve {
         match self {
             Self::P256 => crate::pnc::Suite::EcdsaSha256,
             Self::P521 => crate::pnc::Suite::EcdsaSha512,
+            Self::Ed448 => crate::pnc::Suite::Ed448,
         }
     }
 }
@@ -144,12 +159,34 @@ pub struct Certificate<'a> {
     pub not_after: i64,
     /// The curve the subject's key is on.
     pub curve: Curve,
-    /// The subject's public key, as an uncompressed SEC1 point (`0x04 ‖ X ‖ Y`).
+    /// The subject's public key: an uncompressed SEC1 point (`0x04 ‖ X ‖ Y`),
+    /// or 57 bytes for Ed448.
     pub public_key: &'a [u8],
+    /// The X448 key of an ISO 15118-20 OEM provisioning certificate's
+    /// `subjectAltPublicKeyInfo` (Annex B.7.2), 56 bytes \[V2G20-2530\].
+    pub alt_public_key: Option<&'a [u8]>,
+    /// `SubjectKeyIdentifier`, when present — what the ISO 15118-20 envelope's
+    /// AAD carries \[V2G20-2492\].
+    pub subject_key_id: Option<&'a [u8]>,
+    /// The suite of `signatureAlgorithm`.
+    pub signature_algorithm: crate::pnc::Suite,
+    /// Whether every extension is one ISO 15118-20 Annex B names
+    /// \[V2G20-2323\].
+    pub annex_b_extensions_only: bool,
+    /// An OEM provisioning certificate's `TPMStorageKey`, as the base64 text
+    /// `SubjectInfoAccess` carries it \[V2G20-2516\] \[V2G20-2596\].
+    pub tpm_storage_key: Option<&'a [u8]>,
+    /// Its `TpmPolicyDigest`, as base64 text \[V2G20-2517\] \[V2G20-2596\].
+    pub tpm_policy_digest: Option<&'a [u8]>,
     /// `KeyUsage`, when the certificate carries one.
     pub key_usage: Option<KeyUsage>,
     /// `BasicConstraints`, when the certificate carries one.
     pub basic_constraints: Option<BasicConstraints>,
+    /// Whether `ExtendedKeyUsage` names `id-kp-OCSPSigning` (RFC 6960 §4.2.2.2,
+    /// ISO 15118-20 Table B.15).
+    pub ocsp_signing: bool,
+    /// Whether the certificate carries `id-pkix-ocsp-nocheck` (RFC 6960 §4.2.2.2.1).
+    pub ocsp_no_check: bool,
     /// The `signatureValue`, converted to the raw `r ‖ s` form
     /// [`Verify`](crate::pnc::Verify) takes.
     ///
@@ -213,8 +250,8 @@ pub enum CertError {
     /// profiles do not use them, and a decompression routine is arithmetic this
     /// crate has no reason to carry.
     BadPublicKey,
-    /// The signature algorithm is not `ecdsa-with-SHA256` or
-    /// `ecdsa-with-SHA512`.
+    /// The signature algorithm is not `ecdsa-with-SHA256`,
+    /// `ecdsa-with-SHA512` or `id-Ed448`.
     UnsupportedSignatureAlgorithm,
     /// `signatureAlgorithm` and `tbsCertificate.signature` disagree.
     ///
@@ -239,6 +276,9 @@ pub enum CertError {
     UnknownCriticalExtension,
     /// An extension appeared twice, which RFC 5280 §4.2 forbids.
     DuplicateExtension,
+    /// Under ISO 15118-20's rules, an extension Annex B does not name
+    /// \[V2G20-2323\].
+    ExtensionNotAllowed,
 }
 
 impl From<DerError> for CertError {
@@ -281,51 +321,10 @@ impl<'a> Certificate<'a> {
         let _ = tbs_reader.optional(0x81)?;
         let _ = tbs_reader.optional(0x82)?;
 
-        let mut key_usage = None;
-        let mut basic_constraints = None;
-        if let Some(extensions) = tbs_reader.optional(tag::context(3))? {
-            let mut list = Der::new(extensions);
-            let mut list = list.nested(tag::SEQUENCE)?;
-            let mut count = 0usize;
-            while !list.is_empty() {
-                let mut ext = list.nested(tag::SEQUENCE)?;
-                let id = ext.expect(tag::OID)?;
-                let critical =
-                    if ext.peek() == Some(tag::BOOLEAN) { ext.boolean()? } else { false };
-                let value = ext.expect(tag::OCTET_STRING)?;
-                ext.finish()?;
-                // RFC 5280 §4.2: "A certificate MUST NOT include more than one
-                // instance of a particular extension" — any extension, not only
-                // the two read here. Checked against the ones before it, which
-                // allocates nothing; the schemas cap a certificate on the wire at
-                // 800 bytes (-2) or 1 600 (-20), so the scan stays small.
-                if appears_among(extensions, count, id)? {
-                    return Err(CertError::DuplicateExtension);
-                }
-                count += 1;
-                match id {
-                    oid::KEY_USAGE => {
-                        key_usage = Some(read_key_usage(value)?);
-                    }
-                    oid::BASIC_CONSTRAINTS => {
-                        basic_constraints = Some(read_basic_constraints(value)?);
-                    }
-                    // Recognised, and nothing here acts on them. Every Annex F
-                    // profile marks all four non-critical, so ignoring one is
-                    // what RFC 5280 says to do — and refusing a *critical*
-                    // spelling of them is what the arm below is for.
-                    oid::SUBJECT_KEY_IDENTIFIER
-                    | oid::AUTHORITY_KEY_IDENTIFIER
-                    | oid::CERTIFICATE_POLICIES
-                    | oid::CRL_DISTRIBUTION_POINTS
-                    | oid::AUTHORITY_INFO_ACCESS
-                    | oid::EXT_KEY_USAGE
-                        if !critical => {}
-                    _ if critical => return Err(CertError::UnknownCriticalExtension),
-                    _ => {}
-                }
-            }
-        }
+        let ext = match tbs_reader.optional(tag::context(3))? {
+            Some(extensions) => read_extensions(extensions)?,
+            None => Extensions::default(),
+        };
 
         let outer_alg = read_signature_algorithm(&mut cert)?;
         if outer_alg != inner_alg {
@@ -338,6 +337,11 @@ impl<'a> Certificate<'a> {
         cert.finish()?;
 
         let signature = raw_signature(sig_der, curve)?;
+        let signature_algorithm = match outer_alg {
+            oid::ECDSA_WITH_SHA256 => crate::pnc::Suite::EcdsaSha256,
+            oid::ECDSA_WITH_SHA512 => crate::pnc::Suite::EcdsaSha512,
+            _ => crate::pnc::Suite::Ed448,
+        };
 
         Ok(Self {
             der,
@@ -349,8 +353,16 @@ impl<'a> Certificate<'a> {
             not_after,
             curve,
             public_key,
-            key_usage,
-            basic_constraints,
+            alt_public_key: ext.alt_public_key,
+            subject_key_id: ext.subject_key_id,
+            signature_algorithm,
+            annex_b_extensions_only: ext.annex_b_only,
+            tpm_storage_key: ext.tpm_storage_key,
+            tpm_policy_digest: ext.tpm_policy_digest,
+            key_usage: ext.key_usage,
+            basic_constraints: ext.basic_constraints,
+            ocsp_signing: ext.ocsp_signing,
+            ocsp_no_check: ext.ocsp_no_check,
             signature,
         })
     }
@@ -370,6 +382,90 @@ impl<'a> Certificate<'a> {
     }
 }
 
+/// What a certificate's extensions say, as far as this crate reads them.
+#[derive(Debug, Default)]
+struct Extensions<'a> {
+    key_usage: Option<KeyUsage>,
+    basic_constraints: Option<BasicConstraints>,
+    ocsp_signing: bool,
+    ocsp_no_check: bool,
+    alt_public_key: Option<&'a [u8]>,
+    subject_key_id: Option<&'a [u8]>,
+    annex_b_only: bool,
+    tpm_storage_key: Option<&'a [u8]>,
+    tpm_policy_digest: Option<&'a [u8]>,
+}
+
+/// Reads the `[3]` wrapper's contents.
+fn read_extensions(extensions: &[u8]) -> Result<Extensions<'_>, CertError> {
+    let mut out = Extensions { annex_b_only: true, ..Extensions::default() };
+    let mut list = Der::new(extensions);
+    let mut list = list.nested(tag::SEQUENCE)?;
+    let mut count = 0usize;
+    while !list.is_empty() {
+        let mut ext = list.nested(tag::SEQUENCE)?;
+        let id = ext.expect(tag::OID)?;
+        let critical = if ext.peek() == Some(tag::BOOLEAN) { ext.boolean()? } else { false };
+        let value = ext.expect(tag::OCTET_STRING)?;
+        ext.finish()?;
+        // RFC 5280 §4.2: "A certificate MUST NOT include more than one
+        // instance of a particular extension" — any extension, not only
+        // the two read here. Checked against the ones before it, which
+        // allocates nothing; the schemas cap a certificate on the wire at
+        // 800 bytes (-2) or 1 600 (-20), so the scan stays small.
+        if appears_among(extensions, count, id)? {
+            return Err(CertError::DuplicateExtension);
+        }
+        count += 1;
+        out.annex_b_only &= in_annex_b(id);
+        match id {
+            oid::KEY_USAGE => {
+                out.key_usage = Some(read_key_usage(value)?);
+            }
+            oid::BASIC_CONSTRAINTS => {
+                out.basic_constraints = Some(read_basic_constraints(value)?);
+            }
+            // Critical or not (RFC 5280 §4.2.1.12).
+            oid::EXT_KEY_USAGE => {
+                out.ocsp_signing = read_ocsp_signing(value)?;
+            }
+            // RFC 5280 §4.2.1.2: never critical; a critical one falls through
+            // to the refusal below.
+            oid::SUBJECT_KEY_IDENTIFIER if !critical => {
+                let mut reader = Der::new(value);
+                out.subject_key_id = Some(reader.expect(tag::OCTET_STRING)?);
+                reader.finish()?;
+            }
+            // Annex B.7.2 marks it critical on an Ed448 OEM certificate.
+            oid::SUBJECT_ALT_PUBLIC_KEY_INFO => {
+                out.alt_public_key = Some(read_alt_public_key(value)?);
+            }
+            // RFC 6960 §4.2.2.2.1: the value is `NULL`.
+            oid::OCSP_NO_CHECK => {
+                if value != [tag::NULL, 0x00] {
+                    return Err(CertError::Der(DerError::Malformed));
+                }
+                out.ocsp_no_check = true;
+            }
+            // Recognised, and nothing here acts on them. Every Annex F
+            // profile marks all four non-critical, so ignoring one is
+            // what RFC 5280 says to do — and refusing a *critical*
+            // spelling of them is what the arm below is for.
+            oid::SUBJECT_INFO_ACCESS if !critical => {
+                read_tpm_information(value, &mut out)?;
+            }
+            oid::AUTHORITY_KEY_IDENTIFIER
+            | oid::CERTIFICATE_POLICIES
+            | oid::CRL_DISTRIBUTION_POINTS
+            | oid::AUTHORITY_INFO_ACCESS
+                if !critical => {}
+            _ if critical => return Err(CertError::UnknownCriticalExtension),
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
 /// Whether one of the first `count` extensions in `extensions` (the contents of
 /// the `[3]` wrapper) has the OID `id`.
 fn appears_among(extensions: &[u8], count: usize, id: &[u8]) -> Result<bool, CertError> {
@@ -383,9 +479,26 @@ fn appears_among(extensions: &[u8], count: usize, id: &[u8]) -> Result<bool, Cer
     Ok(false)
 }
 
+/// Reads `ExtendedKeyUsage` (a `SEQUENCE OF KeyPurposeId`), answering whether
+/// it names `id-kp-OCSPSigning`.
+fn read_ocsp_signing(value: &[u8]) -> Result<bool, CertError> {
+    let mut reader = Der::new(value);
+    let mut purposes = reader.nested(tag::SEQUENCE)?;
+    reader.finish()?;
+    let mut found = false;
+    // RFC 5280 §4.2.1.12: `SIZE (1..MAX)`.
+    if purposes.is_empty() {
+        return Err(CertError::Der(DerError::Malformed));
+    }
+    while !purposes.is_empty() {
+        found |= purposes.expect(tag::OID)? == oid::KP_OCSP_SIGNING;
+    }
+    Ok(found)
+}
+
 /// Reads an `AlgorithmIdentifier`, returning the curve-independent algorithm
 /// OID.
-fn read_signature_algorithm<'a>(reader: &mut Der<'a>) -> Result<&'a [u8], CertError> {
+pub(super) fn read_signature_algorithm<'a>(reader: &mut Der<'a>) -> Result<&'a [u8], CertError> {
     let mut alg = reader.nested(tag::SEQUENCE)?;
     let id = alg.expect(tag::OID)?;
     // ECDSA `AlgorithmIdentifier`s take absent parameters (RFC 5758 §3.2), and
@@ -394,13 +507,75 @@ fn read_signature_algorithm<'a>(reader: &mut Der<'a>) -> Result<&'a [u8], CertEr
         return Err(CertError::UnsupportedSignatureAlgorithm);
     }
     match id {
-        oid::ECDSA_WITH_SHA256 | oid::ECDSA_WITH_SHA512 => Ok(id),
+        oid::ECDSA_WITH_SHA256 | oid::ECDSA_WITH_SHA512 | oid::ED448 => Ok(id),
         _ => Err(CertError::UnsupportedSignatureAlgorithm),
     }
 }
 
+/// Whether ISO 15118-20 Annex B names the extension `id` (B.2.3) \[V2G20-2323\].
+fn in_annex_b(id: &[u8]) -> bool {
+    matches!(
+        id,
+        oid::AUTHORITY_KEY_IDENTIFIER
+            | oid::SUBJECT_KEY_IDENTIFIER
+            | oid::KEY_USAGE
+            | oid::EXT_KEY_USAGE
+            | oid::BASIC_CONSTRAINTS
+            | oid::CRL_DISTRIBUTION_POINTS
+            | oid::AUTHORITY_INFO_ACCESS
+            | oid::SUBJECT_INFO_ACCESS
+            | oid::CERTIFICATE_POLICIES
+            | oid::SUBJECT_ALT_PUBLIC_KEY_INFO
+    ) || id.strip_prefix(oid::ISO15118_20_EXTENSIONS).is_some_and(|last| matches!(last, [1..=6]))
+}
+
+/// Reads `SubjectInfoAccess`'s ISO 15118-20 TPM access descriptions
+/// (\[V2G20-2594\]–\[V2G20-2596\]): `accessMethod` 1.0.15118.20.0.4
+/// (`TPMStorageKey`) or .5 (`TpmPolicyDigest`), `accessLocation` a
+/// `uniformResourceIdentifier` holding base64. Other descriptions are ignored.
+fn read_tpm_information<'a>(value: &'a [u8], out: &mut Extensions<'a>) -> Result<(), CertError> {
+    let mut reader = Der::new(value);
+    let mut list = reader.nested(tag::SEQUENCE)?;
+    reader.finish()?;
+    while !list.is_empty() {
+        let mut description = list.nested(tag::SEQUENCE)?;
+        let method = description.expect(tag::OID)?;
+        let (location_tag, location) = description.any()?;
+        description.finish()?;
+        let slot = match method.strip_prefix(oid::ISO15118_20_EXTENSIONS) {
+            Some([4]) => &mut out.tpm_storage_key,
+            Some([5]) => &mut out.tpm_policy_digest,
+            _ => continue,
+        };
+        // [6] IMPLICIT IA5String.
+        if location_tag != tag::context_primitive(6) || slot.is_some() {
+            return Err(CertError::Der(DerError::Malformed));
+        }
+        *slot = Some(location);
+    }
+    Ok(())
+}
+
+/// Reads `subjectAltPublicKeyInfo`: an `id-X448` key, 56 bytes.
+fn read_alt_public_key(value: &[u8]) -> Result<&[u8], CertError> {
+    let mut reader = Der::new(value);
+    let mut info = reader.nested(tag::SEQUENCE)?;
+    reader.finish()?;
+    let mut alg = info.nested(tag::SEQUENCE)?;
+    if alg.expect(tag::OID)? != oid::X448 {
+        return Err(CertError::UnsupportedCurve);
+    }
+    alg.finish()?;
+    let (unused, key) = info.bit_string()?;
+    info.finish()?;
+    if unused != 0 || key.len() != 56 {
+        return Err(CertError::BadPublicKey);
+    }
+    Ok(key)
+}
+
 /// Reads a `Name`, keeping its encoding and the three attributes Annex F names.
-fn read_name<'a>(reader: &mut Der<'a>) -> Result<Name<'a>, CertError> {
+pub(super) fn read_name<'a>(reader: &mut Der<'a>) -> Result<Name<'a>, CertError> {
     let (_, encoded, contents) = reader.any_raw()?;
     let mut rdns = Der::new(contents);
     let mut name = Name { encoded, common_name: None, organization: None, domain_component: None };
@@ -440,7 +615,7 @@ fn read_validity(reader: &mut Der<'_>) -> Result<(i64, i64), CertError> {
 }
 
 /// Reads one `Time`, which RFC 5280 §4.1.2.5 makes a choice of two encodings.
-fn read_time(reader: &mut Der<'_>) -> Result<i64, CertError> {
+pub(super) fn read_time(reader: &mut Der<'_>) -> Result<i64, CertError> {
     let (tag, bytes) = reader.any()?;
     let text = core::str::from_utf8(bytes).map_err(|_| CertError::BadValidity)?;
     let (year, rest) = match tag {
@@ -503,7 +678,18 @@ fn unix_seconds(year: i64, month: u32, day: u32, hour: u32, minute: u32, second:
 fn read_spki<'a>(reader: &mut Der<'a>) -> Result<(Curve, &'a [u8]), CertError> {
     let mut spki = reader.nested(tag::SEQUENCE)?;
     let mut alg = spki.nested(tag::SEQUENCE)?;
-    if alg.expect(tag::OID)? != oid::EC_PUBLIC_KEY {
+    let key_algorithm = alg.expect(tag::OID)?;
+    // RFC 8410: `id-Ed448` with absent parameters and a 57-byte key.
+    if key_algorithm == oid::ED448 {
+        alg.finish()?;
+        let (unused, key) = spki.bit_string()?;
+        spki.finish()?;
+        if unused != 0 || key.len() != Curve::Ed448.public_key_len() {
+            return Err(CertError::BadPublicKey);
+        }
+        return Ok((Curve::Ed448, key));
+    }
+    if key_algorithm != oid::EC_PUBLIC_KEY {
         return Err(CertError::UnsupportedCurve);
     }
     // ISO 15118 uses named curves throughout; the explicit-parameters form is
@@ -521,7 +707,7 @@ fn read_spki<'a>(reader: &mut Der<'a>) -> Result<(Curve, &'a [u8]), CertError> {
         return Err(CertError::BadPublicKey);
     }
     // SEC1 uncompressed: `0x04 ‖ X ‖ Y`, each coordinate the field's width.
-    if point.first() != Some(&0x04) || point.len() != 1 + 2 * curve.field_len() {
+    if point.first() != Some(&0x04) || point.len() != curve.public_key_len() {
         return Err(CertError::BadPublicKey);
     }
     Ok((curve, point))
@@ -570,8 +756,17 @@ fn read_basic_constraints(value: &[u8]) -> Result<BasicConstraints, CertError> {
 /// conversion here is what keeps the crate's signing traits one shape — a
 /// backend implements `verify` once and it serves both a message signature and
 /// a certificate.
-fn raw_signature(der: &[u8], curve: Curve) -> Result<heapless_sig::Sig, CertError> {
+pub(super) fn raw_signature(der: &[u8], curve: Curve) -> Result<heapless_sig::Sig, CertError> {
     let width = curve.field_len();
+    // RFC 8410 §6: an Ed448 signature is the raw 114 bytes, not DER.
+    if curve == Curve::Ed448 {
+        if der.len() != 2 * width {
+            return Err(CertError::BadSignature);
+        }
+        let mut bytes = [0u8; heapless_sig::MAX];
+        bytes[..der.len()].copy_from_slice(der);
+        return Ok(heapless_sig::Sig { bytes, len: der.len() });
+    }
     let mut reader = Der::new(der);
     let mut seq = reader.nested(tag::SEQUENCE).map_err(|_| CertError::BadSignature)?;
     reader.finish().map_err(|_| CertError::BadSignature)?;
@@ -605,12 +800,12 @@ impl core::fmt::Display for CertError {
             Self::Der(e) => write!(f, "{e}"),
             Self::NotV3 => f.write_str("the certificate is not X.509v3"),
             Self::UnsupportedCurve => {
-                f.write_str("the public key is not on secp256r1 or secp521r1")
+                f.write_str("the public key is not on secp256r1, secp521r1 or Ed448")
             }
             Self::BadPublicKey => f.write_str("the public key is not an uncompressed SEC1 point"),
-            Self::UnsupportedSignatureAlgorithm => {
-                f.write_str("the signature algorithm is not ECDSA with SHA-256 or SHA-512")
-            }
+            Self::UnsupportedSignatureAlgorithm => f.write_str(
+                "the signature algorithm is not ECDSA with SHA-256 or SHA-512, or Ed448",
+            ),
             Self::AlgorithmMismatch => f.write_str(
                 "signatureAlgorithm and tbsCertificate.signature name different algorithms",
             ),
@@ -620,6 +815,9 @@ impl core::fmt::Display for CertError {
                 "the certificate carries a critical extension this build cannot process",
             ),
             Self::DuplicateExtension => f.write_str("an extension appears more than once"),
+            Self::ExtensionNotAllowed => {
+                f.write_str("an extension ISO 15118-20 Annex B does not name")
+            }
         }
     }
 }

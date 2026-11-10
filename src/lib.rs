@@ -49,8 +49,8 @@
 //! [`pnc`] answers "is this signature about *this* session" — the
 //! `GenChallenge` binding, checked in the same call as the signature.
 //! [`pnc::pki`] answers "is this key one to trust" — RFC 5280 path validation
-//! under ISO 15118's Annex F profiles. Neither answers whether a certificate was
-//! **revoked**; [`pnc::pki`] says why.
+//! under ISO 15118's Annex F profiles, with the OCSP responses and CRLs the
+//! caller hands in.
 //!
 //! # Protocol, not policy
 //!

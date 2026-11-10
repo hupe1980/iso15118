@@ -53,6 +53,9 @@ CONCEPT.md
 fuzz/target
 fuzz/corpus
 !fuzz/seeds
+# libFuzzer writes new inputs, named by their SHA-1, into the first corpus
+# directory it is given; seeds are named by what they are, never by a hash.
+fuzz/seeds/**/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]
 fuzz/artifacts
 fuzz/coverage
 fuzz/Cargo.lock

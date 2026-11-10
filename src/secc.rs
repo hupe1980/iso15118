@@ -148,8 +148,20 @@ pub struct SeccConfig {
 
     /// How long to wait for the vehicle's next request before giving up.
     ///
-    /// Defaults to `V2G_SECC_Sequence_Timeout`, 60 s in both generations.
+    /// Defaults to `V2G_SECC_Sequence_Timeout`, 60 s in both generations
+    /// (ISO 15118-2 Table 109, ISO 15118-20 Table 215), and applied after
+    /// every response except an ISO 15118-20 charge-loop response, which has
+    /// its own: [`Self::charge_loop_sequence_timeout`].
     pub sequence_timeout: Millis,
+    /// How long to wait for the vehicle's next request after an ISO 15118-20
+    /// `AC_ChargeLoopRes`, `DC_ChargeLoopRes` or `WPT_ChargeLoopRes`.
+    ///
+    /// Defaults to `V2G_SECC_Sequence_Timeout` for the charge loop, 0,5 s
+    /// (Tables 216–219,
+    /// [`SECC_CHARGE_LOOP_SEQUENCE_TIMEOUT`](crate::session::timers::iso20::SECC_CHARGE_LOOP_SEQUENCE_TIMEOUT)),
+    /// which the station shall implement \[V2G20-1502\]. ISO 15118-2's
+    /// `CurrentDemandRes` and `ChargingStatusRes` use [`Self::sequence_timeout`].
+    pub charge_loop_sequence_timeout: Millis,
     /// The deployment's own bounds for the authorization loop and the other
     /// `..._Ongoing` loops. Defaults to none, which keeps the generation's
     /// figures. Keep each shorter than the vehicle's; see [`LoopBudgets`].
@@ -162,7 +174,8 @@ pub struct SeccConfig {
     /// How long from the connection opening to a `SessionSetupReq`.
     ///
     /// Defaults to the station's own parameter,
-    /// `V2G_SECC_CommunicationSetup_Performance_Time` — 18 s \[V2G2-716\], two
+    /// `V2G_SECC_CommunicationSetup_Performance_Time` — 18 s in both
+    /// generations \[V2G2-716\], \[V2G20-716\], two
     /// under the vehicle's 20 s timeout, so the station gives up while the
     /// vehicle is still listening rather than the other way round.
     pub setup_timeout: Millis,
@@ -177,6 +190,8 @@ impl Default for SeccConfig {
             max_payload_len: MAX_EXI_PAYLOAD_LEN,
             max_pending_frames: crate::session::MAX_PENDING_FRAMES,
             sequence_timeout: crate::session::timers::iso2::SECC_SEQUENCE_TIMEOUT,
+            charge_loop_sequence_timeout:
+                crate::session::timers::iso20::SECC_CHARGE_LOOP_SEQUENCE_TIMEOUT,
             loop_budgets: LoopBudgets::default(),
             iso20_sets: crate::Iso20Set::ALL.into_iter().filter(|s| s.is_compiled()).collect(),
             setup_timeout: crate::session::timers::iso2::SECC_COMMUNICATION_SETUP_PERFORMANCE_TIME,
@@ -721,6 +736,11 @@ impl Secc {
             trace_close!(message = response.name(), "failure response; awaiting SessionStopReq");
             flow.failed();
         }
+        let wait = if is_iso20_charge_loop_response(&response) {
+            self.config.charge_loop_sequence_timeout
+        } else {
+            self.config.sequence_timeout
+        };
         self.conn.send(&response)?;
         self.outstanding = None;
 
@@ -732,7 +752,7 @@ impl Secc {
                 // Still going: the vehicle owes the next request — the next one
                 // in the flow, or `SessionStopReq` if this answer was a
                 // failure. Either way the sequence timer bounds the wait.
-                self.timers.arm(Timer::Sequence, now, self.config.sequence_timeout);
+                self.timers.arm(Timer::Sequence, now, wait);
             }
         }
         // The vehicle's next request may already be framed and waiting; now
@@ -1057,4 +1077,10 @@ impl std::error::Error for SeccError {
             _ => None,
         }
     }
+}
+
+/// Whether `response` is an ISO 15118-20 `AC_`, `DC_` or `WPT_ChargeLoopRes`
+/// (Tables 216–219). The names are unique across generations.
+fn is_iso20_charge_loop_response(response: &Message) -> bool {
+    response.name().ends_with("_ChargeLoopRes")
 }

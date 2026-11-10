@@ -412,12 +412,13 @@ impl Flow {
 /// A deployment's own bounds for the loops a peer repeats while the answer is
 /// `..._Ongoing`.
 ///
-/// `None` keeps the generation's figure: Table 109 for ISO 15118-2, this
-/// crate's labelled policy for ISO 15118-20 (see [`timers`]).
+/// `None` keeps the generation's figure: Table 109 for ISO 15118-2, Table 215
+/// for ISO 15118-20 — 60 s for the vehicle and 55 s for the station in both
+/// (see [`timers`]).
 ///
 /// * **`authorization`** — while a driver presents a card or confirms in an
 ///   app. `ChargeX`'s *Timeouts Best Practices* (March 2025) found drivers
-///   needing more than 140 s where ISO 15118-2 gives 60.
+///   needing more than 140 s where ISO 15118-2 and -20 give 60.
 /// * **`ongoing`** — every other `Ongoing` loop: parameter discovery, schedule
 ///   exchange, welding detection.
 ///
@@ -646,8 +647,8 @@ mod tests {
         );
     }
 
-    /// The same for ISO 15118-20, where the authorization loop's default is this
-    /// crate's three-minute policy rather than a quoted figure.
+    /// The same for ISO 15118-20, whose Table 215 gives the authorization loop
+    /// the same 60 s as every other `Ongoing` loop.
     #[cfg(feature = "iso20-common")]
     #[test]
     fn a_configured_loop_budget_reaches_the_iso20_loops_too() {
@@ -663,7 +664,7 @@ mod tests {
         }
         assert_eq!(
             flow.loop_timeout(Role::Evcc, LoopBudgets::default()),
-            Some(Millis::from_secs(180))
+            Some(Millis::from_secs(60))
         );
         assert_eq!(flow.loop_timeout(Role::Evcc, budgets), Some(Millis::from_secs(240)));
 

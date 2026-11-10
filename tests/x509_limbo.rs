@@ -30,7 +30,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use iso15118::pnc::pki::{
-    self, CertError, Certificate, ChainError, MAX_PATH_LEN, Policy, Profile, TrustAnchor,
+    self, CertError, Certificate, ChainError, Evidence, MAX_PATH_LEN, Policy, Profile, TrustAnchor,
     TrustAnchors,
 };
 use iso15118::pnc::rustcrypto::Backend;
@@ -40,8 +40,9 @@ use serde_json::Value;
 const CLASSES: &[&str] = &[
     // The V2G path limit: three certificates, the anchor not counted [V2G2-009].
     "path-length",
-    // A CRL decides the verdict; revocation is the caller's seam (R6 in the
-    // design notes, `pki`'s module documentation here).
+    // A CRL decides the verdict and this crate reads it differently. Every
+    // `crl::*` case is fed to `validate` as `Evidence::crls`, so a row here is a
+    // real disagreement about RFC 5280 §5 — and there are none today.
     "revocation",
     // Peer name, SAN, EKU or key usage of the leaf: `Profile::Unchecked` leaves
     // them to the caller, exactly as its documentation says.
@@ -86,6 +87,10 @@ fn every_in_profile_case_reaches_limbo_verdict_or_is_listed() {
 
         let trusted: Vec<Vec<u8>> = pems(&case["trusted_certs"]);
         let pool: Vec<Vec<u8>> = pems(&case["untrusted_intermediates"]);
+        // Limbo hands CRLs over beside the chain; they are revocation evidence
+        // exactly as a station's back end would hand them in.
+        let crls: Vec<Vec<u8>> =
+            if case["crls"].is_null() { Vec::new() } else { pems(&case["crls"]) };
         let peer = pem(case["peer_certificate"].as_str().expect("peer_certificate"));
 
         if [&peer].into_iter().chain(&trusted).chain(&pool).any(|der| out_of_v2g_profile(der)) {
@@ -94,7 +99,7 @@ fn every_in_profile_case_reaches_limbo_verdict_or_is_listed() {
         }
 
         let at = case["validation_time"].as_str().map_or(now, rfc3339);
-        let (accepted, why) = verdict(&peer, &pool, &trusted, at);
+        let (accepted, why) = verdict(&peer, &pool, &trusted, &crls, at);
         let expected = match case["expected_result"].as_str() {
             Some("SUCCESS") => true,
             Some("FAILURE") => false,
@@ -148,10 +153,13 @@ fn verdict(
     peer: &[u8],
     pool: &[Vec<u8>],
     trusted: &[Vec<u8>],
+    crls: &[Vec<u8>],
     now: i64,
 ) -> (bool, Option<ChainError>) {
+    let crls: Vec<&[u8]> = crls.iter().map(Vec::as_slice).collect();
+    let evidence = Evidence::crls(&crls);
     let anchors: Vec<TrustAnchor<'_>> =
-        trusted.iter().map(|der| TrustAnchor::new(der, "limbo")).collect();
+        trusted.iter().map(|der| TrustAnchor::public(der, "limbo")).collect();
     let anchors = TrustAnchors::new(&anchors);
     let parsed: Vec<Option<Certificate<'_>>> =
         pool.iter().map(|der| Certificate::parse(der).ok()).collect();
@@ -192,7 +200,14 @@ fn verdict(
     for chain in &chains {
         let ders: Vec<&[u8]> =
             std::iter::once(peer).chain(chain.iter().map(|&i| pool[i].as_slice())).collect();
-        match pki::validate(&ders, &anchors, Policy::iso2(Profile::Unchecked), now, &Backend) {
+        match pki::validate(
+            &ders,
+            &anchors,
+            Policy::iso2(Profile::Unchecked),
+            &evidence,
+            now,
+            &Backend,
+        ) {
             Ok(_) => return (true, None),
             Err(e) => last_error = Some(e),
         }

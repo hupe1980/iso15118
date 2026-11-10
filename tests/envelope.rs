@@ -18,7 +18,9 @@
 
 use iso15118::pnc::PncError;
 use iso15118::pnc::envelope::KeyAgreement as _;
-use iso15118::pnc::envelope::{self, DH_PUBLIC_KEY_LEN, ENVELOPE_LEN, IV_LEN, PRIVATE_KEY_LEN};
+use iso15118::pnc::envelope::iso2::{
+    self as envelope, DH_PUBLIC_KEY_LEN, ENVELOPE_LEN, IV_LEN, PRIVATE_KEY_LEN,
+};
 use iso15118::pnc::rustcrypto::{Aes128, AgreementKey, Sha2};
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -30,7 +32,7 @@ fn fixture(name: &str) -> Vec<u8> {
 /// Provisioning Certificate \[V2G2-820\] or the existing Contract Certificate
 /// \[V2G2-821\].
 fn receiver() -> AgreementKey {
-    AgreementKey::new(&fixture("receiver-key")).expect("a P-256 scalar")
+    AgreementKey::p256(&fixture("receiver-key")).expect("a P-256 scalar")
 }
 
 /// The whole of it: an envelope a third implementation built, opened, checked
@@ -70,7 +72,7 @@ fn the_fixture_has_the_shape_the_standard_gives_it() {
 fn a_key_that_does_not_match_its_certificate_is_refused() {
     // Any other valid public point stands in for "a certificate that is not
     // this key's".
-    let other = AgreementKey::new(&[0x42; 32]).unwrap().public_key();
+    let other = AgreementKey::p256(&[0x42; 32]).unwrap().public_key();
     assert_eq!(
         envelope::open(
             &fixture("envelope"),
@@ -89,7 +91,7 @@ fn a_key_that_does_not_match_its_certificate_is_refused() {
 /// named failure instead of a contract key that quietly does not work.
 #[test]
 fn the_wrong_receiver_key_does_not_open_it() {
-    let stranger = AgreementKey::new(&[0x11; 32]).unwrap();
+    let stranger = AgreementKey::p256(&[0x11; 32]).unwrap();
     assert_eq!(
         envelope::open(
             &fixture("envelope"),
@@ -161,7 +163,7 @@ fn a_field_that_is_not_the_right_length_is_refused_outright() {
 /// test above, which opens bytes OpenSSL produced.
 #[test]
 fn sealing_and_opening_are_the_two_halves_of_one_exchange() {
-    let ephemeral = AgreementKey::new(&[0x07; 32]).unwrap();
+    let ephemeral = AgreementKey::p256(&[0x07; 32]).unwrap();
     let contract_key = fixture("contract-key");
     let receiver_public = receiver().public_key();
     let iv = [0xA5u8; IV_LEN];
@@ -193,13 +195,13 @@ fn the_session_key_is_the_leftmost_half_of_one_sha256() {
     use iso15118::pnc::Hash as _;
 
     let shared = receiver().agree(&fixture("dh-public-key")).expect("ECDH");
-    let derived = envelope::session_key(&shared, &Sha2);
+    let derived = envelope::session_key(&shared, &Sha2).unwrap();
 
     // The KDF, spelled out: counter ‖ Z ‖ AlgorithmID ‖ IDU ‖ IDV.
     let mut input = vec![0x00, 0x00, 0x00, 0x01];
     input.extend_from_slice(&shared);
     input.extend_from_slice(&[0x01, b'U', b'V']);
-    let expected = Sha2.digest(iso15118::pnc::Suite::EcdsaSha256, &input);
+    let expected = Sha2.digest(iso15118::pnc::Suite::EcdsaSha256, &input).unwrap();
 
     assert_eq!(derived.as_slice(), &expected[..16]);
     assert_eq!(derived.len(), 16, "exactly 128 bits [V2G2-818]");

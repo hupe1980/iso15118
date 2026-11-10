@@ -217,16 +217,29 @@ Every constant cites its requirement; where -2 and -20 differ, both are given.
 | Request | The station has | The vehicle waits |
 |---|---|---|
 | Most messages | 1,5 s | 2 s |
-| `ServiceDetail`, `PaymentDetails`, `PowerDelivery`, the certificate flows | 4,5 s | 5 s |
-| `CurrentDemand` — the DC charge loop | **25 ms** | 250 ms |
+| -2: `ServiceDetail`, `PaymentDetails`, `PowerDelivery`, the certificate flows | 4,5 s | 5 s |
+| -20: `ServiceDetail`, `CertificateInstallation` | 4,5 s | 5 s |
+| -2: `CurrentDemand` — the DC charge loop | **25 ms** | 250 ms |
+| -20: `AC_`/`DC_`/`WPT_ChargeLoop` | **250 ms** | 500 ms |
 
-The station's 25 ms means a DC charge loop cannot wait on a database, a lock shared
-with a web server, or a garbage collector.
+ISO 15118-2 Table 109 and ISO 15118-20 Tables 215-219. The -2 station's 25 ms
+means a DC charge loop cannot wait on a database, a lock shared with a web
+server, or a garbage collector.
+
+Between requests the station waits 60 s, except after a -20 charge-loop
+response: 0,5 s (`SeccConfig::charge_loop_sequence_timeout`, Tables 216–219).
+
+| Loop | -2 vehicle / station | -20 vehicle / station |
+|---|---|---|
+| `..._Ongoing`, authorization included | 60 s / 55 s | 60 s / 55 s |
+| DC cable check | 40 s / 38 s | 40 s / 38 s |
+| DC pre-charge | 7 s / 5 s | **10 s / 9 s** |
+
+ISO 15118-2 Tables 109 and 111; ISO 15118-20 Tables 215 and 223.
 
 ### Loop budgets a deployment can set
 
-The defaults are ISO 15118-2 Table 109 and, for ISO 15118-20, this crate's
-labelled policy. `LoopBudgets` on `EvccConfig` and `SeccConfig` overrides two:
+The defaults are ISO 15118-2 Table 109 and ISO 15118-20 Table 215. `LoopBudgets` on `EvccConfig` and `SeccConfig` overrides two:
 
 ```rust,ignore
 use iso15118::session::{LoopBudgets, Millis};

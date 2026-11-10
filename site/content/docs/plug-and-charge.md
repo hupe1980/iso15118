@@ -12,12 +12,12 @@ ISO 15118 restricts XMLDSig to one shape:
 ```text
 SignedInfo
   CanonicalizationMethod  Algorithm = http://www.w3.org/TR/canonical-exi/
-  SignatureMethod         Algorithm = ...#ecdsa-sha256   (or ecdsa-sha512)
+  SignatureMethod         Algorithm = -2: ...#ecdsa-sha256; -20: ...#ecdsa-sha512 or ...xmldsig#Ed448
   Reference URI="#<Id>"                  one per signed element
     Transforms/Transform  Algorithm = http://www.w3.org/TR/canonical-exi/
-    DigestMethod          Algorithm = ...#sha256         (or sha512)
+    DigestMethod          Algorithm = -2: ...#sha256;       -20: ...#sha512 or ...xmlenc#SHAKE256
     DigestValue           = H(EXI fragment of that element)
-SignatureValue            = ECDSA(H(EXI fragment of SignedInfo))
+SignatureValue            = ECDSA or Ed448 over the EXI fragment of SignedInfo
 ```
 
 ## Three details that decide interoperability
@@ -73,7 +73,8 @@ authorization, use `sign_authorization` / `verify_authorization` below.
 `KeyInfo`, `Object`, `xs:any` wildcards and `XPath` transforms are refused at the
 codec: the key comes from the contract certificate chain, never from the signature.
 Digests compare in constant time. `pnc::iso20::verify` takes the suites the caller
-accepts and refuses others.
+accepts — `pnc::iso20::SUITES` by default — and refuses every other, ECDSA-SHA256
+included \[V2G20-2473\]–\[V2G20-2476\].
 
 ## The challenge binds the signature to the session
 
@@ -149,8 +150,8 @@ XMLDSig wants rather than DER, and refuses a suite the key is not on.
 ## What a valid signature does not prove
 
 - **That the key is trusted.** Chain validation is `pnc::pki`, a separate call —
-  see [Certificates](@/docs/pki.md). Revocation is not checked
-  ([limitations](@/docs/faq.md#limitations)).
+  see [Certificates](@/docs/pki.md), which also checks the OCSP responses and
+  CRLs handed in (it fetches none).
 - **That the car is plugged in here.** The vehicle signs the station's challenge
   and nothing else, so a relay between a victim's vehicle and a distant station
   passes every check the protocol defines

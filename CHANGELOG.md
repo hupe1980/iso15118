@@ -6,6 +6,83 @@ breaking one, and it is bumped whenever the public API changes.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 versioning follows [Cargo's pre-1.0 semver](https://doc.rust-lang.org/cargo/reference/semver.html).
 
+## [0.9.0] — 2026-11-10
+
+**Revocation status in path validation; ISO 15118-20 timers and Plug & Charge
+cryptography from the 2022 text.** Breaking.
+
+### Breaking
+
+- `pki::validate(chain, anchors, policy, &Evidence, now, backend)`: OCSP
+  responses and CRLs are an argument; no path-only call remains. An SECC chain
+  under a public anchor needs good status for every Sub-CA (-2, \[V2G2-873\])
+  or every certificate (-20, \[V2G20-2416\]).
+- `TrustAnchor::new` → `TrustAnchor::public` / `TrustAnchor::private`.
+- The backend implements `pki::Hasher` (SHA-1/256/384/512) beside `VerifyWith`;
+  `pnc-rustcrypto` adds `sha1`.
+- `ChainError::Expired` is after `notAfter` only; new `NotYetValid`, `Revoked`,
+  `EvidenceRejected`, `StatusMissing`.
+- `Validated` adds `standing` and `environment`; `intermediates` ends at the
+  certificate the anchor issued.
+- `SeccConfig::charge_loop_sequence_timeout`, default 0,5 s after an ISO 15118-20
+  `*_ChargeLoopRes` (Tables 216–219, \[V2G20-1502\]).
+- `pnc::envelope` → `envelope::iso2` (the -2 functions, unchanged) and
+  `envelope::iso20`; `KeyAgreement` stays in `envelope`.
+- `Hash::digest` returns `Result` (a backend may lack SHAKE256).
+- `rustcrypto::AgreementKey` is an enum: `p256`, `p521`, `x448` (was `new`).
+- `pnc::iso20::SUITES` is `[EcdsaSha512, Ed448]`; `iso20::sign` and `verify`
+  refuse `EcdsaSha256` \[V2G20-2473\].
+- Under `Rules::Iso20`, a secp256r1 certificate, one signed other than with its
+  curve's -20 algorithm, or one carrying an extension outside Annex B is refused
+  (`ChainError::AlgorithmNotAllowed`, `CertError::ExtensionNotAllowed`;
+  \[V2G20-2322\], \[V2G20-2323\]). `Policy` gains `algorithms`.
+- `Certificate` adds `ocsp_signing`, `ocsp_no_check`, `alt_public_key`,
+  `subject_key_id`, `signature_algorithm`, `annex_b_extensions_only`;
+  `Curve::Ed448`, `Suite::Ed448`.
+
+### Changed
+
+- ISO 15118-20 timers per Tables 214–223: DC pre-charge 10 s / 9 s (was
+  7 s / 5 s); charge loop 500 ms / 250 ms (was 250 ms / 25 ms); `Authorization`,
+  `AuthorizationSetup`, `ScheduleExchange`, `PowerDelivery`,
+  `MeteringConfirmation` 2 s / 1,5 s (was 5 s / 4,5 s); authorization `Ongoing`
+  60 s / 55 s (was 180 s / 175 s; raise with `LoopBudgets::authorization`).
+- A critical `ExtendedKeyUsage` is accepted (RFC 5280 §4.2.1.12); an empty one
+  is refused.
+
+### Added
+
+- `pki::ocsp`, `pki::crl`, `pki::status`: RFC 6960 responses and RFC 5280 CRLs,
+  verified, never fetched.
+- `envelope::iso20`: `SECP521_EncryptedPrivateKey` and `X448_EncryptedPrivateKey`
+  (ECDH, SHA-512 concatenation KDF, AES-GCM-256, PCID/SKI AAD), `open` and `seal`
+  \[V2G20-2492\]–\[V2G20-2510\], \[V2G20-2535\].
+- Ed448 certificates (RFC 8410), the Ed448/SHAKE256 XMLDSig suite, the OEM
+  certificate's X448 `subjectAltPublicKeyInfo`; `pnc::Algorithms`
+  \[V2G20-2319\], \[V2G20-2320\].
+- `envelope::tpm`: the contract key for a vehicle with TPM 2.0 — `seal` (the
+  outer duplication wrapper under the vehicle's storage key, seeded by the TPM's
+  KDFe), `import_inputs` (`TPM2_Import`'s arguments), `applies` / `tpm_info`
+  from the OEM certificate's `SubjectInfoAccess` (\[V2G20-2518\]–\[V2G20-2523\],
+  \[V2G20-2594\]–\[V2G20-2596\]); `Certificate::tpm_storage_key`,
+  `tpm_policy_digest`. `scripts/verify-tpm-import.sh`: `swtpm` imports what the
+  crate seals and signs with it.
+- Feature `pnc-rustcrypto-ed448` (Ed448, X448, SHAKE256; pre-release
+  `ed448-goldilocks`, `x448`); `pnc-rustcrypto` adds `aes-gcm`, `hmac`, `cfb-mode` and P-521 ECDH.
+- `tests/iso20_crypto.rs` over vectors from `cryptography` and OpenSSL
+  (`scripts/make-test-pki.sh iso20-crypto`); the Amd 1 fixtures are re-minted on
+  secp521r1.
+- `pnc::iso2::response_code`, `pnc::iso20::response_code`.
+- `tests/revocation.rs` over OpenSSL-minted fixtures
+  (`scripts/make-test-pki.sh revocation`); x509-limbo passes CRLs as evidence.
+- Fuzz targets `revocation` and `envelope`.
+- `scripts/verify-citations.sh` checks `[V2G20-nnnn]`.
+
+### Fixed
+
+- A `FAILED`-termination comment cited \[V2G20-1502\]; it is
+  \[V2G20-2220\]/\[V2G20-2222\].
+
 ## [0.8.0] — 2026-11-09
 
 **`pnc::pki` checked against x509-limbo, and two length bounds proved.** No API
@@ -666,6 +743,7 @@ charging-profile rule is implemented.
 
 Earlier releases predate this file.
 
+[0.9.0]: https://github.com/hupe1980/iso15118/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/hupe1980/iso15118/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/hupe1980/iso15118/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/hupe1980/iso15118/compare/v0.5.0...v0.6.0

@@ -30,8 +30,9 @@ runs under an async runtime and on a microcontroller.
 
 ### Two kinds of deadline
 
-- A **per-message timeout** bounds the answer to one request: 250 ms in a DC
-  charge loop, seconds for anything that reaches a back end.
+- A **per-message timeout** bounds the answer to one request: 250 ms in a -2 DC
+  charge loop and 500 ms in a -20 one, seconds for anything that reaches a back
+  end.
 - A **loop budget** bounds a whole phase the peer repeats while the answer is
   `..._Ongoing` — authorization, the DC isolation test, schedule exchange. It
   starts on the first request of the phase and the repeats do not restart it; a
@@ -39,10 +40,11 @@ runs under an async runtime and on a microcontroller.
 
 ### Every deadline is two numbers
 
-ISO 15118-2 gives each role its own value for the same loop, the station's
+ISO 15118 gives each role its own value for the same loop, the station's
 shorter: 55 s against 60 s for `Ongoing`, 18 against 20 for communication setup,
-38 against 40 for the isolation test, 5 against 7 for pre-charge. The gap is where
-the station's `FAILED` fits \[V2G2-713\]. So every budget takes the role, and the
+38 against 40 for the isolation test, 5 against 7 for pre-charge (9 against 10
+in -20). The gap is where the station's `FAILED` fits \[V2G2-713\],
+\[V2G20-2102\]. So every budget takes the role, and the
 ordering within each pair is asserted at compile time:
 
 ```rust,ignore

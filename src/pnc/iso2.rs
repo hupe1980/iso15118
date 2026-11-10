@@ -12,6 +12,9 @@ use crate::iso2::{
 };
 use crate::session::SessionId;
 
+use super::pki::ChainError;
+use crate::iso2::ResponseCode;
+
 use super::{
     CANONICAL_EXI, GenChallenge, Hash, PncError, Sign, Signed, Suite, Verify,
     check_canonicalization, check_echo, check_forbidden, check_reference, check_session,
@@ -32,7 +35,7 @@ pub const SUITE: Suite = Suite::EcdsaSha256;
 ///
 /// # struct Sha;
 /// # impl pnc::Hash for Sha {
-/// #     fn digest(&self, s: Suite, _: &[u8]) -> Vec<u8> { vec![0; s.digest_len()] }
+/// #     fn digest(&self, s: Suite, _: &[u8]) -> Result<Vec<u8>, PncError> { Ok(vec![0; s.digest_len()]) }
 /// # }
 /// # struct Key;
 /// # impl pnc::Sign for Key {
@@ -86,17 +89,19 @@ pub fn build_signed_info(
         },
         reference: elements
             .iter()
-            .map(|e| Reference {
-                id: None,
-                r#type: None,
-                uri: Some(super::reference_uri(e.id)),
-                transforms: Some(Transforms {
-                    transform: alloc::vec![Transform { algorithm: CANONICAL_EXI.into() }],
-                }),
-                digest_method: DigestMethod { algorithm: SUITE.digest_algorithm().into() },
-                digest_value: hash.digest(SUITE, e.fragment),
+            .map(|e| {
+                Ok(Reference {
+                    id: None,
+                    r#type: None,
+                    uri: Some(super::reference_uri(e.id)),
+                    transforms: Some(Transforms {
+                        transform: alloc::vec![Transform { algorithm: CANONICAL_EXI.into() }],
+                    }),
+                    digest_method: DigestMethod { algorithm: SUITE.digest_algorithm().into() },
+                    digest_value: hash.digest(SUITE, e.fragment)?,
+                })
             })
-            .collect(),
+            .collect::<Result<_, PncError>>()?,
     })
 }
 
@@ -195,7 +200,7 @@ pub fn signed_info_bytes(signature: &Signature, coding: ValueCoding) -> Result<V
 ///
 /// # struct Sha;
 /// # impl pnc::Hash for Sha {
-/// #     fn digest(&self, s: Suite, _: &[u8]) -> Vec<u8> { vec![0; s.digest_len()] }
+/// #     fn digest(&self, s: Suite, _: &[u8]) -> Result<Vec<u8>, PncError> { Ok(vec![0; s.digest_len()]) }
 /// # }
 /// # struct Key;
 /// # impl pnc::Sign for Key {
@@ -325,4 +330,25 @@ pub fn verify_metering_receipt(
         let fragment = receipt.to_fragment_with(coding)?;
         verify_with(signature, &[Signed::new(id, &fragment)], hash, verifier, coding)
     })
+}
+
+/// The `ResponseCode` a station answers a refused certificate chain with.
+///
+/// | Refusal | Code | Source |
+/// |---|---|---|
+/// | [`ChainError::Revoked`] | `FAILED_CertificateRevoked` | \[V2G2-693\]–\[V2G2-695\] |
+/// | [`ChainError::Expired`], [`ChainError::NotYetValid`] | `FAILED_CertificateExpired` | \[V2G2-474\], \[V2G2-824\] |
+/// | anything else | `FAILED_CertChainError` | \[V2G2-470\] |
+///
+/// -2 has one code for "not valid now" in either direction; -20 splits it
+/// ([`crate::pnc::iso20::response_code`]).
+#[must_use]
+pub const fn response_code(error: &ChainError) -> ResponseCode {
+    match error {
+        ChainError::Revoked { .. } => ResponseCode::FAILEDCertificateRevoked,
+        ChainError::Expired { .. } | ChainError::NotYetValid { .. } => {
+            ResponseCode::FAILEDCertificateExpired
+        }
+        _ => ResponseCode::FAILEDCertChainError,
+    }
 }

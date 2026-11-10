@@ -43,7 +43,7 @@ the caller's.
 - **Both roles, both generations.** The vehicle and the station share one
   ordering graph, one timer table and one codec.
 - **Hostile input is the normal case.** Every length is bounded by its schema
-  facets before anything is allocated; `#![forbid(unsafe_code)]` and ten fuzz targets.
+  facets before anything is allocated; `#![forbid(unsafe_code)]` and twelve fuzz targets.
 - **Evidence from outside.** Differential against `exificient`, replayed against
   captured sessions, run live against two other stacks, PKI checked
   against a published test pool, citations checked against the standard's text.
@@ -175,11 +175,12 @@ assert_eq!(SessionStopReq::from_bytes(&bytes)?, req);
 | **Refusals** | `Message::refusal()` builds the response that refuses a request, and it always encodes. All 51 requests across the eight schema sets are covered |
 | **Battery view** | `Message::ev_energy_status()` — state of charge, capacity, energy request and departure from either generation, in exact milliwatt-hours |
 | **Plug & Charge** | XMLDSig over EXI fragments, build and verify, the algorithm profile enforced, bound to the session's `GenChallenge` and to the metered reading |
-| **V2G PKI** | `pnc::pki` — allocation-free X.509 reader and RFC 5280 path validation under the Annex F profiles, plus the Amd 1 rules (1 600-byte bound, validity nested in the issuer's, trust anchors with provenance, cross-certificates) |
-| **Contract key delivery** | `pnc::envelope` — ECDH, the concatenation KDF, AES-128-CBC, and the check that the key belongs to its certificate |
+| **V2G PKI** | `pnc::pki` — allocation-free X.509 reader and RFC 5280 path validation under the Annex F profiles; under -20 only secp521r1 and Ed448 and only Annex B's extensions, plus the Amd 1 rules (1 600-byte bound, validity nested in the issuer's, trust anchors with provenance, cross-certificates) |
+| **Revocation status** | OCSP responses and CRLs verified inside path validation under each generation's rules \[V2G2-873\]\[V2G20-2416\], and the response codes a station answers with |
+| **Contract key delivery** | `pnc::envelope` — -2's AES-128-CBC envelope, -20's AES-GCM-256 envelopes (secp521r1, X448) with the check that the key belongs to its certificate, and -20's TPM 2.0 duplication blob for a vehicle with TPM |
 
-**Not included:** certificate revocation (no OCSP or CRL; the station's back end
-answers it), transport and TLS, and the DIN/TS 70121 message set —
+**Not included:** fetching revocation status (what you hand in is verified),
+transport and TLS, and the DIN/TS 70121 message set —
 `session::Connection` carries a caller's own DIN codec over the same framing.
 
 ## 🔬 Verification
@@ -197,7 +198,7 @@ scripts/verify-captures.sh   3760 messages decoded, 3760 re-encoded byte-identic
 - **Differential, against `exificient`** — every grammar and every message, as
   document and as fragment. Certificate chains and the contract-key envelope are
   checked against **OpenSSL**, and all ten OEM provisioning leaves of Hubject's
-  public test PKI validate to its real V2G Root. Path validation also runs
+  public test PKI validate to its real V2G Root (-2 rules). Path validation also runs
   against x509-limbo, with every deliberate divergence listed by reason.
 - **Replayed against real hardware** — 3 760 messages from sixteen captured
   charging sessions (dSPACE DS5366 against Josev and RiseV2G), ISO 15118-2 and
@@ -206,9 +207,10 @@ scripts/verify-captures.sh   3760 messages decoded, 3760 re-encoded byte-identic
   roles (-2 and -20, AC and DC), and EVerest's station for our vehicle (-2 and
   -20 DC, TLS, Plug & Charge, where EVerest verifies our signature).
 - **Citations checked against the text** — `scripts/verify-citations.sh`
-  confirms that each of the 101 requirement numbers cited here exists among the
-  852 ISO 15118-2:2014 defines.
-- **Fuzzed** — ten targets, run in CI on every push.
+  confirms that each of the 110 requirement numbers cited here exists among the
+  852 ISO 15118-2:2014 defines, and each ISO 15118-20 one among the 2022 text and
+  its Amd 1.
+- **Fuzzed** — twelve targets, run in CI on every push.
 
 ```sh
 cargo test --workspace --all-features

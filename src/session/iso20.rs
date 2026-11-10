@@ -313,62 +313,58 @@ impl Request {
         })
     }
 
-    /// The response timeout to arm after sending this request.
+    /// The response timeout to arm after sending this request —
+    /// `V2G_EVCC_Msg_Timeout`, ISO 15118-20 Tables 215-219.
     ///
-    /// ISO 15118-20 has its own timing table (§8.5) and this crate does not
-    /// have that text — the standard is a paid document — so these are the
-    /// ISO 15118-2 Table 105 values mapped onto the -20 messages **by role**,
-    /// which is a judgement and is stated as one.
-    ///
-    /// The judgement that matters is the charge loop: it runs at tens of
-    /// milliseconds, exactly as -2's `CurrentDemand` does, and giving it the
-    /// two-second default would mean a vehicle that does not notice a stalled
-    /// loop for two seconds. [`EvccConfig::message_timeout`] overrides all of
-    /// this for a caller that has the table.
+    /// 0,5 s for the charge loop, 5 s for `CertificateInstallationReq` and
+    /// `ServiceDetailReq`, 2 s for everything else; see
+    /// [`timers::iso20`](super::timers::iso20) for where -2 differs. MCS's
+    /// charge loop, which Amd 1 added, takes the DC value.
+    /// [`EvccConfig::message_timeout`] overrides all of this.
     ///
     /// [`EvccConfig::message_timeout`]: crate::evcc::EvccConfig::message_timeout
     #[must_use]
     pub const fn response_timeout(self) -> super::Millis {
-        use super::timers::iso2 as t;
+        use super::timers::iso20 as t;
         match self {
-            // The charge loop is a control loop, not a request/response.
-            Self::ChargeLoop => t::MSG_TIMEOUT_CURRENT_DEMAND,
-            // These reach a backend — a contract certificate pool, a tariff
-            // service, a clearing house — so they get the longer budget.
-            Self::Authorization
-            | Self::AuthorizationSetup
-            | Self::CertificateInstallation
-            | Self::ServiceDetail
-            | Self::ScheduleExchange
-            | Self::PowerDelivery(_)
-            | Self::MeteringConfirmation => t::MSG_TIMEOUT_BACKEND,
+            Self::ChargeLoop => t::MSG_TIMEOUT_CHARGE_LOOP,
+            Self::CertificateInstallation | Self::ServiceDetail => t::MSG_TIMEOUT_BACKEND,
             _ => t::MSG_TIMEOUT_DEFAULT,
         }
     }
 
-    /// The station's own budget for answering this request.
+    /// The station's own budget for answering this request —
+    /// `V2G_SECC_Msg_Performance_Time`, ISO 15118-20 Tables 215-219.
     ///
-    /// The other half of the pair [`Request::response_timeout`] gives, and —
-    /// like it — carried over from ISO 15118-2's Table 109 rather than quoted
-    /// from -20's §8.5, which this project does not have. See
-    /// [`timers::iso20`](super::timers::iso20).
+    /// The other half of the pair [`Request::response_timeout`] gives: 0,25 s,
+    /// 4,5 s and 1,5 s for the same three groups.
     ///
     /// Nothing enforces it; [`Secc::response_due`] surfaces it so a station can.
     ///
     /// [`Secc::response_due`]: crate::secc::Secc::response_due
     #[must_use]
     pub const fn performance_time(self) -> super::Millis {
-        use super::timers::iso2 as t;
+        use super::timers::iso20 as t;
         match self {
-            Self::ChargeLoop => t::SECC_MSG_PERFORMANCE_CURRENT_DEMAND,
-            Self::Authorization
-            | Self::AuthorizationSetup
-            | Self::CertificateInstallation
-            | Self::ServiceDetail
-            | Self::ScheduleExchange
-            | Self::PowerDelivery(_)
-            | Self::MeteringConfirmation => t::SECC_MSG_PERFORMANCE_BACKEND,
+            Self::ChargeLoop => t::SECC_MSG_PERFORMANCE_CHARGE_LOOP,
+            Self::CertificateInstallation | Self::ServiceDetail => t::SECC_MSG_PERFORMANCE_BACKEND,
             _ => t::SECC_MSG_PERFORMANCE_DEFAULT,
+        }
+    }
+
+    /// How soon after this request's response the vehicle should have its next
+    /// request out — `V2G_EVCC_Sequence_Performance_Time`.
+    ///
+    /// 0,25 s inside the charge loop (Tables 216-218), 40 s everywhere else
+    /// (Table 215). Advice: [`Evcc::next_request_due`] surfaces it.
+    ///
+    /// [`Evcc::next_request_due`]: crate::evcc::Evcc::next_request_due
+    #[must_use]
+    pub const fn sequence_performance_time(self) -> super::Millis {
+        use super::timers::iso20 as t;
+        match self {
+            Self::ChargeLoop => t::EVCC_CHARGE_LOOP_SEQUENCE_PERFORMANCE_TIME,
+            _ => t::EVCC_SEQUENCE_PERFORMANCE_TIME,
         }
     }
 
@@ -537,14 +533,11 @@ impl Phase {
     /// missing it is how a vehicle sits waiting for a decision that will never
     /// come.
     ///
-    /// None of these budgets is quoted from ISO 15118-20 — its timing table is
-    /// a paid document this project does not have — so all of them are
-    /// judgements, and are stated as such in [`timers::iso20`]. Authorization
-    /// gets the long one because the sequencer does not know whether the
-    /// session chose EIM or a contract, and cutting an EIM authorization short
-    /// would refuse a driver who was still reaching for their phone. The DC
-    /// safety phases take -2's budgets, which *are* quoted: the physics of an
-    /// isolation test did not change between the two generations.
+    /// Every budget is quoted from ISO 15118-20:2022; see [`timers::iso20`].
+    /// The `Ongoing` loops, authorization included, are Table 215's 60 s for
+    /// the vehicle and 55 s for the station \[V2G20-2101\], \[V2G20-2102\]. The
+    /// DC isolation test is Table 223's 40 s / 38 s, as in -2; pre-charge is
+    /// Table 223's 10 s / 9 s, where -2 gives 7 s / 5 s.
     ///
     /// [`timers::iso20`]: super::timers::iso20
     ///
@@ -558,7 +551,7 @@ impl Phase {
     #[must_use]
     pub const fn loop_timeout(self, role: super::Role) -> Option<super::Millis> {
         use super::Role;
-        use super::timers::{iso2 as t2, iso20 as t};
+        use super::timers::iso20 as t;
         Some(match (self, role) {
             (Self::Authorized, Role::Evcc) => t::EIM_ONGOING_TIMEOUT,
             (Self::Authorized, Role::Secc) => t::SECC_EIM_ONGOING_PERFORMANCE_TIME,
@@ -570,10 +563,10 @@ impl Phase {
                 Self::ChargeParameters | Self::ScheduleExchanged | Self::WeldingDetection,
                 Role::Secc,
             ) => t::SECC_ONGOING_PERFORMANCE_TIME,
-            (Self::CableCheck, Role::Evcc) => t2::EVCC_CABLE_CHECK_TIMEOUT,
-            (Self::CableCheck, Role::Secc) => t2::SECC_CABLE_CHECK_PERFORMANCE_TIME,
-            (Self::PreCharge, Role::Evcc) => t2::EVCC_PRE_CHARGE_TIMEOUT,
-            (Self::PreCharge, Role::Secc) => t2::SECC_PRE_CHARGE_PERFORMANCE_TIME,
+            (Self::CableCheck, Role::Evcc) => t::EVCC_CABLE_CHECK_TIMEOUT,
+            (Self::CableCheck, Role::Secc) => t::SECC_CABLE_CHECK_PERFORMANCE_TIME,
+            (Self::PreCharge, Role::Evcc) => t::EVCC_PRE_CHARGE_TIMEOUT,
+            (Self::PreCharge, Role::Secc) => t::SECC_PRE_CHARGE_PERFORMANCE_TIME,
             _ => return None,
         })
     }
@@ -640,9 +633,10 @@ impl Sequencer {
 
     /// Records that a `FAILED_*` response has gone past.
     ///
-    /// ISO 15118 leaves no discretion after a failure: the session ends, and
-    /// the only request the peer may still send is `SessionStopReq`
-    /// \[V2G20-1502\]. Calling this is what stops a peer from carrying on
+    /// ISO 15118-20 leaves no discretion after a failure: the vehicle that
+    /// receives a `FAILED*` code terminates the communication \[V2G20-2220\],
+    /// and so does the station that sent it \[V2G20-2222\]; the only request
+    /// this sequencer still accepts is `SessionStopReq`. Calling this is what stops a peer from carrying on
     /// down the flow as though the failure had not happened — the class of bug
     /// `EVerest`'s `GHSA-9vv5-67cv-9crq` describes.
     pub const fn failed(&mut self) {
@@ -865,8 +859,7 @@ impl Sequencer {
 
             // The pantograph parks and lowers itself, and the wireless coupler
             // aligns itself, before any power is discussed. The order *within*
-            // each of those exchanges is left to the peers: the standard
-            // constrains it, and this crate does not have that text, so it
+            // each of those exchanges is left to the peers: this sequencer
             // enforces only that they belong here.
             (F::ServiceSelected, R::VehicleCheckIn | R::AcdpControl) if acdp => F::ServiceSelected,
             (F::ServiceSelected, R::WptPositioning) if wpt => F::ServiceSelected,
@@ -1005,6 +998,7 @@ impl Sequencer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::Millis;
 
     fn run(requests: &[Request]) -> Sequencer {
         let mut s = Sequencer::new();
@@ -1118,10 +1112,9 @@ mod tests {
         assert!(s.permits(Request::SessionStop(ChargingSession::Pause)));
     }
 
-    /// The loop budgets, and the relationships between them that have to hold
-    /// whatever the numbers turn out to be: the station must decide before the
-    /// vehicle gives up on it, the station must decide before the *sequence*
-    /// window closes, and a person is slower than a backend.
+    /// The loop budgets — Tables 215 and 223 — and the relationships between
+    /// them: the station must decide before the vehicle gives up on it, and
+    /// before the *sequence* window closes.
     #[test]
     fn only_the_loops_have_a_loop_budget() {
         use crate::session::Role::{Evcc, Secc};
@@ -1152,7 +1145,12 @@ mod tests {
             t::SECC_ONGOING_PERFORMANCE_TIME < t::SECC_SEQUENCE_TIMEOUT,
             "the station decides first"
         );
-        assert!(t::EIM_ONGOING_TIMEOUT > t::ONGOING_TIMEOUT, "a person is slower than a backend");
+        assert_eq!(t::ONGOING_TIMEOUT, Millis::from_secs(60), "Table 215");
+        assert_eq!(t::EIM_ONGOING_TIMEOUT, t::ONGOING_TIMEOUT, "Table 215 has one figure");
+        assert_eq!(Phase::CableCheck.loop_timeout(Evcc), Some(Millis::from_secs(40)), "Table 223");
+        assert_eq!(Phase::CableCheck.loop_timeout(Secc), Some(Millis::from_secs(38)), "Table 223");
+        assert_eq!(Phase::PreCharge.loop_timeout(Evcc), Some(Millis::from_secs(10)), "Table 223");
+        assert_eq!(Phase::PreCharge.loop_timeout(Secc), Some(Millis::from_secs(9)), "Table 223");
     }
 
     #[test]
@@ -1457,11 +1455,28 @@ mod tests {
     }
 
     #[test]
+    /// Tables 215-217, value by value: the charge loop's own pair, the two
+    /// messages -20 gives the backend budget, and -2's other backend messages
+    /// — `PowerDeliveryReq` among them — at the default.
     fn the_charge_loop_gets_the_tight_timeout() {
-        use crate::session::timers::iso2 as t;
-        assert_eq!(Request::ChargeLoop.response_timeout(), t::MSG_TIMEOUT_CURRENT_DEMAND);
-        assert_eq!(Request::ScheduleExchange.response_timeout(), t::MSG_TIMEOUT_BACKEND);
-        assert_eq!(Request::CableCheck.response_timeout(), t::MSG_TIMEOUT_DEFAULT);
+        let ms = Millis::from_millis;
+        for (request, timeout, performance) in [
+            (Request::ChargeLoop, ms(500), ms(250)),
+            (Request::CertificateInstallation, ms(5_000), ms(4_500)),
+            (Request::ServiceDetail, ms(5_000), ms(4_500)),
+            (Request::Authorization, ms(2_000), ms(1_500)),
+            (Request::ScheduleExchange, ms(2_000), ms(1_500)),
+            (Request::PowerDelivery(ChargeProgress::Start), ms(2_000), ms(1_500)),
+            (Request::MeteringConfirmation, ms(2_000), ms(1_500)),
+            (Request::CableCheck, ms(2_000), ms(1_500)),
+            (Request::PreCharge, ms(2_000), ms(1_500)),
+            (Request::WeldingDetection, ms(2_000), ms(1_500)),
+        ] {
+            assert_eq!(request.response_timeout(), timeout, "{request:?}");
+            assert_eq!(request.performance_time(), performance, "{request:?}");
+        }
+        assert_eq!(Request::ChargeLoop.sequence_performance_time(), ms(250), "Table 217");
+        assert_eq!(Request::ScheduleExchange.sequence_performance_time(), ms(40_000), "Table 215");
     }
 
     /// The ISO 15118-20 service id assignment. Getting one of these wrong routes

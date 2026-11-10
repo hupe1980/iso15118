@@ -9,12 +9,12 @@
 //! * **Timeouts** bound how long this side waits for the *peer*. Missing one is
 //!   a terminal condition: the session ends, and the spec says what to send.
 //!
-//! Every constant below says where it comes from, and says it honestly: a
-//! requirement number where there is one, and "this crate's policy" where the
-//! value is derived rather than quoted. ISO 15118-20's timing table is a paid
-//! document this project does not have, so two of its loop budgets are the
-//! second kind — see [`iso20`]. Where -2 and -20 differ, both values are given
-//! rather than one being made to stand for both.
+//! Every constant below says where it comes from: the requirement and the
+//! table that give its value, ISO 15118-2 Tables 108-111 for [`iso2`] and
+//! ISO 15118-20:2022 Tables 214-223 for [`iso20`]. A timing constant is a
+//! pair, one per role, and the generations are kept apart: where -2 and -20
+//! differ — the charge loop, pre-charge, which messages get the backend
+//! budget — each module has its own value and says what the other's is.
 
 use super::{Instant, Millis};
 
@@ -70,9 +70,8 @@ pub mod iso2 {
     /// not this crate's to decide: the constant is what Table 109 says, rather
     /// than a library quietly disagreeing with the standard on a deployment's
     /// behalf. A deployment that has measured its own drivers sets
-    /// [`LoopBudgets::authorization`]. For ISO 15118-20 this crate's own
-    /// policy, [`iso20::EIM_ONGOING_TIMEOUT`], is three minutes for exactly this
-    /// reason — a judgement, not a quoted figure.
+    /// [`LoopBudgets::authorization`]. ISO 15118-20 Table 215 keeps the same
+    /// 60 s, authorization included ([`iso20::EIM_ONGOING_TIMEOUT`]).
     ///
     /// [`LoopBudgets::authorization`]: crate::session::LoopBudgets::authorization
     ///
@@ -155,72 +154,143 @@ pub mod iso2 {
     pub const SECC_MSG_PERFORMANCE_CURRENT_DEMAND: Millis = Millis::from_millis(25);
 }
 
-/// ISO 15118-20 timing.
+/// ISO 15118-20:2022 timing (§8.5, Tables 214-223).
 ///
-/// ISO 15118-20 has a timing table of its own (§8.5) and this crate does not
-/// have that text — the standard is a paid document. So the values -20 shares
-/// with -2 are cited, and the loop budgets — the two `ONGOING` constants, the
-/// two `EIM_ONGOING` constants and the vehicle's sequence performance time —
-/// are **this crate's policy**, derived below rather than quoted. They are
-/// named as such because a constant that says "§8.5" when nobody checked §8.5
-/// is worse than one that says where it really came from: the first cannot be
-/// questioned, the second can be replaced. [`EvccConfig::message_timeout`] and
-/// [`SeccConfig::sequence_timeout`] override the per-message and sequence
-/// timeouts for a caller that has the table, and
-/// [`LoopBudgets`](crate::session::LoopBudgets) overrides the loop budgets.
+/// Every value below is quoted from the 2022 text. Most
+/// agree with ISO 15118-2, and where they do not the -2 value is given beside
+/// the -20 one: the per-message table moved `PowerDeliveryReq` and the
+/// authorization messages from the backend budget to the default one, the
+/// charge loop got a looser per-message pair (0,5 s / 0,25 s against -2's
+/// 250 ms / 25 ms) and a sequence pair of its own, and DC pre-charge got
+/// longer (10 s / 9 s against 7 s / 5 s). Amendment 1:2026 changes none of
+/// these in what its public preview shows.
+///
+/// [`EvccConfig::message_timeout`] and [`SeccConfig::sequence_timeout`]
+/// override the per-message and sequence timeouts, and
+/// [`LoopBudgets`](crate::session::LoopBudgets) overrides the `Ongoing` loop
+/// budgets.
 ///
 /// [`EvccConfig::message_timeout`]: crate::evcc::EvccConfig::message_timeout
 /// [`SeccConfig::sequence_timeout`]: crate::secc::SeccConfig::sequence_timeout
 pub mod iso20 {
     use super::Millis;
 
-    /// `V2G_SECC_Sequence_Timeout` — 60 s, unchanged from -2.
+    // --- sequence: Table 215, and Tables 216-218 for the charge loop --------
+
+    /// `V2G_SECC_Sequence_Timeout` — 60 s for every message but the charge
+    /// loop. Table 215; \[V2G20-441\], \[V2G20-443\]. Same as -2.
     pub const SECC_SEQUENCE_TIMEOUT: Millis = Millis::from_secs(60);
 
-    /// `V2G_EVCC_CommunicationSetup_Timeout` — 20 s, unchanged from -2.
+    /// `V2G_EVCC_Sequence_Performance_Time` — 40 s for every message but the
+    /// charge loop. Table 215; \[V2G20-434\]. Same as -2.
+    pub const EVCC_SEQUENCE_PERFORMANCE_TIME: Millis = Millis::from_secs(40);
+
+    /// `V2G_SECC_Sequence_Timeout` after an `AC_`/`DC_`/`WPT_ChargeLoopRes` —
+    /// **0,5 s**. Tables 216, 217 and 218; \[V2G20-1500\], \[V2G20-1502\],
+    /// \[V2G20-5070\]. -2 has no charge-loop value: its 60 s applies there too.
+    /// The default of
+    /// [`SeccConfig::charge_loop_sequence_timeout`](crate::secc::SeccConfig::charge_loop_sequence_timeout).
+    pub const SECC_CHARGE_LOOP_SEQUENCE_TIMEOUT: Millis = Millis::from_millis(500);
+
+    /// `V2G_EVCC_Sequence_Performance_Time` before the next
+    /// `AC_`/`DC_`/`WPT_ChargeLoopReq` — **0,25 s**. Tables 216, 217 and 218;
+    /// \[V2G20-1499\], \[V2G20-1501\], \[V2G20-5069\]. -2 has no charge-loop
+    /// value: its 40 s applies there too.
+    pub const EVCC_CHARGE_LOOP_SEQUENCE_PERFORMANCE_TIME: Millis = Millis::from_millis(250);
+
+    // --- per message: Tables 215-219 -----------------------------------------
+
+    /// `V2G_EVCC_Msg_Timeout` for most messages — 2 s. Tables 215-219;
+    /// \[V2G20-436\], \[V2G20-438\]. Same as -2.
+    ///
+    /// Unlike -2, `AuthorizationReq`, `AuthorizationSetupReq`,
+    /// `ScheduleExchangeReq`, `PowerDeliveryReq` and `MeteringConfirmationReq`
+    /// are all at this value.
+    pub const MSG_TIMEOUT_DEFAULT: Millis = Millis::from_secs(2);
+
+    /// `V2G_EVCC_Msg_Timeout` for `CertificateInstallationReq` and
+    /// `ServiceDetailReq` — 5 s, the only two -20 gives the longer budget.
+    /// Table 215. -2 gives 5 s to more messages, `PowerDeliveryReq` among them.
+    pub const MSG_TIMEOUT_BACKEND: Millis = Millis::from_secs(5);
+
+    /// `V2G_EVCC_Msg_Timeout` for `AC_`/`DC_`/`WPT_ChargeLoopReq` — **0,5 s**.
+    /// Tables 216, 217 and 218. -2's `CurrentDemandReq` is 250 ms.
+    pub const MSG_TIMEOUT_CHARGE_LOOP: Millis = Millis::from_millis(500);
+
+    /// `V2G_SECC_Msg_Performance_Time` for most messages — 1,5 s.
+    /// Tables 215-219; \[V2G20-435\]. Same as -2.
+    pub const SECC_MSG_PERFORMANCE_DEFAULT: Millis = Millis::from_millis(1_500);
+
+    /// `V2G_SECC_Msg_Performance_Time` for `CertificateInstallationRes` and
+    /// `ServiceDetailRes` — 4,5 s. Table 215. Same value as -2, fewer messages.
+    pub const SECC_MSG_PERFORMANCE_BACKEND: Millis = Millis::from_millis(4_500);
+
+    /// `V2G_SECC_Msg_Performance_Time` for the charge loop — **0,25 s**.
+    /// Tables 216, 217 and 218. -2's `CurrentDemandRes` is 25 ms, a tenth of
+    /// this.
+    pub const SECC_MSG_PERFORMANCE_CHARGE_LOOP: Millis = Millis::from_millis(250);
+
+    // --- communication setup: Table 221 --------------------------------------
+
+    /// `V2G_EVCC_CommunicationSetup_Timeout` — 20 s, from the TCP/TLS
+    /// connection to a `SessionSetupRes`. Table 221; \[V2G20-605\],
+    /// \[V2G20-2298\], \[V2G20-448\]. Same value as -2, though -2 starts the
+    /// timer at plug-in rather than at the connection.
     pub const EVCC_COMMUNICATION_SETUP_TIMEOUT: Millis = Millis::from_secs(20);
 
-    /// How long a phase may go on being answered `..._Ongoing`, as the
-    /// *vehicle* bounds it.
-    ///
-    /// **This crate's policy, not a quoted constant** — but not an invented
-    /// number either: it is ISO 15118-2's own `V2G_EVCC_Ongoing_Timeout`
-    /// (Table 109), which -20 kept the sequence timeout and the communication
-    /// setup timeout from unchanged.
+    /// `V2G_SECC_CommunicationSetup_Performance_Time` — 18 s. Table 221;
+    /// \[V2G20-2303\], \[V2G20-716\]. Same as -2.
+    pub const SECC_COMMUNICATION_SETUP_PERFORMANCE_TIME: Millis = Millis::from_secs(18);
+
+    // --- EVSEProcessing / EVProcessing = Ongoing: Table 215 ------------------
+
+    /// `V2G_EVCC_Ongoing_Timeout` — 60 s, how long the vehicle goes on
+    /// re-sending a request the station answers `EVSEProcessing = Ongoing`.
+    /// Table 215; \[V2G20-710\], \[V2G20-2101\]. Same as -2.
     pub const ONGOING_TIMEOUT: Millis = Millis::from_secs(60);
 
-    /// The same loop as the *station* bounds it.
-    ///
-    /// **This crate's policy**, and again -2's own number: Table 109 puts
-    /// `V2G_SECC_Ongoing_Performance_Time` five seconds under the vehicle's
-    /// timeout so that the station answers `FAILED` while the vehicle is still
-    /// listening. That ordering is what makes a stalled phase diagnosable
-    /// instead of silent, so it is worth keeping wherever the real -20 numbers
-    /// land.
+    /// `V2G_SECC_Ongoing_Performance_Time` — 55 s, after which the station may
+    /// answer `FAILED` and stops the session. Table 215; \[V2G20-712\],
+    /// \[V2G20-2102\]. Same as -2.
     pub const SECC_ONGOING_PERFORMANCE_TIME: Millis = Millis::from_secs(55);
 
-    /// The same budget where a *human* is expected to finish the exchange —
-    /// tapping a card, confirming in an app.
-    ///
-    /// **This crate's policy, not a quoted constant.** It is longer than
-    /// [`SECC_SEQUENCE_TIMEOUT`] on purpose and that is not a contradiction:
-    /// the sequence timer bounds the gap between two messages, and an
-    /// authorization loop is sending one every second or so while it waits.
-    /// What this bounds is the *loop*, and three minutes is roughly how long a
-    /// driver takes to find their phone.
-    pub const EIM_ONGOING_TIMEOUT: Millis = Millis::from_secs(180);
+    /// The authorization loop as the vehicle bounds it — 60 s,
+    /// [`ONGOING_TIMEOUT`] itself. Table 215 gives one figure for every
+    /// response with `EVSEProcessing = Ongoing`, `AuthorizationRes` included;
+    /// a deployment whose drivers need longer sets
+    /// [`LoopBudgets::authorization`](crate::session::LoopBudgets::authorization).
+    pub const EIM_ONGOING_TIMEOUT: Millis = ONGOING_TIMEOUT;
 
-    /// The station's side of that wait, five seconds under it for the reason
-    /// [`SECC_ONGOING_PERFORMANCE_TIME`] gives.
-    pub const SECC_EIM_ONGOING_PERFORMANCE_TIME: Millis = Millis::from_secs(175);
+    /// The authorization loop as the station bounds it — 55 s,
+    /// [`SECC_ONGOING_PERFORMANCE_TIME`] itself. Table 215.
+    pub const SECC_EIM_ONGOING_PERFORMANCE_TIME: Millis = SECC_ONGOING_PERFORMANCE_TIME;
 
-    /// `V2G_EVCC_Sequence_Performance_Time` — 40 s, unchanged from -2.
-    ///
-    /// **This crate's policy**, on the same reasoning as the rest of this
-    /// module: -20 kept -2's sequence timeout and communication-setup timeout,
-    /// so the vehicle's half of the same pair is the value to carry until
-    /// somebody with §8.5 says otherwise.
-    pub const EVCC_SEQUENCE_PERFORMANCE_TIME: Millis = Millis::from_secs(40);
+    /// `V2G_SECC_Ongoing_Timeout` — 60 s, how long the station waits on a
+    /// request the vehicle sends with `EVProcessing = Ongoing`. Table 215. New
+    /// in -20, which lets the vehicle be the slow side too; no engine applies
+    /// it.
+    pub const SECC_ONGOING_TIMEOUT: Millis = Millis::from_secs(60);
+
+    /// `V2G_EVCC_Ongoing_Performance_Time` — 55 s, the vehicle's half of the
+    /// same loop. Table 215. New in -20; no engine applies it.
+    pub const EVCC_ONGOING_PERFORMANCE_TIME: Millis = Millis::from_secs(55);
+
+    // --- DC: Table 223 ---------------------------------------------------------
+
+    /// `V2G_EVCC_DC_CableCheck_Timeout` — 40 s. Table 223; \[V2G20-1774\],
+    /// \[V2G20-700\], \[V2G20-1398\]. Same as -2.
+    pub const EVCC_CABLE_CHECK_TIMEOUT: Millis = Millis::from_secs(40);
+
+    /// `V2G_SECC_DC_CableCheck_Performance_Time` — 38 s. Table 223. Same as -2.
+    pub const SECC_CABLE_CHECK_PERFORMANCE_TIME: Millis = Millis::from_secs(38);
+
+    /// `V2G_EVCC_DC_PreCharge_Timeout` — **10 s**. Table 223; \[V2G20-1774\],
+    /// \[V2G20-704\], \[V2G20-706\]. -2 gives 7 s.
+    pub const EVCC_PRE_CHARGE_TIMEOUT: Millis = Millis::from_secs(10);
+
+    /// `V2G_SECC_DC_PreCharge_Performance_Time` — **9 s**. Table 223. -2 gives
+    /// 5 s.
+    pub const SECC_PRE_CHARGE_PERFORMANCE_TIME: Millis = Millis::from_secs(9);
 }
 
 /// SECC discovery timing (ISO 15118-2 §7.9).
@@ -446,6 +516,32 @@ mod tests {
                 < t2::EVCC_PRE_CHARGE_TIMEOUT.as_millis()
         );
         assert!(t20::SECC_ONGOING_PERFORMANCE_TIME.as_millis() < t20::ONGOING_TIMEOUT.as_millis());
+        assert!(
+            t20::EVCC_ONGOING_PERFORMANCE_TIME.as_millis() < t20::SECC_ONGOING_TIMEOUT.as_millis()
+        );
+        assert!(
+            t20::SECC_COMMUNICATION_SETUP_PERFORMANCE_TIME.as_millis()
+                < t20::EVCC_COMMUNICATION_SETUP_TIMEOUT.as_millis()
+        );
+        assert!(
+            t20::SECC_CABLE_CHECK_PERFORMANCE_TIME.as_millis()
+                < t20::EVCC_CABLE_CHECK_TIMEOUT.as_millis()
+        );
+        assert!(
+            t20::SECC_PRE_CHARGE_PERFORMANCE_TIME.as_millis()
+                < t20::EVCC_PRE_CHARGE_TIMEOUT.as_millis()
+        );
+        // The sequence pair runs the other way round: the vehicle's
+        // performance time is the shorter, so its next request arrives before
+        // the station stops waiting for it.
+        assert!(
+            t20::EVCC_SEQUENCE_PERFORMANCE_TIME.as_millis()
+                < t20::SECC_SEQUENCE_TIMEOUT.as_millis()
+        );
+        assert!(
+            t20::EVCC_CHARGE_LOOP_SEQUENCE_PERFORMANCE_TIME.as_millis()
+                < t20::SECC_CHARGE_LOOP_SEQUENCE_TIMEOUT.as_millis()
+        );
         // The per-message pair has the same ordering and the same reason: the
         // station is expected to have answered before the vehicle stops
         // waiting, and the gap is what a late answer fits in.
@@ -458,6 +554,16 @@ mod tests {
         assert!(
             t20::SECC_EIM_ONGOING_PERFORMANCE_TIME.as_millis()
                 < t20::EIM_ONGOING_TIMEOUT.as_millis()
+        );
+        assert!(
+            t20::SECC_MSG_PERFORMANCE_DEFAULT.as_millis() < t20::MSG_TIMEOUT_DEFAULT.as_millis()
+        );
+        assert!(
+            t20::SECC_MSG_PERFORMANCE_BACKEND.as_millis() < t20::MSG_TIMEOUT_BACKEND.as_millis()
+        );
+        assert!(
+            t20::SECC_MSG_PERFORMANCE_CHARGE_LOOP.as_millis()
+                < t20::MSG_TIMEOUT_CHARGE_LOOP.as_millis()
         );
     };
 

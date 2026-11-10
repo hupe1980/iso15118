@@ -8,12 +8,17 @@
 //! mapping, no policy qualifiers that decide anything. What is left is the
 //! basic path validation, and that is what is here.
 //!
-//! What is **not** here is revocation. See [`super`].
+//! Revocation status is part of it: see [`super`].
 
 use alloc::vec::Vec;
 
 use super::cert::{Certificate, KeyUsage};
-use super::{Policy, Rules, TrustAnchors, VerifyWith};
+use super::crl::Crl;
+use super::ocsp::OcspResponse;
+use super::status::{EvidenceError, Reason, Standing, Unknown, combine};
+use super::{
+    Environment, Evidence, Hasher, MAX_EVIDENCE, Policy, Profile, Rules, TrustAnchors, VerifyWith,
+};
 use crate::pnc::PncError;
 
 /// Maximum number of non-self-signed certificates in a path.
@@ -42,7 +47,8 @@ pub const ISO20_MAX_CERTIFICATE_LEN: usize = 1600;
 pub struct Validated<'a> {
     /// The leaf — the certificate whose key the caller came here to trust.
     pub leaf: Certificate<'a>,
-    /// The intermediates, leaf-first.
+    /// The intermediates the path runs through, leaf-first — up to the one the
+    /// anchor issued, and nothing the chain carried beyond it.
     pub intermediates: Vec<Certificate<'a>>,
     /// The trust anchor the path reached.
     pub anchor: Certificate<'a>,
@@ -50,6 +56,12 @@ pub struct Validated<'a> {
     ///
     /// [`TrustAnchor::source`]: super::TrustAnchor::source
     pub anchor_source: &'a str,
+    /// Which PKI that anchor roots.
+    pub environment: Environment,
+    /// What the evidence said about each certificate on the path, leaf first —
+    /// one entry per certificate in `leaf` and `intermediates`, the anchor not
+    /// included.
+    pub standing: Vec<Standing>,
 }
 
 impl<'a> Validated<'a> {
@@ -94,8 +106,44 @@ pub enum ChainError {
     /// \[V2G2-924\]: a chain that does not trace up to a root the peer holds is
     /// one the peer must refuse.
     NoTrustAnchor,
-    /// A certificate was outside its validity period at the stated time.
+    /// A certificate's `notAfter` had passed at the stated time.
     Expired {
+        /// Position in the path, leaf first.
+        index: usize,
+    },
+    /// A certificate's `notBefore` had not yet come at the stated time.
+    ///
+    /// Separate from [`Self::Expired`] because ISO 15118-20 answers the two with
+    /// different codes (`WARNING_CertificateNotYetValid`,
+    /// `WARNING_CertificateExpired`).
+    NotYetValid {
+        /// Position in the path, leaf first.
+        index: usize,
+    },
+    /// Verified evidence lists a certificate on the path as revoked
+    /// (\[V2G2-693\], \[V2G20-2214\], \[V2G20-2415\]).
+    Revoked {
+        /// Position in the path, leaf first.
+        index: usize,
+        /// When, as the evidence says, Unix seconds.
+        revoked_at: i64,
+        /// Why, where the evidence says.
+        reason: Option<Reason>,
+    },
+    /// Evidence was handed in and did not hold up (\[V2G2-875\],
+    /// \[V2G20-2413\], \[V2G20-2414\]).
+    ///
+    /// `index` is the certificate it concerned; `None` when it could not even
+    /// be read far enough to say which.
+    EvidenceRejected {
+        /// Position in the path, leaf first, if known.
+        index: Option<usize>,
+        /// What was wrong with it.
+        error: EvidenceError,
+    },
+    /// The rules required a standing for this certificate and none was handed
+    /// in (\[V2G2-873\], \[V2G20-2416\], \[V2G20-2417\]).
+    StatusMissing {
         /// Position in the path, leaf first.
         index: usize,
     },
@@ -138,6 +186,14 @@ pub enum ChainError {
         /// its issuer.
         index: usize,
     },
+    /// Under [`Rules::Iso20`], a certificate on an algorithm ISO 15118-20 does
+    /// not have (secp256r1, or secp521r1 signed other than with
+    /// `ecdsa-with-SHA512`), or one [`Policy::algorithms`] disables
+    /// (Annex B, \[V2G20-2320\], \[V2G20-2322\]).
+    AlgorithmNotAllowed {
+        /// Position in the path, leaf first.
+        index: usize,
+    },
     /// Two certificates in the path are on different curves.
     ///
     /// Every Annex F profile fixes one curve for a whole cluster, and a path
@@ -146,7 +202,8 @@ pub enum ChainError {
 }
 
 /// Checks that `chain` leads from a leaf to one of `anchors`, at time `now`,
-/// under `policy`.
+/// under `policy`, and that nothing on the path is revoked — as far as
+/// `evidence` shows, and as far as the rules require it to show.
 ///
 /// `chain` is leaf-first, as both generations put it on the wire: the
 /// `Certificate` of a `CertificateChainType` followed by its `SubCertificates`,
@@ -163,16 +220,19 @@ pub enum ChainError {
 /// `now` is wall-clock seconds since the Unix epoch; a vehicle without
 /// trustworthy time must not invent one \[V2G2-886\].
 ///
-/// `Ok` means the leaf's key is certified by an unbroken chain of checked
-/// signatures up to an anchor the caller trusts, every certificate meeting its
-/// Annex F profile. It does not mean no certificate was **revoked** — see
-/// [`super`].
+/// `evidence` is every OCSP response and CRL the caller holds, matched to
+/// certificates by content. See [`super`] for what each generation requires.
+///
+/// `Ok` means: an unbroken chain of checked signatures to a trusted anchor,
+/// every certificate meeting its Annex F profile, nothing shown revoked, no
+/// evidence rejected, and every required status shown good.
 pub fn validate<'a>(
     chain: &[&'a [u8]],
     anchors: &TrustAnchors<'_, 'a>,
     policy: Policy,
+    evidence: &Evidence<'_, '_>,
     now: i64,
-    verifier: &impl VerifyWith,
+    verifier: &(impl VerifyWith + Hasher),
 ) -> Result<Validated<'a>, ChainError> {
     // \[V2G2-009\], before anything is parsed. Counted over what *arrived*
     // rather than over what gets used: a peer that sends a hundred certificates
@@ -199,9 +259,26 @@ pub fn validate<'a>(
     if parsed.iter().any(|c| c.curve != leaf.curve) {
         return Err(ChainError::MixedCurves);
     }
+    if policy.rules == Rules::Iso20 {
+        for (index, cert) in parsed.iter().enumerate() {
+            let suite = cert.curve.suite();
+            if !policy.algorithms.allows(suite) || cert.signature_algorithm != suite {
+                return Err(ChainError::AlgorithmNotAllowed { index });
+            }
+            if !cert.annex_b_extensions_only {
+                return Err(ChainError::Certificate {
+                    index,
+                    error: super::cert::CertError::ExtensionNotAllowed,
+                });
+            }
+        }
+    }
 
     for (index, cert) in parsed.iter().enumerate() {
-        if !cert.is_valid_at(now) {
+        if now < cert.not_before {
+            return Err(ChainError::NotYetValid { index });
+        }
+        if now > cert.not_after {
             return Err(ChainError::Expired { index });
         }
     }
@@ -222,12 +299,16 @@ pub fn validate<'a>(
     for (index, cert) in parsed.iter().enumerate() {
         let below = index;
         let at_anchor = find_anchor(anchors, cert, below, now, policy.rules, verifier, index);
-        if let Ok((anchor, anchor_source)) = at_anchor {
+        if let Ok((anchor, anchor_source, environment)) = at_anchor {
+            let path = &parsed[..=index];
+            let standing = revocation(path, &anchor, policy, environment, evidence, now, verifier)?;
             return Ok(Validated {
                 leaf: *leaf,
-                intermediates: intermediates.to_vec(),
+                intermediates: intermediates[..index].to_vec(),
                 anchor,
                 anchor_source,
+                environment,
+                standing,
             });
         }
         // Not an anchor's, so the chain has to carry the issuer itself. When it
@@ -250,6 +331,91 @@ pub fn validate<'a>(
     // anchor: the chain is well-formed and ends somewhere this side does not
     // trust. \[V2G2-924\].
     Err(ChainError::NoTrustAnchor)
+}
+
+/// Every certificate's standing on `path` (leaf first, ending at the
+/// certificate `anchor` issued), held to the rules.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the inputs of one decision; a struct for them would be read once"
+)]
+fn revocation(
+    path: &[Certificate<'_>],
+    anchor: &Certificate<'_>,
+    policy: Policy,
+    environment: Environment,
+    evidence: &Evidence<'_, '_>,
+    now: i64,
+    backend: &(impl VerifyWith + Hasher),
+) -> Result<Vec<Standing>, ChainError> {
+    if evidence.ocsp.len() > MAX_EVIDENCE || evidence.crls.len() > MAX_EVIDENCE {
+        return Err(ChainError::EvidenceRejected { index: None, error: EvidenceError::TooLarge });
+    }
+    // Evidence that does not parse cannot be attributed, and refuses the chain.
+    let unattributed = |error| ChainError::EvidenceRejected { index: None, error };
+    let responses = evidence
+        .ocsp
+        .iter()
+        .map(|der| OcspResponse::parse(der))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(unattributed)?;
+    let lists = evidence
+        .crls
+        .iter()
+        .map(|der| Crl::parse(der))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(unattributed)?;
+
+    let standing: Vec<Standing> = path
+        .iter()
+        .enumerate()
+        .map(|(index, cert)| {
+            let issuer = path.get(index + 1).unwrap_or(anchor);
+            let from_ocsp =
+                responses.iter().filter_map(|r| r.check(cert, issuer, policy.rules, now, backend));
+            let from_crls = lists.iter().filter_map(|l| l.check(cert, issuer, now, backend));
+            from_ocsp.chain(from_crls).fold(Standing::Unknown(Unknown::NoEvidence), combine)
+        })
+        .collect();
+
+    // Report the strongest fact: revoked, then rejected, then missing.
+    for (index, s) in standing.iter().enumerate() {
+        if let Standing::Revoked { revoked_at, reason, .. } = *s {
+            return Err(ChainError::Revoked { index, revoked_at, reason });
+        }
+    }
+    for (index, s) in standing.iter().enumerate() {
+        if let Standing::Unknown(Unknown::Rejected(error)) = *s {
+            return Err(ChainError::EvidenceRejected { index: Some(index), error });
+        }
+    }
+    let required = |index: usize| required(policy, environment, index, &standing);
+    for (index, s) in standing.iter().enumerate() {
+        if required(index) && !s.is_good() {
+            return Err(ChainError::StatusMissing { index });
+        }
+    }
+    Ok(standing)
+}
+
+/// Whether the rules require certificate `index` (leaf first) to be shown good.
+fn required(policy: Policy, environment: Environment, index: usize, standing: &[Standing]) -> bool {
+    if policy.profile != Profile::SeccCertificate {
+        // Contract, provisioning, caller-checked: no status required \[V2G20-2214\].
+        return false;
+    }
+    match (policy.rules, environment) {
+        // \[V2G2-070\] NOTE 1, \[V2G2-873\]: the Sub-CAs, not the leaf.
+        (Rules::Iso2, Environment::Public) => index > 0,
+        // \[V2G2-872\]/\[V2G2-873\]: a private environment sends none.
+        (Rules::Iso2, Environment::Private) => false,
+        // \[V2G20-1240\]/\[V2G20-2416\]: every certificate it received.
+        (Rules::Iso20, Environment::Public) => true,
+        // \[V2G20-2410\]/\[V2G20-2417\]: none, or all.
+        (Rules::Iso20, Environment::Private) => {
+            standing.iter().any(|s| !matches!(s, Standing::Unknown(Unknown::NoEvidence)))
+        }
+    }
 }
 
 /// Parses every certificate, naming which one failed.
@@ -284,7 +450,7 @@ fn find_anchor<'a>(
     rules: Rules,
     verifier: &impl VerifyWith,
     index: usize,
-) -> Result<(Certificate<'a>, &'a str), ChainError> {
+) -> Result<(Certificate<'a>, &'a str, Environment), ChainError> {
     let mut outlived = false;
     for entry in anchors {
         let Ok(anchor) = Certificate::parse(entry.der) else { continue };
@@ -313,7 +479,7 @@ fn find_anchor<'a>(
             continue;
         }
         if verify_signature(cert, &anchor, verifier, index).is_ok() {
-            return Ok((anchor, entry.source));
+            return Ok((anchor, entry.source, entry.environment));
         }
     }
     // A matching anchor existed and the certificate outlives it: that is the
@@ -416,9 +582,21 @@ impl core::fmt::Display for ChainError {
             Self::NoTrustAnchor => {
                 f.write_str("the chain does not reach a configured trust anchor")
             }
-            Self::Expired { index } => {
-                write!(f, "certificate {index} is outside its validity period")
+            Self::Expired { index } => write!(f, "certificate {index} has expired"),
+            Self::NotYetValid { index } => write!(f, "certificate {index} is not yet valid"),
+            Self::Revoked { index, revoked_at, .. } => {
+                write!(f, "certificate {index} was revoked at {revoked_at}")
             }
+            Self::EvidenceRejected { index: Some(index), error } => {
+                write!(f, "revocation evidence for certificate {index} was rejected: {error}")
+            }
+            Self::EvidenceRejected { index: None, error } => {
+                write!(f, "revocation evidence was rejected: {error}")
+            }
+            Self::StatusMissing { index } => write!(
+                f,
+                "certificate {index} needs a revocation status the rules require, and none was given"
+            ),
             Self::NotAnIssuer { index } => {
                 write!(f, "certificate {index} is not permitted to issue what it signed")
             }
@@ -435,6 +613,9 @@ impl core::fmt::Display for ChainError {
                 write!(f, "certificate {index} is valid outside its issuer's validity period")
             }
             Self::MixedCurves => f.write_str("the chain changes elliptic curve partway"),
+            Self::AlgorithmNotAllowed { index } => {
+                write!(f, "certificate {index} is on an algorithm these rules do not accept")
+            }
         }
     }
 }
@@ -444,6 +625,7 @@ impl std::error::Error for ChainError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Certificate { error, .. } => Some(error),
+            Self::EvidenceRejected { error, .. } => Some(error),
             _ => None,
         }
     }

@@ -19,13 +19,13 @@ use iso15118::pnc::{self, Hash, PncError, Sign, Signed, Suite, Verify};
 struct Sha;
 
 impl Hash for Sha {
-    fn digest(&self, suite: Suite, data: &[u8]) -> Vec<u8> {
+    fn digest(&self, suite: Suite, data: &[u8]) -> Result<Vec<u8>, PncError> {
         let mut acc: u64 = 0xcbf2_9ce4_8422_2325;
         for &b in data {
             acc ^= u64::from(b);
             acc = acc.wrapping_mul(0x0000_0100_0000_01B3);
         }
-        acc.to_be_bytes().iter().copied().cycle().take(suite.digest_len()).collect()
+        Ok(acc.to_be_bytes().iter().copied().cycle().take(suite.digest_len()).collect())
     }
 }
 
@@ -35,13 +35,13 @@ struct Key;
 
 impl Sign for Key {
     fn sign(&self, suite: Suite, data: &[u8]) -> Result<Vec<u8>, PncError> {
-        Ok(Sha.digest(suite, data))
+        Sha.digest(suite, data)
     }
 }
 
 impl Verify for Key {
     fn verify(&self, suite: Suite, data: &[u8], signature: &[u8]) -> Result<(), PncError> {
-        if Sha.digest(suite, data) == signature { Ok(()) } else { Err(PncError::BadSignature) }
+        if Sha.digest(suite, data)? == signature { Ok(()) } else { Err(PncError::BadSignature) }
     }
 }
 
@@ -88,7 +88,7 @@ fn the_signature_has_the_shape_the_profile_prescribes() {
 fn the_signed_bytes_are_the_signed_info_fragment() {
     let signature = signed(&one());
     let bytes = pnc::iso2::signed_info_bytes(&signature, ValueCoding::Literal).unwrap();
-    assert_eq!(signature.signature_value.value, Sha.digest(Suite::EcdsaSha256, &bytes));
+    assert_eq!(signature.signature_value.value, Sha.digest(Suite::EcdsaSha256, &bytes).unwrap());
     assert_eq!(bytes[0], 0x80, "an EXI stream, header and all");
 }
 
@@ -157,7 +157,8 @@ fn a_tampered_signature_value_fails() {
 #[test]
 fn editing_a_digest_breaks_the_outer_signature() {
     let mut signature = signed(&one());
-    signature.signed_info.reference[0].digest_value = Sha.digest(Suite::EcdsaSha256, &[0xFF]);
+    signature.signed_info.reference[0].digest_value =
+        Sha.digest(Suite::EcdsaSha256, &[0xFF]).unwrap();
     let err =
         pnc::iso2::verify(&signature, &[Signed::new("ID1", &[0xFF])], &Sha, &Key).unwrap_err();
     assert_eq!(err, PncError::BadSignature, "the digests now agree, the signature does not");
@@ -397,12 +398,22 @@ mod iso20 {
         );
     }
 
+    /// \[V2G20-2473\]–\[V2G20-2476\]: -20 signs with ECDSA-SHA512 or Ed448,
+    /// both with 64-byte digests, and never with ECDSA-SHA256.
     #[test]
-    fn the_stronger_suite_uses_the_longer_digest() {
-        let strong = pnc::iso20::sign(Suite::EcdsaSha512, &one(), &Sha, &Key).unwrap();
-        assert_eq!(strong.signed_info.reference[0].digest_value.len(), 64);
-        let weak = pnc::iso20::sign(Suite::EcdsaSha256, &one(), &Sha, &Key).unwrap();
-        assert_eq!(weak.signed_info.reference[0].digest_value.len(), 32);
+    fn iso20_has_two_suites_and_p256_is_not_one() {
+        let ecdsa = pnc::iso20::sign(Suite::EcdsaSha512, &one(), &Sha, &Key).unwrap();
+        assert_eq!(ecdsa.signed_info.reference[0].digest_value.len(), 64);
+        let ed448 = pnc::iso20::sign(Suite::Ed448, &one(), &Sha, &Key).unwrap();
+        assert_eq!(ed448.signed_info.reference[0].digest_value.len(), 64);
+        assert_eq!(
+            ed448.signed_info.reference[0].digest_method.algorithm,
+            "urn:iso:std:iso:15118:-20:Security:xmlenc#SHAKE256"
+        );
+        assert!(matches!(
+            pnc::iso20::sign(Suite::EcdsaSha256, &one(), &Sha, &Key),
+            Err(PncError::UnsupportedAlgorithm(_))
+        ));
     }
 }
 
@@ -529,14 +540,13 @@ mod iso20_authorization {
         );
     }
 
-    /// The suite policy still applies to an authorization: a station that only
-    /// accepts the 521-bit curve does not silently take the 256-bit one.
+    /// The suite policy still applies to an authorization: a station that has
+    /// disabled Ed448 \[V2G20-2320\] does not take it.
     #[test]
     fn the_suite_policy_still_applies_to_an_authorization() {
         let mut m = mode();
-        let signature =
-            pnc::iso20::sign_authorization(Suite::EcdsaSha256, &mut m, &ISSUED, &Sha, &Key)
-                .expect("sign");
+        let signature = pnc::iso20::sign_authorization(Suite::Ed448, &mut m, &ISSUED, &Sha, &Key)
+            .expect("sign");
         assert!(matches!(
             pnc::iso20::verify_authorization(
                 &m,
@@ -664,7 +674,7 @@ mod iso20_metering {
     #[test]
     fn the_station_signs_the_reading_and_the_vehicle_checks_the_session() {
         let mut data = reading(42_195);
-        let signature = pnc::iso20::sign_metering_data(Suite::EcdsaSha256, &mut data, &Sha, &Key)
+        let signature = pnc::iso20::sign_metering_data(Suite::EcdsaSha512, &mut data, &Sha, &Key)
             .expect("sign");
         pnc::iso20::verify_metering_data(
             &data,

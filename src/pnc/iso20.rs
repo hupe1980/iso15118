@@ -14,6 +14,9 @@ use crate::iso20::messages::{
 };
 use crate::session::SessionId;
 
+use super::pki::ChainError;
+use crate::iso20::common::ResponseCode;
+
 use crate::iso20::common::{
     CanonicalizationMethod, DigestMethod, Reference, Signature, SignatureMethod, SignatureValue,
     SignedInfo, Transform, Transforms,
@@ -25,19 +28,26 @@ use super::{
     check_suite, check_transforms, pair,
 };
 
-/// The suites ISO 15118-20 defines that this crate names.
-///
-/// -20 also defines an Ed448 suite; its algorithm identifiers and backend are
-/// the caller's to supply, because nothing here would be doing any work.
-pub const SUITES: &[Suite] = &[Suite::EcdsaSha256, Suite::EcdsaSha512];
+/// The suites ISO 15118-20 defines: ECDSA over secp521r1 with SHA-512
+/// \[V2G20-2473\] \[V2G20-2475\], and Ed448 with SHAKE256 \[V2G20-2474\]
+/// \[V2G20-2476\]. secp521r1 is preferred \[V2G20-2321\]; a deployment
+/// disables one by leaving it out of `accepted` \[V2G20-2320\].
+pub const SUITES: &[Suite] = &[Suite::EcdsaSha512, Suite::Ed448];
 
 /// Builds the `ds:Signature` that covers `elements`, using `suite`.
+///
+/// # Errors
+///
+/// [`PncError::UnsupportedAlgorithm`] for a suite outside [`SUITES`].
 pub fn sign(
     suite: Suite,
     elements: &[Signed<'_>],
     hash: &impl Hash,
     signer: &impl Sign,
 ) -> Result<Signature, PncError> {
+    if !SUITES.contains(&suite) {
+        return Err(PncError::UnsupportedAlgorithm(suite.signature_algorithm().into()));
+    }
     let signed_info = build_signed_info(suite, elements, hash)?;
     let canonical = signed_info.to_xmldsig_fragment()?;
     let value = signer.sign(suite, &canonical)?;
@@ -46,11 +56,9 @@ pub fn sign(
 
 /// The `SignedInfo` this profile prescribes, ready to be signed.
 ///
-/// Refuses more than [`MAX_SIGNED_ELEMENTS`] elements, which is
-/// \[V2G2-909\] in -2 and **this crate's policy** here: -20 imports the same
-/// unbounded xmldsig schema and this project does not have its text, so the
-/// number is carried over rather than quoted. A header bound is a header bound,
-/// and one constant is what a caller with §8.5 in front of them has to change.
+/// Refuses more than [`MAX_SIGNED_ELEMENTS`] elements: \[V2G2-909\] in -2,
+/// and **this crate's policy** here — -20 forbids fields (\[V2G20-771\]) but
+/// sets no number, so -2's is carried over.
 ///
 /// [`MAX_SIGNED_ELEMENTS`]: super::MAX_SIGNED_ELEMENTS
 #[allow(clippy::missing_errors_doc, reason = "the one error is named above")]
@@ -71,25 +79,27 @@ pub fn build_signed_info(
         },
         reference: elements
             .iter()
-            .map(|e| Reference {
-                id: None,
-                r#type: None,
-                uri: Some(super::reference_uri(e.id)),
-                transforms: Some(Transforms {
-                    transform: alloc::vec![Transform { algorithm: CANONICAL_EXI.into() }],
-                }),
-                digest_method: DigestMethod { algorithm: suite.digest_algorithm().into() },
-                digest_value: hash.digest(suite, e.fragment),
+            .map(|e| {
+                Ok(Reference {
+                    id: None,
+                    r#type: None,
+                    uri: Some(super::reference_uri(e.id)),
+                    transforms: Some(Transforms {
+                        transform: alloc::vec![Transform { algorithm: CANONICAL_EXI.into() }],
+                    }),
+                    digest_method: DigestMethod { algorithm: suite.digest_algorithm().into() },
+                    digest_value: hash.digest(suite, e.fragment)?,
+                })
             })
-            .collect(),
+            .collect::<Result<_, PncError>>()?,
     })
 }
 
 /// Checks a `ds:Signature` against the elements it is supposed to cover.
 ///
-/// `accepted` is the caller's policy: only a suite listed there is honoured, so
-/// a peer cannot pick the weaker one on the caller's behalf. Pass [`SUITES`] to
-/// accept everything -20 defines here.
+/// `accepted` is the caller's policy: only a suite listed there *and* in
+/// [`SUITES`] is honoured, so a peer cannot pick another on the caller's
+/// behalf. Pass [`SUITES`] to accept both -20 suites.
 pub fn verify(
     signature: &Signature,
     elements: &[Signed<'_>],
@@ -126,6 +136,9 @@ pub fn verify_with(
         info.signature_method.hmac_output_length,
         accepted,
     )?;
+    if !SUITES.contains(&suite) {
+        return Err(PncError::UnsupportedAlgorithm(info.signature_method.algorithm.clone()));
+    }
 
     for (reference, element) in pair(&info.reference, |r| r.uri.as_deref(), elements)? {
         check_transforms(transform_algorithms(reference.transforms.as_ref()))?;
@@ -288,4 +301,22 @@ pub fn verify_metering_confirmation(
     issued: &SignedMeteringData,
 ) -> Result<(), PncError> {
     check_echo(&request.signed_metering_data, issued, "SignedMeteringData")
+}
+
+/// The `ResponseCode` a station answers a refused certificate chain with.
+///
+/// | Refusal | Code | Source |
+/// |---|---|---|
+/// | [`ChainError::Revoked`] | `WARNING_CertificateRevoked` | \[V2G20-2214\], \[V2G20-1412\] |
+/// | [`ChainError::Expired`] | `WARNING_CertificateExpired` | \[V2G20-2212\] |
+/// | [`ChainError::NotYetValid`] | `WARNING_CertificateNotYetValid` | \[V2G20-2213\] |
+/// | anything else | `WARNING_CertificateValidationError` | \[V2G20-2215\] |
+#[must_use]
+pub const fn response_code(error: &ChainError) -> ResponseCode {
+    match error {
+        ChainError::Revoked { .. } => ResponseCode::WARNINGCertificateRevoked,
+        ChainError::Expired { .. } => ResponseCode::WARNINGCertificateExpired,
+        ChainError::NotYetValid { .. } => ResponseCode::WARNINGCertificateNotYetValid,
+        _ => ResponseCode::WARNINGCertificateValidationError,
+    }
 }

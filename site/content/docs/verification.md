@@ -1,6 +1,6 @@
 +++
 title = "Verification"
-description = "How iso15118 is verified: 3760 real captured messages replayed byte for byte, 395 grammars and 166 messages differed against the EXI reference implementation, layouts pinned, ten fuzz targets, live sessions against Josev and EVerest, and every spec citation checked against the text."
+description = "How iso15118 is verified: 3760 real captured messages replayed byte for byte, 395 grammars and 166 messages differed against the EXI reference implementation, layouts pinned, twelve fuzz targets, live sessions against Josev and EVerest, and every spec citation checked against the text."
 weight = 100
 +++
 
@@ -17,8 +17,8 @@ session whether the field can *read* it, a live peer whether a session
 | **Golden vectors** | Real ISO 15118-20 frames from an independent C++ implementation, re-encoded byte for byte. |
 | **Differential grammars** | Every derived state and production compared against `exificient`, the EXI reference implementation, for all **395** element grammars — both generations and Amd 1's `AC_DER` sets. |
 | **Differential messages** | A schema-valid instance of every message type, encoded by the reference implementation as a document **and** as a fragment, re-encoded byte for byte. **166 × 2.** |
-| **Requirement register** | Every `[V2G2-nnn]` cited anywhere in the repository checked against the text of ISO 15118-2:2014 itself — **101** cited, against the standard's **852**. `scripts/requirement-coverage.sh`: 47 implemented and tested, 46 implemented only, 4 cited only by tests, 4 only in documentation. |
-| **Differential certificates** | Chains and the contract-key envelope minted by **OpenSSL** (`scripts/make-test-pki.sh`); all ten OEM provisioning leaves of **Hubject's published test PKI** validate to its real V2G Root (`tests/pki_pool.rs`). |
+| **Requirement register** | Every `[V2G2-nnn]` cited anywhere in the repository checked against the text of ISO 15118-2:2014 itself — **110** cited, against the standard's **852** — and every `[V2G20-nnnn]` against ISO 15118-20:2022 and its Amd 1:2026. `scripts/requirement-coverage.sh`: 56 implemented and tested, 45 implemented only, 4 cited only by tests, 5 only in documentation. |
+| **Differential certificates** | Chains, Ed448 chains and the -2 contract-key envelope minted by **OpenSSL**; -20 envelopes (secp521r1, X448) and Ed448 and SHAKE256 vectors by `cryptography` (OpenSSL-backed), opened here and sealed here to the same bytes (`scripts/make-test-pki.sh`); the TPM 2.0 contract-key blob imported by **`swtpm`**, whose signature verifies (`scripts/verify-tpm-import.sh`); all ten OEM provisioning leaves of **Hubject's published test PKI** validate to its real V2G Root under -2's rules (`tests/pki_pool.rs`). |
 | **Captured sessions** | **3 760** messages from sixteen captures — dSPACE DS5366 hardware against **Josev** and **RiseV2G** — re-encoded byte for byte: ISO 15118-2 AC and DC, pause, renegotiation, sales tariff, multi-EVSE SLAC, ISO 15118-20 AC bidirectional and DC over TLS 1.3 and mutual TLS, four Plug & Charge sessions whose signatures verify, and a DIN session declined by name. |
 | **Live peers** | This crate's engines on a real link: **Josev** 8 of 8 rows, both roles; **EVerest** 4 of 4, Plug & Charge included — see [below](#live-peers). |
 
@@ -116,14 +116,17 @@ in encoder and decoder passes a round trip and fails this.
 
 ```text
 scripts/verify-citations.sh  every [V2G2-nnn] cited in this repository names a
-                             requirement ISO 15118-2:2014 defines  (101 of 852)
+                             requirement ISO 15118-2:2014 defines  (110 of 852)
+                             and every [V2G20-nnnn] one ISO 15118-20:2022
+                             or its Amd 1:2026 defines
 ```
 
-The script fetches ISO 15118-2:2014(E) from a US FHWA rulemaking docket, which
-publishes it in full, and fails on a citation that names no requirement. It writes
+The script fetches ISO 15118-2:2014(E) and ISO 15118-20:2022(E) from a US FHWA
+rulemaking docket, which publishes both in full, and the free preview of
+Amd 1:2026, and fails on a citation that names no requirement in any of them. It writes
 nothing into the repository. Whether a requirement says what the code claims is
-checked by reading. Timing constants match ISO 15118-2 Tables 109 and 111; the
-ISO 15118-20 loop budgets are labelled as this crate's policy.
+checked by reading. Timing constants match ISO 15118-2 Tables 109 and 111 and
+ISO 15118-20 Tables 215-223.
 `[V2G2-ED2-1664]`/`[V2G2-ED2-1667]` cite the unpublished second edition and are
 outside the script's pattern.
 
@@ -131,7 +134,7 @@ outside the script's pattern.
 
 | Concern | Approach |
 |---|---|
-| **Fuzzing** | Ten `cargo-fuzz` targets: EXI primitives, every message decoder, fragments, V2GTP, SDP, SLAC frames, SLAC matching, X.509 certificates, and the station's front door from raw TCP bytes at arbitrary read boundaries. The certificate target asserts every borrowed field lies inside the input; the session target that any error from `handle_input` has already closed the session. |
+| **Fuzzing** | Twelve `cargo-fuzz` targets: EXI primitives, every message decoder, fragments, V2GTP, SDP, SLAC frames, SLAC matching, X.509 certificates, OCSP responses and CRLs, the ISO 15118-20 contract-key envelope, and the station's front door from raw TCP bytes at arbitrary read boundaries. The certificate target asserts every borrowed field lies inside the input; the revocation target that no chain is accepted with a certificate shown revoked, evidence rejected, or a required status missing; the session target that any error from `handle_input` has already closed the session. |
 | **Proofs** | Kani, for every input up to a stated size: `split_frame` returns a payload inside its input and within the ceiling, `write_frame` never writes past its buffer (16 bytes, any ceiling), and the EXI bit reader advances by exactly the width read or fails without moving (4 bytes, widths to 64 bits). Run locally with `cargo kani`. |
 | **X.509 path validation** | [x509-limbo](https://github.com/C2SP/x509-limbo) at `519f4bc`, the suite rustls-webpki and Go run: of 9 807 cases, 8 800 reach limbo's verdict, 45 use algorithms ISO 15118 lacks, and 962 are listed with a reason in `tests/x509_limbo/divergences.tsv` — profile rules (819), the caller's checks such as host name and EKU (114), revocation (15), chains over three certificates (14). Run locally. |
 | **Session tests** | A whole DC session per generation through byte vectors with a mock clock; sequence violations, failures, pauses, timer expiry and protocol mismatch each tested. |
@@ -166,8 +169,9 @@ cargo test --test josev --test everest -- --nocapture       # needs Docker
 scripts/generate.sh && git diff --exit-code src/generated   # codegen has not drifted
 scripts/verify-grammars.sh              # every grammar vs. the reference
 scripts/verify-messages.sh              # every message, as document and fragment
-scripts/verify-citations.sh             # every [V2G2-nnn] vs. the standard's text
+scripts/verify-citations.sh             # every [V2G2-nnn]/[V2G20-nnnn] vs. the text
 scripts/verify-captures.sh              # every captured message, replayed
+scripts/verify-tpm-import.sh            # swtpm imports the TPM contract key and signs
 scripts/fetch-x509-limbo.sh /tmp/limbo # then ISO15118_X509_LIMBO=/tmp/limbo/limbo.json cargo test --test x509_limbo
 cargo kani -p iso15118 --all-features   # the bound proofs
 ```

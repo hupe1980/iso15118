@@ -874,21 +874,6 @@ bettertls::pathbuilding::tc64	path-length	every valid path needs four or more ce
 bettertls::pathbuilding::tc65	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
 bettertls::pathbuilding::tc66	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
 bettertls::pathbuilding::tc67	path-length	every valid path needs four or more certificates; ISO 15118 allows three [V2G2-009]
-crl::crlnumber-critical	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::crlnumber-missing	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::issuer-missing-crlsign	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::revoked-certificate-with-crl	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::structure::crl-duplicate-revoked-serial	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::structure::crl-invalid-signature	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::structure::crl-unknown-critical-extension	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::structure::crl-wrong-signing-key	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::structure::entry-unknown-critical-extension	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::structure::entry-unknown-noncritical-extension	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::temporal::crl-validity-no-overlap	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::temporal::next-update-in-past	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::temporal::revocation-date-before-not-before	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::temporal::revocation-date-in-future	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
-crl::temporal::this-update-in-future	revocation	a CRL decides the verdict; revocation is the caller's seam, not read here
 cve::cve-2024-0567	profile	the leaf's SubjectAltName is critical; SAN is not processed, so it is refused as an unknown critical extension
 pathlen::max-chain-depth-0-exhausted	caller	limbo's max_chain_depth is a caller-configured limit; this crate's is fixed at three [V2G2-009]
 pathlen::max-chain-depth-1-exhausted	caller	limbo's max_chain_depth is a caller-configured limit; this crate's is fixed at three [V2G2-009]
@@ -899,7 +884,6 @@ rfc5280::aki::intermediate-missing-aki	profile	key identifiers are neither requi
 rfc5280::aki::leaf-missing-aki	profile	key identifiers are neither required nor used: the path is built by DER-equal names and checked signatures
 rfc5280::ca-as-leaf	profile	a CA certificate in leaf position is refused under every profile, Unchecked included [V2G2-867]
 rfc5280::ca-empty-subject	profile	names are compared by DER equality; an empty issuer name is not refused on its own
-rfc5280::eku::ee-eku-empty	caller	extended key usage is the caller's under Profile::Unchecked
 rfc5280::eku::ee-wrong-eku	caller	extended key usage is the caller's under Profile::Unchecked
 rfc5280::leaf-ku-keycertsign	caller	the leaf's key usage is the caller's under Profile::Unchecked; the Annex F profiles refuse keyCertSign on a leaf
 rfc5280::nc::excluded-different-constraint-type	profile	name constraints are not processed; a CA that marks them critical is refused as an unknown critical extension (RFC 5280 §4.2), so a chain through it fails closed
@@ -964,3 +948,4 @@ webpki::san::wildcard-embedded-leftmost-san	caller	subject alternative names and
 webpki::san::wildcard-embedded-ulabel-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
 webpki::san::wildcard-match-across-labels-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
 webpki::san::wildcard-not-in-leftmost-san	caller	subject alternative names and host names are not read; the peer-name check is the caller's
+webpki::eku::ee-critical-eku	caller	ExtendedKeyUsage is recognised (it authorises OCSP signers, RFC 6960 §4.2.2.2) and RFC 5280 §4.2.1.12 lets it be critical; refusing it on a leaf is webpki policy, and a leaf's EKU is the caller's under Profile::Unchecked
